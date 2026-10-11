@@ -20,11 +20,36 @@
 - `test_pdfs/` and `.claude/settings.local.json` are gitignored: the PDFs are large and
   copyrighted, and the repo is public.
 - Scaffolding is committed on `main`. Feature 1 is on `feature/text-extraction`.
-- The user runs `git push` and `gh pr create/merge` themselves, per the no-push rule.
+- Once the user allowed pushing, both branches were pushed, PR #1 was opened and merged
+  (https://github.com/fonsthefons/pdf-worker/pull/1), and local `main` was fast-forwarded.
+
+### Feature 2: explicit footnotes in text extraction (2026-10-11)
+- New `src/pdf_worker/footnotes.py`: an analysis pass (body font size, bracketed numbers)
+  then per-page rendering. Output uses Markdown footnote syntax: page footnotes
+  `[^p12-1]`, bracketed endnotes `[^31]`, notes continued onto the next page are
+  re-emitted as `[^label]: (continued) ...`.
+- `extract-text` marks notes by default (`--no-footnotes` opts out) and reports counts,
+  plus warnings for unmatched references or notes.
+- Samples: none of the three samples has classic bottom-of-page footnotes (checked with
+  `scratch/scan_small_text.py`), so that path is covered by generated PDFs in
+  `tests/test_footnotes.py`. The encyclical has 224 bracketed endnotes: all 224 linked.
+  Kant and Familia Romana: 0 notes, and the output is byte-identical to the raw text.
+- False positives found and fixed on Familia Romana: margin glosses and line numbers
+  (the region must sit below all body text) and numbered exercises `[1]`–`[6]` (endnote
+  numbers must occur ≤3 times, mostly mid-line).
+- Cost: the analysis pass roughly doubles extraction time (still about 2s for 332 pages).
+- Not handled yet: endnotes referenced by superscript numbers with a "Notes" chapter at the
+  end; this needs per-chapter number matching.
+- Files: `footnotes.py`, `text_extraction.py`, `cli.py`, `tests/conftest.py`
+  (`make_layout_pdf` fixture), `tests/test_footnotes.py`,
+  `tests/test_integration_test_pdfs.py`, `README.md`.
 
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Next
-- Not yet decided.
+User's feature list (2026-10-11). Ship each with a PR and merge it:
+1. Footnotes stated explicitly in text extraction. Done (Feature 2).
+2. OCR: research the best free tools, then write a plan.
+3. Conversion: EPUB (Kindle-friendly) and Markdown from the extracted text.

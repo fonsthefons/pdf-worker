@@ -26,6 +26,25 @@ Pages are separated by a form feed (`\f`) by default. Pages with no text layer
 (typically scanned images) are listed as a warning on stderr. This feature does
 **not** OCR: if a PDF's text layer is poor-quality OCR, the output reproduces it as-is.
 
+#### Footnotes and endnotes
+
+Footnotes are marked explicitly, in Markdown/Pandoc footnote syntax:
+
+| In the PDF | In the `.txt` |
+|---|---|
+| Superscript marker in the text, small note at the bottom of page 12 | `...claim[^p12-1] continues` and, at the end of that page's text, `[^p12-1]: The note.` |
+| A note that runs onto the next page | `[^p12-1]: (continued) rest of the note.` on page 13 |
+| Bracketed endnotes: `[31]` in the text, a later line starting `[31]` | `...claim[^31]` ... `[^31]: The note.` |
+
+A reference is only rewritten when its note was found, so exponents (`m²`) and stray
+numbers stay as they are. Numbered lists like `[1] ... [2] ...` and margin notes beside
+the body text are not treated as notes. The command reports how many notes it marked
+and warns about notes without references (or references without notes).
+Use `--no-footnotes` to get the raw text layer instead.
+
+Not detected yet: endnotes referenced only by superscript numbers (e.g. a "Notes" chapter
+at the end of a book) and footnotes in scanned PDFs without a text layer.
+
 ## Development
 
 ```bash
@@ -40,3 +59,5 @@ your own copies locally; tests for missing files are skipped. The expected sampl
 - `Familia Romana Lingua Latina.pdf`: scanned book with a noisy OCR text layer
   (misrecognised characters, margin notes interleaved with body text) and
   image-only cover pages.
+- `Magnifica Humanitas Encíclica May 15 2026.pdf`: web page printout with 224
+  bracketed endnotes (`[1]` ... `[224]`).
