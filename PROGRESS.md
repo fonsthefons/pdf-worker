@@ -44,12 +44,30 @@
   (`make_layout_pdf` fixture), `tests/test_footnotes.py`,
   `tests/test_integration_test_pdfs.py`, `README.md`.
 
+### OCR research and plan (2026-10-12)
+- Plan written to `docs/ocr-plan.md`: Tesseract via OCRmyPDF as the default, an
+  evaluation of PaddleOCR-VL-1.6 (MLX) for hard scans, and Apple Vision as an optional
+  fast engine.
+- Measured on the M1 at 300 dpi with `scratch/ocr_bakeoff.py`. Both engines get under 1%
+  CER on clean pages. On the Familia Romana scan, both lose macrons; Tesseract keeps the
+  margin column separate, while Vision interleaves it with the body.
+- Installed: `brew install tesseract tesseract-lang` (system-wide, allowed by the current
+  rules), plus `ocrmac` and `rapidfuzz` in `.venv`, now listed under the `ocr-eval` extra
+  in `pyproject.toml`.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
+## Resume here (keep this current; a new session should start from this)
+- Feature 1 (footnotes) is merged as PR #2. The OCR plan is on branch `docs/ocr-plan`
+  (PR + merge).
+- Next: feature 3 (EPUB + Markdown) on branch `feature/convert`. Implementing the OCR plan
+  (phase 1) waits for the user's go-ahead: they asked for a plan only.
+- Before resuming: `git status`, `git switch main`, `git pull --ff-only`.
+
 ## Next
 User's feature list (2026-10-11). Ship each with a PR and merge it:
 1. Footnotes stated explicitly in text extraction. Done (Feature 2).
-2. OCR: research the best free tools, then write a plan.
+2. OCR: research the best free tools, then write a plan. Plan done (`docs/ocr-plan.md`).
 3. Conversion: EPUB (Kindle-friendly) and Markdown from the extracted text.
