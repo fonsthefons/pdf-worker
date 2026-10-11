@@ -17,6 +17,11 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
+# Tools used to compare OCR engines (see docs/ocr-plan.md); macOS only for ocrmac.
+ocr-eval = [
+    "ocrmac>=1.0",
+    "rapidfuzz>=3",
+]
 
 [project.scripts]
 pdf-worker = "pdf_worker.cli:main"
