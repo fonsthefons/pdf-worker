@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+.DS_Store
+output/
+scratch/
+# Sample PDFs are large and copyrighted; keep them local only.
+test_pdfs/
+# Per-machine Claude Code settings (absolute paths).
+.claude/settings.local.json
