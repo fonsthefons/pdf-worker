@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pdf-worker"
+version = "0.1.0"
+description = "A toolkit of PDF processing features."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+pdf-worker = "pdf_worker.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that run against the real PDFs in test_pdfs/",
+]
+filterwarnings = [
+    # Emitted by PyMuPDF's SWIG bindings on Python 3.12+; not actionable here.
+    "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
