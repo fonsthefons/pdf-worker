@@ -34,15 +34,35 @@ def _add_extract_text_command(subparsers: argparse._SubParsersAction) -> None:
         help=r"String written between pages; escapes like '\n' are honoured "
         r"(default: form feed '\f').",
     )
+    parser.add_argument(
+        "--no-footnotes",
+        dest="footnotes",
+        action="store_false",
+        help="Don't mark footnotes/endnotes; output the raw text layer.",
+    )
     parser.set_defaults(handler=_run_extract_text)
 
 
 def _run_extract_text(args: argparse.Namespace) -> int:
     output = args.output or default_output_path(args.pdf)
     separator = codecs.decode(args.page_separator, "unicode_escape")
-    report = extract_text_to_file(args.pdf, output, page_separator=separator)
+    report = extract_text_to_file(
+        args.pdf, output, page_separator=separator, footnotes=args.footnotes
+    )
 
     print(f"Wrote {report.char_count:,} characters from {report.page_count} pages to {output}")
+    if args.footnotes:
+        print(
+            f"Marked {report.footnote_count} footnote(s) and "
+            f"{report.footnote_reference_count} reference(s)"
+        )
+    for problem, labels in (
+        ("referenced but not found", report.undefined_footnotes),
+        ("found but never referenced", report.unreferenced_footnotes),
+    ):
+        if labels:
+            shown = ", ".join(labels[:20]) + (" ..." if len(labels) > 20 else "")
+            print(f"Warning: {len(labels)} footnote(s) {problem}: {shown}", file=sys.stderr)
     if report.empty_pages:
         pages = ", ".join(map(str, report.empty_pages))
         print(

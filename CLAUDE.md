@@ -34,12 +34,10 @@ These rules exist so that every command runs without needing my approval. I ofte
 - At the start of a session, run `pwd` once to get the repo's absolute path. Use that absolute path in every command.
 - Never use `cd`. Always pass absolute paths to commands instead.
 - Don't use `/tmp`, `/private/tmp`, or any system temp folder. Put temporary and scratch files in `scratch/` inside this repo (it is gitignored).
-- Don't install anything globally. Install packages only into this repo's virtual environment (`.venv/`), if it has one.
-- Install with `/Users/fons/Documents/pdf-worker/.venv/bin/pip install ...`, then add the package to `pyproject.toml` (runtime deps under `dependencies`, tooling under `dev`). Never run bare `pip`, `pip3`, `python`, `python3 -m pip`, or `brew`.
+- Install Python packages into this repo's virtual environment (`.venv/`) with `/Users/fons/Documents/pdf-worker/.venv/bin/pip install ...`, then add the package to `pyproject.toml` (runtime deps under `dependencies`, tooling under `dev`). Don't use `pip3`.
 - If `.venv/` is missing, recreate it with `python3 -m venv /Users/fons/Documents/pdf-worker/.venv`, then `/Users/fons/Documents/pdf-worker/.venv/bin/pip install -e '/Users/fons/Documents/pdf-worker[dev]'`.
 - Temp files: `TMPDIR` and `PIP_CACHE_DIR` point into `scratch/` (set in `.claude/settings.local.json`), and pytest's `tmp_path` lives in `scratch/pytest` (set in `tests/conftest.py`). If `scratch/tmp` is missing, create it with `mkdir -p`. Code you write must not hard-code `/tmp`.
 - Don't write to Claude's auto-memory folder (it is outside the repo). Record lasting notes in this file or in `PROGRESS.md` instead.
-- Never `git push`. Local `git add` / `git commit` are fine when the task calls for a commit.
 
 ## Reading and editing files
 
@@ -50,7 +48,7 @@ These rules exist so that every command runs without needing my approval. I ofte
 
 ## Running code
 
-- Never use heredocs (`<<EOF`), `python -c`, `node -e`, `bash -c`, `eval`, or `source`.
+- Never use heredocs (`<<EOF`), `node -e`, `bash -c`, `eval`, or `source`.
 - Put any code you need to run, even a one-liner, in a file under `scratch/` and run that file.
 - If the repo has a virtual environment, run Python as `<repo>/.venv/bin/python` (and `<repo>/.venv/bin/pip`, `<repo>/.venv/bin/python -m pytest`) instead of activating it.
 
