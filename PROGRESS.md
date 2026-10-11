@@ -55,19 +55,47 @@
   rules), plus `ocrmac` and `rapidfuzz` in `.venv`, now listed under the `ocr-eval` extra
   in `pyproject.toml`.
 
+### Feature 3: convert to EPUB and Markdown (2026-10-12)
+- `pdf-worker convert book.pdf [-o out.epub|out.md] [--to epub|md] [--title --author
+  --language]`.
+- Pipeline:
+  1. `layout.py`: one analysis pass (body size, line spacing, heading sizes, running
+     headers/footers, endnote candidates, a text sample for language guessing).
+  2. `footnotes.layout_page`: body lines and notes.
+  3. `structure.iter_blocks`: headings, paragraphs, notes, streamed.
+  4. A writer: `epub.py` or `markdown_export.py`.
+- EPUB: chapters are streamed into the zip; notes go to a temp file and become
+  `notes.xhtml` (footnote asides linked both ways for Kindle pop-ups); nav plus NCX.
+- Results: all three samples pass `epubcheck` with 0 messages. The encyclical has 224
+  linked notes, 32 headings, language `es`. Kant: 43 headings, 908 paragraphs.
+- Known rough spots:
+  - Familia Romana (noisy OCR layer, line numbers and margin glosses) gives over 9,000
+    short paragraphs; re-OCR is needed first.
+  - The encyclical's on-page table of contents becomes headings and short paragraphs.
+  - Images and tables are not carried over.
+- Kindle check: validated with epubcheck. I couldn't test on a real device or Send to
+  Kindle from here.
+- Files: `layout.py`, `footnotes.py` (refactor), `structure.py`, `output.py`,
+  `markdown_export.py`, `epub.py`, `convert.py`, `cli.py`, `tests/test_convert.py`,
+  `tests/test_integration_test_pdfs.py`, `README.md`.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- Feature 1 (footnotes) is merged as PR #2. The OCR plan is on branch `docs/ocr-plan`
-  (PR + merge).
-- Next: feature 3 (EPUB + Markdown) on branch `feature/convert`. Implementing the OCR plan
-  (phase 1) waits for the user's go-ahead: they asked for a plan only.
+- All three requested items are shipped: footnotes (PR #2), OCR plan (PR #3), and
+  EPUB/Markdown conversion (branch `feature/convert`, PR #4).
+- Waiting on the user: go-ahead for OCR phase 1 (`docs/ocr-plan.md`), and feedback from a
+  real Kindle on the EPUB output.
+- Candidate next steps: OCR phase 1; images in EPUB; superscript-referenced endnotes
+  ("Notes" chapters); skipping the on-page table of contents.
+- epubcheck is installed via brew at `/opt/homebrew/bin/epubcheck`.
 - Before resuming: `git status`, `git switch main`, `git pull --ff-only`.
 
 ## Next
 User's feature list (2026-10-11). Ship each with a PR and merge it:
 1. Footnotes stated explicitly in text extraction. Done (Feature 2).
 2. OCR: research the best free tools, then write a plan. Plan done (`docs/ocr-plan.md`).
-3. Conversion: EPUB (Kindle-friendly) and Markdown from the extracted text.
+3. Conversion: EPUB (Kindle-friendly) and Markdown from the extracted text. Done
+   (Feature 3).
