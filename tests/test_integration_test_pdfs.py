@@ -3,9 +3,13 @@
 These are slower than the unit tests; skip them with ``pytest -m "not integration"``.
 """
 
+import shutil
+import subprocess
+
 import pytest
 from conftest import TEST_PDFS_DIR
 
+from pdf_worker.convert import convert_pdf
 from pdf_worker.text_extraction import extract_text_to_file
 
 pytestmark = pytest.mark.integration
@@ -58,6 +62,33 @@ def test_bracketed_endnotes_are_all_linked(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "esclarece en el misterio del Verbo encarnado».[^1]" in text
     assert "\n[^1]: Conc. Ecum. Vat. II, Const. past. Gaudium et spes, 22" in text
+
+
+def test_convert_endnotes_pdf_to_valid_epub(tmp_path):
+    _require(ENDNOTES_PDF)
+    out = tmp_path / "humanitas.epub"
+
+    report = convert_pdf(ENDNOTES_PDF, out, "epub")
+
+    assert report.stats.notes == 224
+    assert report.metadata.language == "es"
+    epubcheck = shutil.which("epubcheck") or shutil.which("/opt/homebrew/bin/epubcheck")
+    if epubcheck:
+        result = subprocess.run([epubcheck, str(out)], capture_output=True, text=True)
+        assert "No errors or warnings detected" in result.stdout, result.stdout
+
+
+def test_convert_book_to_markdown(tmp_path):
+    _require(GOOD_TEXT_PDF)
+    out = tmp_path / "kant.md"
+
+    report = convert_pdf(GOOD_TEXT_PDF, out, "md")
+
+    text = out.read_text(encoding="utf-8")
+    assert "# Crítica de la razón pura" in text
+    assert report.stats.paragraphs > 800
+    # Paragraphs are reflowed: no hard line breaks inside them.
+    assert "La razón humana tiene, en una especie de sus conocimientos, el destino" in text
 
 
 def test_footnote_mode_matches_raw_text_when_no_notes(tmp_path):

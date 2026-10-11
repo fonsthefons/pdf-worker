@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pdf_worker.document import open_pdf
-from pdf_worker.footnotes import analyze_document, render_page
+from pdf_worker.footnotes import render_page
+from pdf_worker.layout import analyze_document
 
 # Form feed is the conventional page break in plain text (also used by pdftotext).
 DEFAULT_PAGE_SEPARATOR = "\f"
