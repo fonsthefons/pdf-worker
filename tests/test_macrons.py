@@ -16,6 +16,7 @@ from pdf_worker.macrons import restore_macrons
         ("Maàrcus", "Mārcus"),  # long vowel read twice
         ("nàávis", "nāvis"),
         ("portus -üs", "portus -ūs"),
+        ("Euröpå et Åfricä", "Eurōpā et Āfricā"),  # PaddleOCR-VL's variants
         ("Puella plorat.", "Puella plorat."),  # unaccented text is untouched
     ],
 )

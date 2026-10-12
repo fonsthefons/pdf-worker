@@ -1,7 +1,12 @@
 # OCR: research and plan
 
-Status: research done on 2026-10-12. Phase 1 (Tesseract via OCRmyPDF) implemented on
-2026-10-12 as `pdf-worker ocr` and `--ocr`; phases 2 and 3 not started.
+Status, 2026-10-12:
+- Research done.
+- Phase 1 (Tesseract via OCRmyPDF) is implemented as `pdf-worker ocr` and `--ocr`, with
+  Latin macron restoration.
+- Phase 2 (PaddleOCR-VL evaluation) is done; see
+  [Phase 2 results](#phase-2-results-paddleocr-vl-16-on-the-m1).
+- Phase 3 is not started.
 
 ## Why we need it
 
@@ -95,6 +100,80 @@ and OCRmyPDF handles parallelism, deskew, rotation and large files for us.
 - Footnotes on OCR'd pages: OCRmyPDF's text layer sizes each line's font to its height,
   so the existing small-font footnote heuristic still works roughly. Superscript flags
   are lost, so references are matched by number only.
+
+## Phase 2 results: PaddleOCR-VL-1.6 on the M1
+
+### Setup
+This follows the official Apple Silicon guide.
+
+- **Install:**
+  - Python 3.12 from Homebrew, because PaddlePaddle has no 3.14 wheel.
+  - A separate venv `.venv-paddle/` (gitignored, 1.6 GB) with `paddlepaddle==3.2.1`
+    (CPU), `paddleocr[doc-parser]` 3.7.0 and `mlx-vlm` 0.7.6.
+- **Running it:**
+  - The PP-DocLayoutV3 layout model runs in PaddlePaddle on the CPU.
+  - The 0.9B VLM runs in an `mlx_vlm.server` on port 8111.
+  - `PaddleOCRVL(vl_rec_backend="mlx-vlm-server", ...)` ties the two together.
+- **Model downloads:** 1.9 GB, kept inside the repo by pointing `HOME`, `HF_HOME` and
+  `PADDLE_PDX_CACHE_HOME` at `scratch/paddle-home`.
+- **Scripts (local only):** `scratch/paddle_env.py`, `paddle_server.py`,
+  `paddle_eval.py`, `paddle_truth.py`.
+
+### Measurements
+Pages were rendered at 200 dpi. The ground truth is the body text of Familia Romana
+pp. 9 and 25, typed from the page images. "Long-vowel recall" is the share of words with
+a macron reproduced exactly.
+
+| Page | Engine | Word recall | Long-vowel recall |
+|---|---|---|---|
+| 9 | Tesseract + macron fix | 81.0% | 44.4% |
+| 9 | PaddleOCR-VL raw | 69.6% | 11.1% |
+| 9 | PaddleOCR-VL + macron fix | **98.1%** | **94.4%** |
+| 25 | Tesseract + macron fix | 82.4% | 50.0% |
+| 25 | PaddleOCR-VL raw | 97.1% | 94.4% |
+| 25 | PaddleOCR-VL + macron fix | **97.1%** | **94.4%** |
+
+- **Clean digital pages** (Kant, rendered to images): character error rate against the
+  real text layer was 0.81% and 0.03%, about the same as Tesseract.
+- **Speed:** 12–24 s per page, against Tesseract's ≈1 s on 8 cores. The first request
+  takes another ~3 minutes to download the model.
+- **Memory:** about 0.6 GB resident for the server.
+- **Strengths:**
+  - It sees long vowels Tesseract misses entirely (`rīdet`, `plōrat`, `quī`, `Quīntus`,
+    `līberōrum`).
+  - Its Markdown output has real headings (`## TEMPESTAS`), image boxes instead of OCR
+    noise from pictures, and no gutter line numbers on most pages.
+- **Weaknesses:**
+  - It writes macrons as assorted accents (`Eurôpã`, `Åfricå`, `nön`), sometimes on the
+    same page as correct ones. `restore_macrons` fixes this; ring-above `å` was added to
+    it for Paddle.
+  - It hallucinates now and then: `Aemiliaam`, Portuguese `não` for `nō-`, Greek `ἐnfluit`
+    for `īnfluit`, LaTeX `$ \text{Åfricä} $`.
+  - It swapped two paragraphs on p. 25.
+  - It dropped most of p. 25's margin glosses and its `[A]`/`[B]` labels. On p. 120 it
+    kept the glosses, as blocks before the body.
+  - Line numbers are sometimes glued mid-sentence (`quod 1 suprā`).
+  - Repeated runs on the same page differ slightly.
+
+### Decision
+The phase 2 rule was: adopt it if it reads macrons correctly and runs at 10 s per page
+or less.
+
+- Macrons: passed, with the macron fix.
+- Speed: failed, at 12–24 s per page. A 332-page book takes roughly 1.5–2 hours instead
+  of ~5 minutes.
+
+Recommendation:
+- **Keep Tesseract as the default.**
+- **Add PaddleOCR-VL as an opt-in `--engine paddle`** for scans where accuracy matters
+  more than time (diacritics, old print, hard layouts). It is suitable for unattended
+  overnight runs.
+- Integrating it (phase 3) means:
+  - Converting its JSON/Markdown output (with layout labels) into our block model,
+    instead of a PDF text layer.
+  - Starting and stopping the MLX server from `pdf-worker`.
+  - Reconciling it with the margin and gloss handling, since Paddle reorders and
+    sometimes drops glosses.
 
 ### Open questions
 - Ghostscript: answered. With `output_type="pdf"`, OCRmyPDF 17.13 runs without it (it is
