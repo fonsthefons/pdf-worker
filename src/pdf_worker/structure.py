@@ -21,12 +21,16 @@ from pdf_worker.footnotes import (
     layout_page,
 )
 from pdf_worker.layout import HEADING_RATIO, DocumentProfile, Line
+from pdf_worker.margins import split_columns
 
 # Gap between line tops, relative to normal line spacing, that starts a new paragraph.
 _PARAGRAPH_GAP = 1.3
 # A previous line ending this far (in ems) before the right margin is a paragraph end.
 _SHORT_LINE_EMS = 2.5
 _SENTENCE_END = tuple('.!?»"”’)]')
+# Font size change (share of the block's size) that starts a new block. OCR'd text layers
+# size each line from its height, so sizes wobble by a few percent.
+_SIZE_JITTER = 0.08
 # A footnote reference in block text: ``[^label]``.
 REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
 _REF_ONLY_RE = re.compile(r"^(?:\[\^[^\]\s]+\])+$")
@@ -51,7 +55,14 @@ class Note:
     continued: bool = False  # continues the previous note with the same label
 
 
-Block = Heading | Paragraph | Note
+@dataclass(frozen=True)
+class Gloss:
+    """Notes printed in the page margin beside the text, one entry per line."""
+
+    lines: tuple[str, ...]
+
+
+Block = Heading | Paragraph | Note | Gloss
 
 
 @dataclass
@@ -70,11 +81,18 @@ class _Builder:
     parts: list[str] = field(default_factory=list)
     lines: int = 0
     bold: bool = True
+    size_total: float = 0.0
 
-    def add(self, text: str, bold: bool) -> None:
+    def add(self, text: str, bold: bool, size: float) -> None:
         self.parts.append(text)
         self.lines += 1
         self.bold = self.bold and bold
+        self.size_total += size
+
+    @property
+    def size(self) -> float:
+        """Mean font size of the block's lines (OCR'd text jitters line by line)."""
+        return self.size_total / self.lines if self.lines else 0.0
 
     def text(self) -> str:
         return join_lines(self.parts)
@@ -106,7 +124,7 @@ def iter_blocks(doc: pymupdf.Document, profile: DocumentProfile) -> Iterator[Blo
         page = doc.load_page(index)
         layout = layout_page(page, index, profile, previous_label)
         previous_label = layout.trailing_label
-        yield from state.add_page(layout, page.rect.height)
+        yield from state.add_page(layout, page.rect.width, page.rect.height)
     yield from state.finish()
 
 
@@ -114,20 +132,28 @@ class _State:
     def __init__(self, profile: DocumentProfile) -> None:
         self.profile = profile
         self.current = _Builder()
-        self.pending_notes: list[Note] = []
+        # Glosses and notes wait until the paragraph in progress ends.
+        self.pending: list[Note | Gloss] = []
         self.prev: Line | None = None
         self.prev_text = ""
         self.prev_margins: _Margins | None = None
         self.break_next = False  # a blank line was seen
 
     # -- page handling ----------------------------------------------------------------
-    def add_page(self, layout: PageLayout, page_height: float) -> Iterator[Block]:
+    def add_page(
+        self, layout: PageLayout, page_width: float, page_height: float
+    ) -> Iterator[Block]:
         profile = self.profile
-        lines = [
-            bl
-            for bl in layout.lines
-            if not profile.is_running(bl.line, page_height) and not SEPARATOR_RE.match(bl.text)
-        ]
+        columns = split_columns(
+            [
+                bl
+                for bl in layout.lines
+                if not profile.is_running(bl.line, page_height) and not SEPARATOR_RE.match(bl.text)
+            ],
+            page_width,
+            profile.body_size,
+        )
+        lines = list(columns.body)
         margins = _page_margins(lines, profile.body_size)
         new_page = True
         # Blank lines only separate paragraphs between two lines of the same page; blanks
@@ -139,10 +165,13 @@ class _State:
                 continue
             yield from self._add_line(body_line, margins, new_page)
             new_page = False
+        if columns.glosses:
+            # Like footnotes, the page's glosses follow the paragraph in progress.
+            self.pending.append(Gloss(columns.glosses))
         for label, texts in layout.notes:
             continued = bool(texts) and texts[0].startswith(CONTINUED)
             parts = [texts[0][len(CONTINUED) :] if continued else texts[0], *texts[1:]]
-            self.pending_notes.append(Note(label, join_lines(parts), continued))
+            self.pending.append(Note(label, join_lines(parts), continued))
         if self.current.kind == "":
             yield from self._flush_notes()
         self.prev_margins = margins
@@ -173,12 +202,14 @@ class _State:
         else:
             kind = "small" if is_small(line, profile.body_size) else "para"
             starts = self._starts_paragraph(line, text, margins, new_page)
-            if self.current.kind == "note" and not starts:
-                kind = "note"  # endnote text wrapping onto further lines
+            if not starts and self.current.kind in ("note", "para", "small"):
+                # Wrapped lines keep the block's kind: endnote text, and OCR'd lines whose
+                # size straddles the small-type threshold.
+                kind = self.current.kind
             if starts or self.current.kind != kind:
                 yield from self._flush()
                 self.current = _Builder(kind=kind)
-        self.current.add(text, line.bold)
+        self.current.add(text, line.bold, line.size)
         self.prev, self.prev_text = line, text
         self.break_next = False
 
@@ -186,7 +217,8 @@ class _State:
         prev = self.prev
         if prev is None or self.break_next:
             return True
-        if abs(line.size - prev.size) > 0.6:
+        reference = self.current.size or prev.size
+        if abs(line.size - reference) > max(0.6, _SIZE_JITTER * reference):
             return True
         stripped = self.prev_text.rstrip()
         # A trailing footnote reference doesn't hide the punctuation before it.
@@ -232,8 +264,8 @@ class _State:
         yield from self._flush_notes()
 
     def _flush_notes(self) -> Iterator[Block]:
-        notes, self.pending_notes = self.pending_notes, []
-        yield from notes
+        pending, self.pending = self.pending, []
+        yield from pending
 
     def _implicit_heading_level(self, block: _Builder, text: str) -> int | None:
         """A short, isolated, all-caps or bold line (or two) in body type reads as a heading."""

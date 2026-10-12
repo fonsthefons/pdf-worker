@@ -118,6 +118,28 @@ def test_ocr_redo_on_scanned_book(tmp_path):
     assert "Iūlia" in body and "Iülia" not in body
 
 
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")
+def test_ocr_then_convert_separates_glosses_and_line_numbers(tmp_path):
+    _require(BAD_TEXT_PDF)
+    pytest.importorskip("ocrmypdf")
+    from pdf_worker.ocr import ocr_pdf
+
+    sample = tmp_path / "sample.pdf"
+    with pymupdf.open(BAD_TEXT_PDF) as doc, pymupdf.open() as small:
+        small.insert_pdf(doc, from_page=24, to_page=25)  # pp. 25-26: recto and verso
+        small.save(sample)
+    ocr_pdf(sample, tmp_path / "ocr.pdf", languages="lat", mode="redo")
+
+    report = convert_pdf(tmp_path / "ocr.pdf", tmp_path / "out.md", "md")
+
+    text = (tmp_path / "out.md").read_text(encoding="utf-8")
+    # Body text reads as one paragraph: no gutter line numbers, no glosses inside it.
+    assert "Puer qui ridet est Mārcus. Quae est puella quae plorat? Puella quae" in text
+    assert "> puer qui ridet\\\n> puella quae plorat\\\n" in text
+    assert "\n75\n" not in text and "\n105\n" not in text
+    assert report.stats.glosses >= 2
+
+
 def test_footnote_mode_matches_raw_text_when_no_notes(tmp_path):
     _require(GOOD_TEXT_PDF)
     marked = extract_text_to_file(GOOD_TEXT_PDF, tmp_path / "marked.txt")
