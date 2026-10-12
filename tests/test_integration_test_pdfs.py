@@ -6,6 +6,7 @@ These are slower than the unit tests; skip them with ``pytest -m "not integratio
 import shutil
 import subprocess
 
+import pymupdf
 import pytest
 from conftest import TEST_PDFS_DIR
 
@@ -89,6 +90,29 @@ def test_convert_book_to_markdown(tmp_path):
     assert report.stats.paragraphs > 800
     # Paragraphs are reflowed: no hard line breaks inside them.
     assert "La razón humana tiene, en una especie de sus conocimientos, el destino" in text
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")
+def test_ocr_redo_on_scanned_book(tmp_path):
+    _require(BAD_TEXT_PDF)
+    pytest.importorskip("ocrmypdf")
+    from pdf_worker.ocr import ocr_pdf
+
+    # The cover (image only) and page 25 (a poor existing OCR layer, replaced by redo).
+    sample = tmp_path / "sample.pdf"
+    with pymupdf.open(BAD_TEXT_PDF) as doc, pymupdf.open() as small:
+        small.insert_pdf(doc, from_page=0, to_page=0)
+        small.insert_pdf(doc, from_page=24, to_page=24)
+        small.save(sample)
+
+    report = ocr_pdf(sample, tmp_path / "out.pdf", mode="redo")
+
+    assert report.languages == ["lat"] and report.languages_guessed
+    assert report.empty_pages_before == [1] and report.empty_pages_after == []
+    with pymupdf.open(tmp_path / "out.pdf") as doc:
+        cover, body = (page.get_text("text") for page in doc)
+    assert "FAMILIA" in cover
+    assert "Puer qui ridet est" in body
 
 
 def test_footnote_mode_matches_raw_text_when_no_notes(tmp_path):

@@ -17,6 +17,10 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
+# `pdf-worker ocr` / `--ocr`. Also needs Tesseract: brew install tesseract tesseract-lang
+ocr = [
+    "ocrmypdf>=17.13",
+]
 # Tools used to compare OCR engines (see docs/ocr-plan.md); macOS only for ocrmac.
 ocr-eval = [
     "ocrmac>=1.0",

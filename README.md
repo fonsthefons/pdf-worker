@@ -6,7 +6,8 @@ A Python toolkit of PDF processing features, exposed as a `pdf-worker` CLI.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
+.venv/bin/pip install -e '.[dev,ocr]'
+brew install tesseract tesseract-lang   # only needed for OCR
 ```
 
 ## Features
@@ -23,8 +24,8 @@ pdf-worker extract-text book.pdf --page-separator '\n\n'
 ```
 
 Pages are separated by a form feed (`\f`) by default. Pages with no text layer
-(typically scanned images) are listed as a warning on stderr. This feature does
-**not** OCR: if a PDF's text layer is poor-quality OCR, the output reproduces it as-is.
+(typically scanned images) are listed as a warning on stderr. Add `--ocr` to OCR them
+first, or `--ocr redo` to replace a poor OCR layer (see [OCR](#ocr) below).
 
 #### Footnotes and endnotes
 
@@ -76,7 +77,31 @@ To send to a Kindle, use the Send to Kindle app, web page or e-mail address with
 `.epub` file.
 
 Limitations: images and tables are not carried over yet. Multi-column layouts and
-scanned books with a poor OCR layer give rougher results (see `docs/ocr-plan.md`).
+scanned books give rougher results; use `--ocr` / `--ocr redo` for scans.
+
+### OCR
+
+Gives scanned PDFs a searchable text layer with [Tesseract](https://github.com/tesseract-ocr/tesseract)
+(via [OCRmyPDF](https://ocrmypdf.readthedocs.io)). The output is a normal PDF that
+looks the same, with invisible text over the page images. Why Tesseract was chosen:
+`docs/ocr-plan.md`.
+
+```bash
+pdf-worker ocr scan.pdf                      # writes scan.ocr.pdf
+pdf-worker ocr scan.pdf -o out.pdf --lang lat+eng
+pdf-worker ocr book.pdf --mode redo          # replace a bad existing OCR layer
+pdf-worker extract-text scan.pdf --ocr       # OCR on the fly, then extract
+pdf-worker convert scan.pdf --ocr redo --ocr-lang spa
+```
+
+- `--mode skip` (default) only OCRs pages without text; `redo` replaces an existing OCR
+  layer but keeps real digital text; `force` rasterizes and OCRs every page.
+- The language is guessed from the existing text, or from a quick English OCR of a
+  couple of pages. Set it with `--lang` (`--ocr-lang` for `extract-text`/`convert`);
+  `tesseract --list-langs` lists the installed ones.
+- Pages are OCR'd in parallel on all cores (`--jobs N` to limit).
+- Limitation: Tesseract has no macrons; it reads Latin long vowels as accented ones
+  (`Mārcus` becomes `Màrcus`, `Iūlia` becomes `Iülia`).
 
 ## Development
 
@@ -86,8 +111,8 @@ scanned books with a poor OCR layer give rougher results (see `docs/ocr-plan.md`
 .venv/bin/ruff check . && .venv/bin/ruff format .
 ```
 
-The EPUB validation test uses `epubcheck` (`brew install epubcheck`) and is skipped if
-it isn't installed.
+The EPUB validation test uses `epubcheck` (`brew install epubcheck`) and the OCR tests use
+Tesseract; each is skipped if it isn't installed.
 
 Integration tests use sample PDFs in `test_pdfs/`. The folder is gitignored, so add
 your own copies locally; tests for missing files are skipped. The expected samples are:

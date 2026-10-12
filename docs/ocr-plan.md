@@ -1,6 +1,7 @@
 # OCR: research and plan
 
-Status: research done on 2026-10-12, not implemented yet.
+Status: research done on 2026-10-12. Phase 1 (Tesseract via OCRmyPDF) implemented on
+2026-10-12 as `pdf-worker ocr` and `--ocr`; phases 2 and 3 not started.
 
 ## Why we need it
 
@@ -96,8 +97,8 @@ and OCRmyPDF handles parallelism, deskew, rotation and large files for us.
   are lost, so references are matched by number only.
 
 ### Open questions
-- Ghostscript: OCRmyPDF 17 only needs it for PDF/A output. Using `--output-type pdf`
-  should avoid it, but this needs checking during phase 1.
+- Ghostscript: answered. With `output_type="pdf"`, OCRmyPDF 17.13 runs without it (it is
+  not installed on this machine).
 - Tesseract's `lat` model and macrons: try `lat` against `ita`/`eng` combinations, and
   look for macron-aware community models.
 

@@ -3,10 +3,11 @@
 import argparse
 import codecs
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
-from pdf_worker import __version__
+from pdf_worker import __version__, ocr
 from pdf_worker import convert as conversion
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.text_extraction import (
@@ -14,6 +15,99 @@ from pdf_worker.text_extraction import (
     default_output_path,
     extract_text_to_file,
 )
+
+
+def _add_ocr_options(parser: argparse.ArgumentParser) -> None:
+    """``--ocr [MODE]`` / ``--ocr-lang`` for commands that read a PDF's text."""
+    parser.add_argument(
+        "--ocr",
+        nargs="?",
+        const="skip",
+        choices=ocr.MODES,
+        metavar="MODE",
+        help="OCR the PDF first. MODE: skip (default; only pages without text), "
+        "redo (replace a bad OCR layer) or force (OCR every page).",
+    )
+    parser.add_argument(
+        "--ocr-lang",
+        help="Tesseract language(s) for --ocr, e.g. 'spa' or 'lat+eng' "
+        "(default: guessed from the document).",
+    )
+
+
+@contextmanager
+def _maybe_ocr(args: argparse.Namespace, output: Path) -> Iterator[Path]:
+    """Yield the PDF to read: the input, or a temporary OCR'd copy next to ``output``."""
+    if not args.ocr:
+        yield args.pdf
+        return
+    with ocr.ocr_temporary_copy(
+        args.pdf,
+        output.parent,
+        languages=args.ocr_lang,
+        mode=args.ocr,
+        progress=sys.stderr.isatty(),
+    ) as (pdf, report):
+        _print_ocr_summary(report)
+        yield pdf
+
+
+def _print_ocr_summary(report: ocr.OcrReport) -> None:
+    guessed = " (guessed)" if report.languages_guessed else ""
+    print(
+        f"OCR ({report.mode}, {'+'.join(report.languages)}{guessed}): "
+        f"pages without text {len(report.empty_pages_before)} -> "
+        f"{len(report.empty_pages_after)} of {report.page_count}"
+    )
+
+
+def _add_ocr_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "ocr",
+        help="Add a searchable text layer to a scanned PDF (Tesseract).",
+        description="OCR a PDF with Tesseract (via OCRmyPDF) and write a searchable PDF.",
+    )
+    parser.add_argument("pdf", type=Path, help="Input PDF file.")
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output PDF path (default: next to the input, as <name>.ocr.pdf).",
+    )
+    parser.add_argument(
+        "--lang",
+        help="Tesseract language(s), e.g. 'spa' or 'lat+eng' (default: guessed). "
+        "List installed ones with: tesseract --list-langs",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=ocr.MODES,
+        default="skip",
+        help="skip: only pages without text (default). redo: replace an existing, bad "
+        "OCR layer. force: rasterize and OCR every page (loses digital text).",
+    )
+    parser.add_argument(
+        "-j", "--jobs", type=int, help="Pages to OCR in parallel (default: all CPU cores)."
+    )
+    parser.set_defaults(handler=_run_ocr)
+
+
+def _run_ocr(args: argparse.Namespace) -> int:
+    output = args.output or ocr.default_output_path(args.pdf)
+    report = ocr.ocr_pdf(
+        args.pdf,
+        output,
+        languages=args.lang,
+        mode=args.mode,
+        jobs=args.jobs,
+        progress=sys.stderr.isatty(),
+    )
+    print(f"Wrote {output}")
+    _print_ocr_summary(report)
+    if report.empty_pages_after:
+        pages = ", ".join(map(str, report.empty_pages_after))
+        print(f"Note: still no text on page(s) {pages} (blank or pictures only?)")
+    return 0
 
 
 def _add_extract_text_command(subparsers: argparse._SubParsersAction) -> None:
@@ -41,15 +135,17 @@ def _add_extract_text_command(subparsers: argparse._SubParsersAction) -> None:
         action="store_false",
         help="Don't mark footnotes/endnotes; output the raw text layer.",
     )
+    _add_ocr_options(parser)
     parser.set_defaults(handler=_run_extract_text)
 
 
 def _run_extract_text(args: argparse.Namespace) -> int:
     output = args.output or default_output_path(args.pdf)
     separator = codecs.decode(args.page_separator, "unicode_escape")
-    report = extract_text_to_file(
-        args.pdf, output, page_separator=separator, footnotes=args.footnotes
-    )
+    with _maybe_ocr(args, output) as pdf:
+        report = extract_text_to_file(
+            pdf, output, page_separator=separator, footnotes=args.footnotes
+        )
 
     print(f"Wrote {report.char_count:,} characters from {report.page_count} pages to {output}")
     if args.footnotes:
@@ -98,15 +194,19 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--language", help="Language code such as 'es' (default: guessed from the text)."
     )
+    _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
 
 
 def _run_convert(args: argparse.Namespace) -> int:
     fmt = args.to or (args.output and conversion.format_for_path(args.output)) or "epub"
     output = args.output or conversion.default_output_path(args.pdf, fmt)
-    report = conversion.convert_pdf(
-        args.pdf, output, fmt, title=args.title, author=args.author, language=args.language
-    )
+    # The OCR'd copy has no useful metadata of its own; keep the original's title.
+    title = args.title or (args.ocr and conversion.pdf_title(args.pdf))
+    with _maybe_ocr(args, output) as pdf:
+        report = conversion.convert_pdf(
+            pdf, output, fmt, title=title, author=args.author, language=args.language
+        )
     stats, meta = report.stats, report.metadata
     print(f"Wrote {output} ({fmt}): {meta.title!r}, language {meta.language}")
     print(
@@ -122,6 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_extract_text_command(subparsers)
     _add_convert_command(subparsers)
+    _add_ocr_command(subparsers)
     return parser
 
 
