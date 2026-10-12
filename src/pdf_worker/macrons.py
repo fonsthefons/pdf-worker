@@ -18,6 +18,7 @@ _STRAY_MARKS = {
     "̃",  # tilde
     "̆",  # breve
     "̈",  # diaeresis
+    "̊",  # ring above (PaddleOCR-VL: "Euröpå")
 }
 _MACRON = "̄"
 

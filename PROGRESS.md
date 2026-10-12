@@ -157,19 +157,45 @@
 - Tests: `tests/test_margins.py` (6) and an integration test (OCR plus convert of
   Familia pp. 25–26).
 
+### OCR phase 2: PaddleOCR-VL-1.6 evaluation (2026-10-12)
+- Results and decision are in `docs/ocr-plan.md` ("Phase 2 results").
+- Installed:
+  - `brew install python@3.12` (system-wide; PaddlePaddle has no 3.14 wheel).
+  - `.venv-paddle/` (gitignored) with paddlepaddle 3.2.1 (CPU), paddleocr 3.7.0 and
+    mlx-vlm 0.7.6.
+  - The models (1.9 GB) are in `scratch/paddle-home` (HOME, HF_HOME and
+    PADDLE_PDX_CACHE_HOME are redirected in `scratch/paddle_env.py`).
+- Results on hand-transcribed Familia Romana pp. 9 and 25:
+
+  | Engine | Long-vowel recall | Word recall |
+  |---|---|---|
+  | PaddleOCR-VL + `restore_macrons` | 94% | 97–98% |
+  | Tesseract + macron fix | 44–50% | 81–82% |
+
+  Speed is 12–24 s per page (rule: at most 10), so the speed rule fails. Kant CER is
+  0.81% and 0.03%. Paddle also hallucinates now and then, swapped two paragraphs once,
+  and dropped glosses on p. 25.
+- Decision: Tesseract stays the default. Recommended next: integrate Paddle as an opt-in
+  `--engine paddle` for hard scans (phase 3).
+- Code change: `restore_macrons` also handles ring-above (`å`, which Paddle outputs),
+  with a test.
+- To re-run: start `.venv-paddle/bin/python scratch/paddle_server.py` (in the
+  background), then `.venv-paddle/bin/python scratch/paddle_eval.py familia:25 ...`,
+  then `.venv/bin/python scratch/paddle_truth.py`.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- Shipped: footnotes (PR #2), OCR plan (PR #3), EPUB/Markdown conversion (PR #4), and
-  OCR phase 1 (Tesseract, branch `feature/ocr`, PR #5).
+- Shipped: footnotes (PR #2), OCR plan (PR #3), EPUB/Markdown conversion (PR #4), OCR
+  phase 1 (Tesseract, PR #5), Latin macrons (PR #6), and margin glosses and line numbers
+  (PR #7).
+- The PaddleOCR-VL evaluation (OCR phase 2) is done, on branch `feature/paddle-eval`
+  (PR #8). Steps 1–3 of the 2026-10-12 request are complete.
 - Waiting on the user: feedback from a real Kindle on the EPUB output.
 - Candidate next steps:
-  - For `lat`, map the accented vowels Tesseract outputs to macrons (`à`/`á` to `ā`,
-    `ü` to `ū`, and so on).
-  - Handle margin glosses and line numbers in layout analysis (Familia Romana).
-  - OCR phase 2 (PaddleOCR-VL evaluation).
+  - OCR phase 3: `--engine paddle` (opt-in, slow, much better on diacritics).
   - Images in EPUB.
   - Superscript-referenced endnotes ("Notes" chapters).
   - Skip the on-page table of contents.
@@ -184,3 +210,5 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
    (Feature 3).
 4. (2026-10-12) "Choose the best [OCR] and implement it": Tesseract/OCRmyPDF. Done
    (Feature 4).
+5. (2026-10-12) "Complete the next steps 1, 2 and 3": Latin macrons (PR #6), margin
+   glosses and line numbers (PR #7), PaddleOCR-VL evaluation (PR #8). Done.

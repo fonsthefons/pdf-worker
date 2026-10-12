@@ -1,4 +1,6 @@
 .venv/
+# Separate venv for evaluating PaddleOCR-VL (heavy dependencies); see docs/ocr-plan.md.
+.venv-paddle/
 __pycache__/
 *.egg-info/
 .pytest_cache/
