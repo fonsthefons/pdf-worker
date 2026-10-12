@@ -20,6 +20,7 @@ from pdf_worker.footnotes import (
     is_small,
     layout_page,
 )
+from pdf_worker.images import PageImage, labels_inside, page_images
 from pdf_worker.inline import (
     LEADING_PAGE_MARKS_RE,
     link,
@@ -76,7 +77,16 @@ class Gloss:
     lines: tuple[str, ...]
 
 
-Block = Heading | Paragraph | Note | Gloss
+@dataclass(frozen=True)
+class Image:
+    """A picture (JPEG), placed after the paragraph it follows on the page."""
+
+    data: bytes
+    width: int
+    height: int
+
+
+Block = Heading | Paragraph | Note | Gloss | Image
 
 
 @dataclass
@@ -147,8 +157,13 @@ def join_lines(parts: list[str]) -> str:
     return out
 
 
-def iter_blocks(doc: pymupdf.Document, profile: DocumentProfile) -> Iterator[Block]:
-    """Yield the document's blocks in reading order, one page loaded at a time."""
+def iter_blocks(
+    doc: pymupdf.Document, profile: DocumentProfile, images: bool = False
+) -> Iterator[Block]:
+    """Yield the document's blocks in reading order, one page loaded at a time.
+
+    With ``images``, pictures on each page become ``Image`` blocks.
+    """
     state = _State(profile)
     previous_label = None
     for index in range(doc.page_count):
@@ -156,6 +171,10 @@ def iter_blocks(doc: pymupdf.Document, profile: DocumentProfile) -> Iterator[Blo
         layout = layout_page(page, index, profile, previous_label)
         previous_label = layout.trailing_label
         label = profile.page_labels[index] if index < len(profile.page_labels) else ""
+        pictures = []
+        if images:
+            lines = [body_line.line for body_line in layout.lines]
+            pictures = page_images(page, lines, profile.repeated_images)
         yield from state.add_page(
             layout,
             page.rect.width,
@@ -163,6 +182,7 @@ def iter_blocks(doc: pymupdf.Document, profile: DocumentProfile) -> Iterator[Blo
             page_index=index,
             page_label=label or str(index + 1),
             links=_page_links(page, doc.page_count),
+            images=pictures,
         )
     yield from state.finish()
 
@@ -215,7 +235,7 @@ class _State:
         self.profile = profile
         self.current = _Builder()
         # Glosses and notes wait until the paragraph in progress ends.
-        self.pending: list[Note | Gloss] = []
+        self.pending: list[Note | Gloss | Image] = []
         self.prev: Line | None = None
         self.prev_text = ""
         self.prev_margins: _Margins | None = None
@@ -233,16 +253,22 @@ class _State:
         page_index: int = 0,
         page_label: str = "",
         links: list[tuple[pymupdf.Rect, str]] | None = None,
+        images: list[PageImage] | None = None,
     ) -> Iterator[Block]:
         profile = self.profile
         self.page_index = page_index
         # The page's start is marked on its first line (pages without text pass it on).
         self.pending_marks.append(page_mark(page_index, page_label or str(page_index + 1)))
+        pictures = sorted(images or [], key=lambda image: image.top)
+        # Labels printed inside a picture ("insula", "fluvius") stay in the picture.
+        labels = labels_inside([bl.line for bl in layout.lines], pictures)
         columns = split_columns(
             [
                 bl
-                for bl in layout.lines
-                if not profile.is_running(bl.line, page_height) and not SEPARATOR_RE.match(bl.text)
+                for i, bl in enumerate(layout.lines)
+                if i not in labels
+                and not profile.is_running(bl.line, page_height)
+                and not SEPARATOR_RE.match(bl.text)
             ],
             page_width,
             profile.body_size,
@@ -257,6 +283,10 @@ class _State:
             if not body_line.text.strip():
                 self.break_next = not new_page
                 continue
+            while pictures and pictures[0].top < body_line.line.top:
+                # A picture above this line follows the paragraph in progress.
+                picture = pictures.pop(0)
+                self.pending.append(Image(picture.data, picture.width, picture.height))
             if links:
                 body_line = _link_line(body_line, links)
             if self.pending_marks:
@@ -266,6 +296,8 @@ class _State:
                 )
             yield from self._add_line(body_line, margins, new_page)
             new_page = False
+        for picture in pictures:  # pictures below the page's last line
+            self.pending.append(Image(picture.data, picture.width, picture.height))
         if columns.glosses:
             # Like footnotes, the page's glosses follow the paragraph in progress.
             self.pending.append(Gloss(columns.glosses))

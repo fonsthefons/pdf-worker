@@ -69,6 +69,11 @@ pdf-worker convert book.pdf --to epub --title "Crítica de la razón pura" --aut
   and back. The table of contents comes from the headings (EPUB 3 nav plus EPUB 2 NCX).
   Language and title come from the PDF, or are guessed (`--language`, `--title`,
   `--author` override them).
+- **Pictures and cover:** figures are kept where they appear. Scanned books get their
+  illustrations cropped out of the page scans: large areas of ink with no lines of
+  text. Logos repeated on many pages are left out. Page 1 becomes the cover in the
+  Kindle library. Use `--no-images` / `--no-cover` to turn these off. In Markdown,
+  pictures are saved next to the file (`book_images/img1.jpg`).
 - **Links:** links in the PDF stay links. Web links point to their address. Links inside
   the book (a contents page, cross-references) point to the exact section: they are
   matched by the link's text, then by the target position on the page.
@@ -100,8 +105,8 @@ How structure is detected:
 To send to a Kindle, use the Send to Kindle app, web page or e-mail address with the
 `.epub` file.
 
-Limitations: images are not carried over yet, and tables come out as one line per
-row. Multi-column layouts and scanned books give rougher results; use `--ocr` /
+Limitations: drawings made of vector lines (charts, maps without an image) aren't
+carried over, and tables come out as one line per row. Multi-column layouts and scanned books give rougher results; use `--ocr` /
 `--ocr redo` for scans.
 
 ### OCR
