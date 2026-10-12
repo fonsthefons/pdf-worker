@@ -26,6 +26,7 @@ _RUNNING_SHARE = 0.2
 _MIN_SMALL_RUNNING = 4
 # The printed page numbers must agree on this share of all pages.
 _MIN_PRINTED_SHARE = 0.25
+_REPEATED_IMAGE_SHARE = 0.3
 _PRINTED_NUMBER_RE = re.compile(r"^\s*(\d{1,4})\s*$")
 # A mid-page line on at least this share of pages (and 5 pages) is a watermark.
 _WATERMARK_SHARE = 0.5
@@ -125,6 +126,8 @@ class DocumentProfile:
     chapter_notes: ChapterNotes = field(default_factory=ChapterNotes)
     # Printed page number of each page ("23", front matter "xii"), for EPUB page lists.
     page_labels: list[str] = field(default_factory=list)
+    # Images placed on many pages (logos, rules): not figures.
+    repeated_images: set[int] = field(default_factory=set)
     text_sample: str = ""
     page_count: int = 0
 
@@ -150,6 +153,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     margin_texts: Counter[str] = Counter()
     margin_sizes: dict[str, float] = {}
     offsets: Counter[int] = Counter()  # printed page number minus page index
+    image_pages: Counter[int] = Counter()  # image xref -> pages it is placed on
     inner_texts: Counter[str] = Counter()
     occurrences: Counter[int] = Counter()
     line_starts: dict[int, tuple[int, int]] = {}
@@ -165,6 +169,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         page_margin_texts = set()
         page_inner_texts = set()
         page_offsets: set[int] = set()
+        image_pages.update({info[0] for info in page.get_images(full=False)})
         for line_index, line in enumerate(lines):
             text = line.text
             for span in line.spans:
@@ -237,6 +242,11 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         endnote_defs=_endnote_candidates(occurrences, line_starts, referenced_mid_line),
         chapter_notes=match_chapter_notes(sup_refs, note_lines),
         page_labels=_page_labels(doc, offsets),
+        repeated_images={
+            xref
+            for xref, n in image_pages.items()
+            if n >= max(3, doc.page_count * _REPEATED_IMAGE_SHARE)
+        },
         text_sample=" ".join(sample),
         page_count=doc.page_count,
     )

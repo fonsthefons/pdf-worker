@@ -16,4 +16,5 @@ class WriteStats:
     paragraphs: int = 0
     notes: int = 0
     glosses: int = 0
+    images: int = 0
     chapters: int = 0

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pdf_worker.inline import LinkClose, LinkOpen, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
+from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph
 
 # Characters that would otherwise start Markdown formatting.
 _INLINE_SPECIAL_RE = re.compile(r"([\\`*_<])")
@@ -90,6 +90,14 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
                 elif isinstance(block, Paragraph):
                     stats.paragraphs += 1
                     body.write(render_markdown(block.text) + "\n\n")
+                elif isinstance(block, Image):
+                    # Pictures go to a folder next to the .md file: book_images/img1.jpg.
+                    stats.images += 1
+                    folder = output_path.parent / f"{output_path.stem}_images"
+                    folder.mkdir(exist_ok=True)
+                    name = f"img{stats.images}.jpg"
+                    (folder / name).write_bytes(block.data)
+                    body.write(f"![](<{folder.name}/{name}>)\n\n")
                 elif isinstance(block, Gloss):
                     stats.glosses += 1
                     # A blockquote, one margin line per line (backslash = hard break).

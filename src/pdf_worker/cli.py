@@ -204,6 +204,18 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--language", help="Language code such as 'es' (default: guessed from the text)."
     )
+    parser.add_argument(
+        "--no-images",
+        dest="images",
+        action="store_false",
+        help="Leave out pictures (figures, and illustrations found in scans).",
+    )
+    parser.add_argument(
+        "--no-cover",
+        dest="cover",
+        action="store_false",
+        help="Don't use the first page as the EPUB cover.",
+    )
     _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
 
@@ -215,14 +227,21 @@ def _run_convert(args: argparse.Namespace) -> int:
     title = args.title or (args.ocr and conversion.pdf_title(args.pdf))
     with _maybe_ocr(args, output) as pdf:
         report = conversion.convert_pdf(
-            pdf, output, fmt, title=title, author=args.author, language=args.language
+            pdf,
+            output,
+            fmt,
+            title=title,
+            author=args.author,
+            language=args.language,
+            images=args.images,
+            cover=args.cover,
         )
     stats, meta = report.stats, report.metadata
     print(f"Wrote {output} ({fmt}): {meta.title!r}, language {meta.language}")
     print(
         f"{stats.chapters} chapter file(s), {stats.headings} heading(s), "
         f"{stats.paragraphs} paragraph(s), {stats.notes} note(s), "
-        f"{stats.glosses} margin gloss block(s)"
+        f"{stats.glosses} margin gloss block(s), {stats.images} picture(s)"
     )
     return 0
 

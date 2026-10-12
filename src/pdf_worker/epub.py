@@ -22,7 +22,7 @@ from pathlib import Path
 from pdf_worker.footnotes import display_marker
 from pdf_worker.inline import LinkClose, LinkOpen, PageMark, parse_page_target, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
+from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph
 
 # Start a new chapter file at a heading once the current one has this much text, and
 # force one at a paragraph boundary when it grows past the hard limit (Kindle prefers
@@ -30,6 +30,8 @@ from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
 _MIN_CHAPTER_CHARS = 2_000
 _MAX_CHAPTER_CHARS = 150_000
 _NOTES_FILE = "notes.xhtml"
+_COVER_PAGE = "cover.xhtml"
+_COVER_IMAGE = "OEBPS/images/cover.jpg"
 # Link targets are written as placeholders and resolved at the end (see _EpubBuilder).
 _LINK_START, _LINK_END = "", ""
 _PLACEHOLDER_RE = re.compile("([^]*)")
@@ -61,6 +63,10 @@ aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; }
 div.gloss { font-size: 0.8em; margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
   border-left: 2px solid #999; }
 div.gloss p { text-indent: 0; text-align: left; }
+div.figure { text-align: center; margin: 0.8em 0; }
+div.figure img { max-width: 100%; height: auto; }
+div.cover { text-align: center; margin: 0; }
+div.cover img { max-width: 100%; max-height: 100%; }
 """
 
 
@@ -139,6 +145,8 @@ class _EpubBuilder:
         # PDF page index -> [(top, href, match key)] of the page start and its blocks.
         self.anchors: dict[int, list[tuple[float, str, str]]] = {}
         self.page_list: list[tuple[int, str, str]] = []  # (page index, label, href)
+        self.image_files: list[str] = []  # "images/img3.jpg", in work_dir
+        (work_dir / "images").mkdir(exist_ok=True)
 
     # -- chapters ---------------------------------------------------------------------
     @property
@@ -196,6 +204,16 @@ class _EpubBuilder:
             lines = "<br/>".join(_esc(plain(line)) for line in block.lines)
             self.parts.append(f'<div class="gloss"><p>{lines}</p></div>\n')
             self.chars += sum(len(line) for line in block.lines)
+        elif isinstance(block, Image):
+            self.stats.images += 1
+            name = f"images/img{self.stats.images}.jpg"
+            (self.work_dir / name).write_bytes(block.data)
+            self.image_files.append(name)
+            self.parts.append(
+                f'<div class="figure"><img src="{name}" alt="" '
+                f'width="{block.width}" height="{block.height}"/></div>\n'
+            )
+            self.chars += 200  # pictures weigh on chapter size too
         elif isinstance(block, Note):
             self._add_note(block)
 
@@ -343,7 +361,10 @@ class _EpubBuilder:
         self.stats.chapters = len(self.chapter_files)
 
 
-def write_epub(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> WriteStats:
+def write_epub(
+    blocks: Iterable[Block], output_path: Path, meta: Metadata, cover: bytes | None = None
+) -> WriteStats:
+    """Write an EPUB 3 book; ``cover`` is a JPEG for the cover image and page."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.")
     os.close(fd)
@@ -364,6 +385,12 @@ def write_epub(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wr
             )
             zf.writestr("META-INF/container.xml", _CONTAINER)
             zf.writestr("OEBPS/style.css", _CSS)
+            if cover:
+                zf.writestr(_COVER_IMAGE, cover, compress_type=zipfile.ZIP_STORED)
+                zf.writestr(f"OEBPS/{_COVER_PAGE}", _cover_page(meta))
+            for name in builder.image_files:
+                # JPEGs are compressed already.
+                zf.write(work_dir / name, f"OEBPS/{name}", compress_type=zipfile.ZIP_STORED)
             for name in builder.chapter_files:
                 chapter = (work_dir / name).read_text(encoding="utf-8")
                 zf.writestr(f"OEBPS/{name}", builder.resolve(chapter))
@@ -375,7 +402,15 @@ def write_epub(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wr
             zf.writestr("OEBPS/nav.xhtml", _nav(builder.toc, meta, has_notes, pages))
             zf.writestr("OEBPS/toc.ncx", _ncx(builder.toc, meta, has_notes))
             zf.writestr(
-                "OEBPS/content.opf", _opf(builder.chapter_files, meta, has_notes, bool(pages))
+                "OEBPS/content.opf",
+                _opf(
+                    builder.chapter_files,
+                    meta,
+                    has_notes,
+                    bool(pages),
+                    images=builder.image_files,
+                    cover=bool(cover),
+                ),
             )
         os.replace(tmp_name, output_path)
     except BaseException:
@@ -429,7 +464,19 @@ _CONTAINER = """\
 """
 
 
-def _opf(chapters: list[str], meta: Metadata, has_notes: bool, has_pages: bool = False) -> str:
+def _cover_page(meta: Metadata) -> str:
+    body = f'<div class="cover"><img src="images/cover.jpg" alt="{_attr(meta.title)}"/></div>\n'
+    return _xhtml_page(meta.title, meta.language, body, epub_type="cover")
+
+
+def _opf(
+    chapters: list[str],
+    meta: Metadata,
+    has_notes: bool,
+    has_pages: bool = False,
+    images: list[str] = (),
+    cover: bool = False,
+) -> str:
     modified = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = [
         '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
@@ -437,6 +484,15 @@ def _opf(chapters: list[str], meta: Metadata, has_notes: bool, has_pages: bool =
         '<item id="css" href="style.css" media-type="text/css"/>',
     ]
     spine = []
+    if cover:
+        items.append(
+            '<item id="cover-image" href="images/cover.jpg" media-type="image/jpeg" '
+            'properties="cover-image"/>'
+        )
+        items.append(f'<item id="cover" href="{_COVER_PAGE}" media-type="application/xhtml+xml"/>')
+        spine.append('<itemref idref="cover"/>')
+    for index, name in enumerate(images, start=1):
+        items.append(f'<item id="img{index}" href="{name}" media-type="image/jpeg"/>')
     for index, name in enumerate(chapters, start=1):
         items.append(f'<item id="c{index}" href="{name}" media-type="application/xhtml+xml"/>')
         spine.append(f'<itemref idref="c{index}"/>')
@@ -446,6 +502,9 @@ def _opf(chapters: list[str], meta: Metadata, has_notes: bool, has_pages: bool =
     creator = f"<dc:creator>{_esc(meta.author)}</dc:creator>\n    " if meta.author else ""
     if has_pages:
         creator += '<meta property="schema:accessibilityFeature">printPageNumbers</meta>\n    '
+    if cover:
+        # EPUB 2 style cover hint: older Kindle conversions look for it.
+        creator += '<meta name="cover" content="cover-image"/>\n    '
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '

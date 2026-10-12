@@ -258,13 +258,37 @@
 - Tests: `tests/test_links_pages.py` (5) and integration checks on the encyclical and the
   9/11 report.
 
+### Feature 9: pictures and cover (2026-10-13, PR #11)
+- New `images.py`. Pictures are rendered from the page (clip, 120 dpi, JPEG quality 80),
+  so codecs, masks and overlays don't matter:
+  - Digital PDFs: each embedded image rect that is ≥ 1.5% of the page and < 80%
+    (otherwise it's a scan or background) becomes a figure. Overlapping rects merge.
+    Images placed on ≥ 30% of pages (`profile.repeated_images`) are logos and are
+    skipped.
+  - Scans (a full-page image): every text line's box is blanked in a 36 dpi grey
+    render. Ink is anything ≥ 55 grey levels darker than the paper (90th
+    percentile). Bands of inked rows ≥ 12% of the page tall and ≥ 25% wide are
+    cropped.
+  - Short text lines inside a picture (labels such as "insula") are dropped from the
+    body.
+- New `Image` block, queued like notes so it follows the paragraph before it. EPUB:
+  `images/imgN.jpg` stored uncompressed, `div.figure`, manifest items. Cover: page 1 at
+  1600 px tall, `cover-image` property, `<meta name="cover">`, a `cover.xhtml` first in
+  the spine. Markdown: `<stem>_images/imgN.jpg` and `![](<...>)`.
+- `convert --no-images / --no-cover`; `WriteStats.images`.
+- Familia Romana (OCR'd): 58 pictures, all real illustrations on the first contact sheet
+  (`scratch/contact_sheet.py`). A few include a strip of the gloss column. EPUB is 3 MB
+  and valid.
+- Not handled: vector drawings (charts, maps made of paths).
+- Tests: `tests/test_images.py` (6).
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- **Stopped at the usage limit after PR #10 (items 1, 2, 9, 10 done). Next: items 3
-  (images and cover), 4, 5, 6, 7, 8, in that order. Start from main.**
+- **Items 1, 2, 3, 9 and 10 done (PRs #9, #10, #11). Next: items 4, 5, 6, 7, 8, in
+  that order. Start from main.**
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
@@ -279,7 +303,7 @@
      (PR #9, together with item 2).
   2. [x] Real footnoted books: downloaded the court opinion, the 9/11 report and the
      Gibbon scan, tuned detection on them, added integration tests.
-  3. [ ] Images and a cover in the EPUB.
+  3. [x] Images and a cover in the EPUB (PR #11).
   4. [ ] One-step `pdf-worker kindle`: auto-detect OCR need and mode, then EPUB.
   5. [ ] `--engine paddle` (opt-in).
   6. [ ] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the

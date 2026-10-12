@@ -12,6 +12,7 @@ from pathlib import Path
 from pdf_worker.document import open_pdf
 from pdf_worker.epub import write_epub
 from pdf_worker.errors import PdfWorkerError
+from pdf_worker.images import render_cover
 from pdf_worker.layout import analyze_document
 from pdf_worker.markdown_export import write_markdown
 from pdf_worker.output import Metadata, WriteStats
@@ -77,8 +78,13 @@ def convert_pdf(
     title: str | None = None,
     author: str | None = None,
     language: str | None = None,
+    images: bool = True,
+    cover: bool = True,
 ) -> ConvertReport:
-    """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically)."""
+    """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
+
+    ``images`` keeps the pictures; ``cover`` makes page 1 the EPUB cover.
+    """
     if fmt not in FORMATS:
         raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
     output_path = Path(output_path)
@@ -90,8 +96,12 @@ def convert_pdf(
             author=author or (info.get("author") or "").strip(),
             language=language or guess_language(profile.text_sample),
         )
-        writer = write_epub if fmt == "epub" else write_markdown
-        stats = writer(iter_blocks(doc, profile), output_path, meta)
+        blocks = iter_blocks(doc, profile, images=images)
+        if fmt == "epub":
+            cover_jpeg = render_cover(doc.load_page(0)) if cover and doc.page_count else None
+            stats = write_epub(blocks, output_path, meta, cover=cover_jpeg)
+        else:
+            stats = write_markdown(blocks, output_path, meta)
     return ConvertReport(output_path=output_path, metadata=meta, stats=stats)
 
 
