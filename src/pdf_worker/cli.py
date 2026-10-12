@@ -221,7 +221,8 @@ def _run_convert(args: argparse.Namespace) -> int:
     print(f"Wrote {output} ({fmt}): {meta.title!r}, language {meta.language}")
     print(
         f"{stats.chapters} chapter file(s), {stats.headings} heading(s), "
-        f"{stats.paragraphs} paragraph(s), {stats.notes} note(s)"
+        f"{stats.paragraphs} paragraph(s), {stats.notes} note(s), "
+        f"{stats.glosses} margin gloss block(s)"
     )
     return 0
 

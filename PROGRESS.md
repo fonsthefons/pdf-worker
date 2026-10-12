@@ -125,6 +125,38 @@
 - Tests: `tests/test_macrons.py` (11), 2 new tests in `tests/test_ocr.py`, and an
   integration check (`Iūlia` on Familia Romana p. 25).
 
+### Feature 6: margin glosses and line numbers in convert (2026-10-12)
+- New `margins.py` (`split_columns`) runs per page in `structure.py`:
+  - It finds the body column from long lines (left edge from the most common x0, right
+    edge from the 80th-percentile x1).
+  - Lines entirely outside the column are margin lines. They only count as glosses if
+    each side column is narrower than 60% of the body and holds at most half its text,
+    so a two-column body isn't mistaken for glosses.
+  - Bare numbers at the column edge are dropped, and line numbers glued onto a body
+    line (`70 Puer…`, `…eum 55`) are stripped.
+  - With margins found, the body is sorted top to bottom.
+  - Same-row fragments are joined into one line (`merge_rows`, used on every page).
+  - Lines with no letters or digits are dropped, except section breaks like `* * *`.
+- New `Gloss` block, queued like footnotes, so it follows the paragraph in progress.
+  Markdown writes it as a blockquote with `\` hard breaks; EPUB as `div.gloss`.
+  `WriteStats.glosses` is new, and the CLI prints it.
+- Paragraphs: the size-change test now compares a line with its block's mean size
+  (threshold 8%, at least 0.6 pt), and wrapped lines keep the block's kind. This fixes
+  OCR size jitter splitting paragraphs.
+- Running headers: `running_key` normalises Roman numerals (`CAP. III`), and the margin
+  zone grew from 8% to 10% of the page height.
+- Results:
+
+  | Sample | Before | After |
+  |---|---|---|
+  | Familia Romana, OCR'd with macrons | 459 headings, 9,659 paragraphs | 343 headings, 4,090 paragraphs, glosses separated |
+  | Kant | — | Unchanged except one stray `.` paragraph dropped |
+  | Encyclical | — | 224 notes; the web header's `ESPAÑOL` link became a gloss; the footer links joined onto one line |
+
+  The Familia EPUB passes epubcheck.
+- Tests: `tests/test_margins.py` (6) and an integration test (OCR plus convert of
+  Familia pp. 25–26).
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)

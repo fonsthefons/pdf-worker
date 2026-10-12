@@ -70,14 +70,23 @@ How structure is detected:
 - Headings are lines in a larger font, or short isolated all-caps or bold lines.
 - Paragraph breaks come from vertical gaps, indentation, blank lines, and short lines
   that end a sentence.
-- Running headers and footers (text repeated in the top or bottom margin) and page
-  numbers are dropped.
+- Running headers and footers (text repeated in the top or bottom margin, including
+  ones that only differ by a number such as `CAP. III`) and page numbers are dropped.
+- Margin glosses (notes in a narrow column beside the text, as in textbooks and
+  editions) are taken out of the body. Each page's glosses follow the paragraph they
+  sit beside: as a blockquote with one line per gloss in Markdown, and as a small boxed
+  `div.gloss` in EPUB.
+- Line numbers in the gutter (`5`, `10`, ...) are dropped, including ones OCR glued onto a
+  text line. Table cells on one row are joined into one line, and OCR noise from
+  pictures (lines with no letters or digits) is dropped. Section breaks like `* * *`
+  are kept.
 
 To send to a Kindle, use the Send to Kindle app, web page or e-mail address with the
 `.epub` file.
 
-Limitations: images and tables are not carried over yet. Multi-column layouts and
-scanned books give rougher results; use `--ocr` / `--ocr redo` for scans.
+Limitations: images are not carried over yet, and tables come out as one line per
+row. Multi-column layouts and scanned books give rougher results; use `--ocr` /
+`--ocr redo` for scans.
 
 ### OCR
 

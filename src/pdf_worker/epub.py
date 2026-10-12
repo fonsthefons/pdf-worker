@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pdf_worker.footnotes import display_marker
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph
+from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
 
 # Start a new chapter file at a heading once the current one has this much text, and
 # force one at a paragraph boundary when it grows past the hard limit (Kindle prefers
@@ -44,6 +44,9 @@ p.small { font-size: 0.85em; text-indent: 0; margin: 0.4em 0; }
 a.noteref { text-decoration: none; }
 sup { font-size: 0.75em; line-height: 0; }
 aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; }
+div.gloss { font-size: 0.8em; margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
+  border-left: 2px solid #999; }
+div.gloss p { text-indent: 0; text-align: left; }
 """
 
 
@@ -137,6 +140,11 @@ class _EpubBuilder:
             self.chars += len(block.text)
             if self.chars >= _MAX_CHAPTER_CHARS:
                 self._close_chapter()
+        elif isinstance(block, Gloss):
+            self.stats.glosses += 1
+            lines = "<br/>".join(_esc(line) for line in block.lines)
+            self.parts.append(f'<div class="gloss"><p>{lines}</p></div>\n')
+            self.chars += sum(len(line) for line in block.lines)
         elif isinstance(block, Note):
             self._add_note(block)
 

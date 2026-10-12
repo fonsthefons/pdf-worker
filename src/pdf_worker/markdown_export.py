@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph
+from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
 
 # Characters that would otherwise start Markdown formatting.
 _INLINE_SPECIAL_RE = re.compile(r"([\\`*_<])")
@@ -67,6 +67,11 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
                 elif isinstance(block, Paragraph):
                     stats.paragraphs += 1
                     body.write(escape_markdown(block.text) + "\n\n")
+                elif isinstance(block, Gloss):
+                    stats.glosses += 1
+                    # A blockquote, one margin line per line (backslash = hard break).
+                    lines = [escape_markdown(line) for line in block.lines]
+                    body.write("> " + "\\\n> ".join(lines) + "\n\n")
                 elif isinstance(block, Note):
                     if block.continued and open_note and open_note.label == block.label:
                         open_note = Note(block.label, f"{open_note.text} {block.text}")

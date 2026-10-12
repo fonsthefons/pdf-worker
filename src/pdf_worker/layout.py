@@ -18,7 +18,7 @@ BOLD = 16
 # Lines whose font is this much bigger than the body font are headings.
 HEADING_RATIO = 1.15
 # Running headers/footers live in this fraction of the page at the top and bottom.
-_MARGIN_ZONE = 0.08
+_MARGIN_ZONE = 0.1
 # A margin line repeated on at least this share of pages (and 3 pages) is running text.
 _RUNNING_SHARE = 0.2
 # A bracketed number seen more often than this is not an endnote.
@@ -28,6 +28,8 @@ _SAMPLE_CHARS = 20_000
 
 _BRACKET_RE = re.compile(r"\[(\d{1,4})\]")
 _DIGITS_RE = re.compile(r"\d+")
+# Upper-case Roman numerals of two or more letters (a lone "I" or "V" may be a word).
+_ROMAN_RE = re.compile(r"\b[IVXLC]{2,}\b|\b[VXLC]\b")
 PAGE_NUMBER_RE = re.compile(
     r"^\s*(?:page\s*|p\.\s*|-\s*)?\d{1,4}(?:\s*/\s*\d{1,4}|\s*-)?\s*$", re.IGNORECASE
 )
@@ -76,8 +78,10 @@ def page_lines(page: pymupdf.Page) -> list[Line]:
 
 
 def running_key(text: str) -> str:
-    """Normalise a header/footer line so ``3/49`` and ``4/49`` compare equal."""
-    return _DIGITS_RE.sub("#", text.strip().lower())
+    """Normalise a header/footer line so ``3/49`` and ``4/49`` (or ``CAP. III`` and
+    ``CAP. IV``) compare equal."""
+    text = _ROMAN_RE.sub("#", text.strip())
+    return _DIGITS_RE.sub("#", text.lower())
 
 
 @dataclass
