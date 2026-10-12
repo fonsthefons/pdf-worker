@@ -28,6 +28,8 @@ from pdf_worker.errors import PdfOpenError, PdfWorkerError
 MODES = ("skip", "redo", "force")
 DEFAULT_LANGUAGE = "eng"
 INSTALL_HINT = "install it with: brew install tesseract tesseract-lang"
+# OCRmyPDF plugin (by module name) that restores Latin macrons.
+LATIN_PLUGIN = "pdf_worker.ocr_latin_plugin"
 
 # ISO 639-1 (what guess_language returns) -> Tesseract language code.
 _TESSERACT_CODES = {
@@ -66,6 +68,7 @@ class OcrReport:
     mode: str
     languages: list[str]
     languages_guessed: bool = False
+    macrons_restored: bool = False
     page_count: int = 0
     # Pages with no text layer before and after OCR (1-based).
     empty_pages_before: list[int] = field(default_factory=list)
@@ -118,11 +121,13 @@ def ocr_pdf(
     mode: str = "skip",
     jobs: int | None = None,
     progress: bool = False,
+    latin_macrons: bool | None = None,
 ) -> OcrReport:
     """OCR ``pdf_path`` into a searchable PDF at ``output_path`` (written atomically).
 
     ``languages`` are Tesseract codes (``"spa"``, ``"lat+eng"``); by default they are
-    guessed from the document.
+    guessed from the document. ``latin_macrons`` turns accented vowels into macrons
+    (see ``pdf_worker.macrons``); by default it is on when Latin is a language.
     """
     if mode not in MODES:
         raise OcrError(f"Unknown OCR mode {mode!r}; choose from {', '.join(MODES)}")
@@ -142,6 +147,8 @@ def ocr_pdf(
             f"Tesseract language(s) not installed: {', '.join(missing)}; {INSTALL_HINT}"
         )
     report.languages = chosen
+    report.macrons_restored = "lat" in chosen if latin_macrons is None else latin_macrons
+    plugins = [LATIN_PLUGIN] if report.macrons_restored else []
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
@@ -149,7 +156,7 @@ def ocr_pdf(
     )
     os.close(fd)
     try:
-        _run_ocrmypdf(ocrmypdf, pdf_path, Path(tmp_name), chosen, mode, jobs, progress)
+        _run_ocrmypdf(ocrmypdf, pdf_path, Path(tmp_name), chosen, mode, jobs, progress, plugins)
         _, report.empty_pages_after = _empty_pages(Path(tmp_name))
         os.replace(tmp_name, output_path)
     except BaseException:
@@ -195,7 +202,7 @@ def _import_ocrmypdf():
     return ocrmypdf
 
 
-def _run_ocrmypdf(ocrmypdf, source, target, languages, mode, jobs, progress) -> None:
+def _run_ocrmypdf(ocrmypdf, source, target, languages, mode, jobs, progress, plugins) -> None:
     from ocrmypdf import exceptions
 
     try:
@@ -208,6 +215,7 @@ def _run_ocrmypdf(ocrmypdf, source, target, languages, mode, jobs, progress) -> 
             output_type="pdf",
             jobs=jobs,
             progress_bar=progress,
+            plugins=plugins,
         )
     except exceptions.MissingDependencyError as exc:
         raise OcrEngineMissingError(f"OCR dependency missing: {exc}") from exc

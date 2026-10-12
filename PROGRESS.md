@@ -103,6 +103,28 @@
 - Files: `ocr.py`, `cli.py`, `convert.py` (`pdf_title`), `pyproject.toml`, `README.md`,
   `docs/ocr-plan.md`, `tests/test_ocr.py`, `tests/test_integration_test_pdfs.py`.
 
+### Feature 5: Latin macrons in OCR (2026-10-12)
+- Tesseract's `lat` model reads long vowels as accents (`Màrcus`, `Iülia`, `nón`), and
+  sometimes as a doubled vowel (`Maàrcus`, `nàávis`).
+- New `macrons.py` (`restore_macrons`) turns every grave/acute/circumflex/tilde/breve/
+  diaeresis vowel into a macron vowel and collapses the doubled forms.
+- New `ocr_latin_plugin.py` is an OCRmyPDF plugin that subclasses the Tesseract engine
+  and rewrites the hOCR and text output before the text layer is built. It is loaded by
+  module name, so the worker processes find it.
+- On automatically when `lat` is an OCR language; `pdf-worker ocr --no-latin-macrons`
+  turns it off. The report and CLI summary say when it was applied.
+- Result on the full Familia Romana (`scratch/count_macrons.py`): 16,118 macron vowels,
+  1 accent left. Tesseract still misses many long vowels entirely, so recall is uneven.
+  In this book these words always carry a macron:
+
+  | Word | Read with macron | Read plain |
+  |---|---|---|
+  | `Iūlia` | 167 | 13 |
+  | `nōn` | 468 | 400 |
+  | `Mārcus` | 124 | 280 |
+- Tests: `tests/test_macrons.py` (11), 2 new tests in `tests/test_ocr.py`, and an
+  integration check (`Iūlia` on Familia Romana p. 25).
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)

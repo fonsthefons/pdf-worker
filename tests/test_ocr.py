@@ -98,6 +98,33 @@ def test_language_is_guessed_from_text_layer(make_pdf):
     assert ocr.guess_ocr_languages(pdf) == ["spa"]
 
 
+LATIN_ACCENTED = [
+    "Roma in Italià est. Aegyptus in Africà nón est.",
+    "Iülia et Màrcus in vìllà sunt. Quintus nón ridet.",
+]
+
+
+def test_latin_accents_become_macrons(make_scan, tmp_path):
+    scan = make_scan([LATIN_ACCENTED])
+
+    report = ocr.ocr_pdf(scan, tmp_path / "out.pdf", languages="lat")
+
+    text = _text(tmp_path / "out.pdf")[0]
+    assert report.macrons_restored
+    assert "nōn" in text and "Italiā" in text
+    assert not set("àóüì") & set(text)
+
+
+def test_latin_macrons_can_be_turned_off(make_scan, tmp_path):
+    scan = make_scan([LATIN_ACCENTED])
+
+    report = ocr.ocr_pdf(scan, tmp_path / "out.pdf", languages="lat", latin_macrons=False)
+
+    text = _text(tmp_path / "out.pdf")[0]
+    assert not report.macrons_restored
+    assert "nón" in text and "ā" not in text
+
+
 def test_parse_languages():
     assert ocr.parse_languages("lat+eng") == ["lat", "eng"]
     assert ocr.parse_languages(["spa"]) == ["spa"]

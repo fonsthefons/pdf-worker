@@ -113,6 +113,9 @@ def test_ocr_redo_on_scanned_book(tmp_path):
         cover, body = (page.get_text("text") for page in doc)
     assert "FAMILIA" in cover
     assert "Puer qui ridet est" in body
+    # Tesseract reads long vowels as accents; they are turned back into macrons.
+    assert report.macrons_restored
+    assert "Iūlia" in body and "Iülia" not in body
 
 
 def test_footnote_mode_matches_raw_text_when_no_notes(tmp_path):

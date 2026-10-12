@@ -100,8 +100,11 @@ pdf-worker convert scan.pdf --ocr redo --ocr-lang spa
   couple of pages. Set it with `--lang` (`--ocr-lang` for `extract-text`/`convert`);
   `tesseract --list-langs` lists the installed ones.
 - Pages are OCR'd in parallel on all cores (`--jobs N` to limit).
-- Limitation: Tesseract has no macrons; it reads Latin long vowels as accented ones
-  (`Mārcus` becomes `Màrcus`, `Iūlia` becomes `Iülia`).
+- **Latin macrons:** Tesseract has no macrons and reads Latin long vowels as accented ones
+  (`Màrcus`, `Iülia`). When Latin is an OCR language, those accents are turned back into
+  macrons (`Mārcus`, `Iūlia`) before the text layer is written. `--no-latin-macrons`
+  keeps the raw output. Tesseract misses some macrons entirely, so a few long vowels
+  still come out plain.
 
 ## Development
 
