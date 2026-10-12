@@ -69,9 +69,18 @@ pdf-worker convert book.pdf --to epub --title "Crítica de la razón pura" --aut
   and back. The table of contents comes from the headings (EPUB 3 nav plus EPUB 2 NCX).
   Language and title come from the PDF, or are guessed (`--language`, `--title`,
   `--author` override them).
+- **Links:** links in the PDF stay links. Web links point to their address. Links inside
+  the book (a contents page, cross-references) point to the exact section: they are
+  matched by the link's text, then by the target position on the page.
+- **Page numbers:** the EPUB has a page list with the book's printed page numbers. These
+  come from the PDF's page labels or the numbers printed in the margins; front matter
+  gets i, ii, iii. Readers that support page lists (Kindle among them) can show real
+  page numbers instead of only locations. Each number is anchored in the text, so it
+  stays right at any font size.
 - **Markdown:** YAML front matter (title, author, lang), `#` headings, one paragraph per
-  block, and footnotes in Pandoc/GFM syntax (`text[^p12-1]`, notes at the end). It can
-  be converted further, e.g. `pandoc book.md -o book.docx`.
+  block, and footnotes in Pandoc/GFM syntax (`text[^p12-1]`, notes at the end). Web
+  links become `[text](<url>)`. It can be converted further, e.g.
+  `pandoc book.md -o book.docx`.
 
 How structure is detected:
 - Headings are lines in a larger font, or short isolated all-caps or bold lines.

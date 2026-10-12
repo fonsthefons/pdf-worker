@@ -3,8 +3,10 @@
 These are slower than the unit tests; skip them with ``pytest -m "not integration"``.
 """
 
+import re
 import shutil
 import subprocess
+import zipfile
 
 import pymupdf
 import pytest
@@ -78,6 +80,15 @@ def test_convert_endnotes_pdf_to_valid_epub(tmp_path):
 
     assert report.stats.notes == 224
     assert report.metadata.language == "es"
+    # The index at the top links every section; each link lands on its section.
+    with zipfile.ZipFile(out) as zf:
+        files = {n: zf.read(n).decode() for n in zf.namelist() if n.endswith(".xhtml")}
+    first = files["OEBPS/c001.xhtml"]
+    href = re.search(r'<a href="(c\d+\.xhtml#\w+)">Dos imágenes bíblicas</a>', first).group(1)
+    target_file, anchor = href.split("#")
+    target = files[f"OEBPS/{target_file}"]
+    at = target.index(f'id="{anchor}"')
+    assert "Dos imágenes bíblicas" in target[at : at + 120]
     epubcheck = shutil.which("epubcheck") or shutil.which("/opt/homebrew/bin/epubcheck")
     if epubcheck:
         result = subprocess.run([epubcheck, str(out)], capture_output=True, text=True)
@@ -173,6 +184,12 @@ def test_report_chapter_endnotes_linked(tmp_path):
     convert = convert_pdf(REPORT_PDF, tmp_path / "report.epub", "epub")
     assert convert.stats.notes >= 1742
     assert convert.metadata.title != "201-635.job"  # junk PDF title is ignored
+    # Kindle page numbers follow the printed book: front matter i-xviii, then 1, 2, ...
+    with zipfile.ZipFile(tmp_path / "report.epub") as zf:
+        nav = zf.read("OEBPS/nav.xhtml").decode()
+    labels = re.findall(r'#pg\d+">([^<]+)</a>', nav)
+    assert labels[:3] == ["i", "ii", "iii"]
+    assert labels[18:21] == ["1", "2", "3"]
 
 
 @pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")
