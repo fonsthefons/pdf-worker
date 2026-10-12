@@ -18,6 +18,11 @@ pytestmark = pytest.mark.integration
 GOOD_TEXT_PDF = TEST_PDFS_DIR / "Critica de la Razon Pura - Immanuel Kant.pdf"
 BAD_TEXT_PDF = TEST_PDFS_DIR / "Familia Romana Lingua Latina.pdf"
 ENDNOTES_PDF = TEST_PDFS_DIR / "Magnifica Humanitas Encíclica May 15 2026.pdf"
+# Public-domain downloads (see README): bottom-of-page footnotes, chapter endnotes, and a
+# scanned book with footnotes.
+COURT_PDF = TEST_PDFS_DIR / "Trump v CASA (US Supreme Court 2025).pdf"
+REPORT_PDF = TEST_PDFS_DIR / "9-11 Commission Report.pdf"
+SCAN_PDF = TEST_PDFS_DIR / "Gibbon Decline and Fall vol 1 (1872 scan).pdf"
 
 
 def _require(path):
@@ -138,6 +143,59 @@ def test_ocr_then_convert_separates_glosses_and_line_numbers(tmp_path):
     assert "> puer qui ridet\\\n> puella quae plorat\\\n" in text
     assert "\n75\n" not in text and "\n105\n" not in text
     assert report.stats.glosses >= 2
+
+
+def test_court_opinion_footnotes_all_linked(tmp_path):
+    _require(COURT_PDF)
+
+    report = extract_text_to_file(COURT_PDF, tmp_path / "court.txt")
+
+    # 42 footnotes over the majority, concurrences and dissents; a watermark sits
+    # across the notes on some pages.
+    assert report.footnote_count == report.footnote_reference_count == 42
+    assert report.undefined_footnotes == report.unreferenced_footnotes == []
+    text = (tmp_path / "court.txt").read_text(encoding="utf-8")
+    assert "Congress has granted federal courts no such \npower.[^p12-4]" in text
+
+
+def test_report_chapter_endnotes_linked(tmp_path):
+    _require(REPORT_PDF)
+
+    report = extract_text_to_file(REPORT_PDF, tmp_path / "report.txt")
+
+    # 13 chapters of superscript-numbered notes collected in a "Notes" section.
+    assert report.footnote_reference_count == 1742
+    assert len(report.undefined_footnotes) == 0
+    assert len(report.unreferenced_footnotes) <= 2
+    text = (tmp_path / "report.txt").read_text(encoding="utf-8")
+    assert "\n[^c1-1]: No physical, documentary, or analytical evidence" in text
+
+    convert = convert_pdf(REPORT_PDF, tmp_path / "report.epub", "epub")
+    assert convert.stats.notes >= 1742
+    assert convert.metadata.title != "201-635.job"  # junk PDF title is ignored
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")
+def test_scanned_book_footnotes_after_ocr(tmp_path):
+    _require(SCAN_PDF)
+    pytest.importorskip("ocrmypdf")
+    from pdf_worker.ocr import ocr_pdf
+
+    sample = tmp_path / "sample.pdf"
+    with pymupdf.open(SCAN_PDF) as doc, pymupdf.open() as small:
+        # pp. 250-251: a one-column note, then notes set in two columns.
+        small.insert_pdf(doc, from_page=249, to_page=250)
+        small.save(sample)
+    ocr_pdf(sample, tmp_path / "ocr.pdf", languages="eng", mode="redo")
+
+    report = extract_text_to_file(tmp_path / "ocr.pdf", tmp_path / "out.txt")
+
+    text = (tmp_path / "out.txt").read_text(encoding="utf-8")
+    assert report.footnote_count >= 2
+    assert "]: It is much to be regretted" in text
+    # The notes left the body: the body text runs on without them.
+    body_page_1 = text.split("\f")[0].split("\n[^")[0]
+    assert "regretted" not in body_page_1
 
 
 def test_footnote_mode_matches_raw_text_when_no_notes(tmp_path):

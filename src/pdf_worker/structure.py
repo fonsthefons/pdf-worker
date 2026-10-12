@@ -34,6 +34,8 @@ _SIZE_JITTER = 0.08
 # A footnote reference in block text: ``[^label]``.
 REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
 _REF_ONLY_RE = re.compile(r"^(?:\[\^[^\]\s]+\])+$")
+# Marks a paragraph break inside a block's lines (multi-paragraph notes).
+PARAGRAPH_BREAK = " "
 
 
 @dataclass(frozen=True)
@@ -99,14 +101,21 @@ class _Builder:
 
 
 def join_lines(parts: list[str]) -> str:
-    """Join wrapped lines, undoing end-of-line hyphenation (``Pu-`` + ``ella``)."""
+    """Join wrapped lines, undoing end-of-line hyphenation (``Pu-`` + ``ella``).
+
+    A ``PARAGRAPH_BREAK`` part becomes a blank line (``\\n\\n``) between paragraphs.
+    """
     out = ""
     for part in parts:
+        if part == PARAGRAPH_BREAK:
+            if out and not out.endswith("\n\n"):
+                out += "\n\n"
+            continue
         part = part.strip()
         if not part:
             continue
-        if not out:
-            out = part
+        if not out or out.endswith("\n\n"):
+            out += part
         elif len(out) > 1 and out[-1] == "-" and out[-2].isalpha() and part[0].islower():
             out = out[:-1] + part
         elif _REF_ONLY_RE.match(part):
@@ -138,6 +147,7 @@ class _State:
         self.prev_text = ""
         self.prev_margins: _Margins | None = None
         self.break_next = False  # a blank line was seen
+        self.in_notes = False  # inside a chapter-endnotes area (see pdf_worker.endnotes)
 
     # -- page handling ----------------------------------------------------------------
     def add_page(
@@ -190,6 +200,29 @@ class _State:
         if body_line.endnote_label:
             yield from self._flush()
             self.current = _Builder(kind="note", label=body_line.endnote_label)
+            self.in_notes = body_line.endnote_label.startswith("c")
+        elif self.in_notes and self.current.kind == "note":
+            notes = profile.chapter_notes
+            last = (
+                self.current.label in notes.last_in_group
+                and self.current.label not in notes.section_continues
+            )
+            starts = self._starts_paragraph(line, text, margins, new_page)
+            if level and not last:
+                return  # a group heading inside the notes area ("2 The Foundation ...")
+            other_type = abs(line.size - self.current.size) > _SIZE_JITTER * self.current.size
+            if last and (level or (starts and other_type)):
+                # The notes area ends after a group's last note, at a heading or where
+                # the type changes back from note size.
+                self.in_notes = False
+                yield from self._add_line(body_line, margins, new_page)
+                return
+            if starts:
+                self.current.parts.append(PARAGRAPH_BREAK)  # a note with paragraphs
+            self.current.add(text, line.bold, line.size)
+            self.prev, self.prev_text = line, text
+            self.break_next = False
+            return
         elif level:
             same_heading = (
                 self.current.kind == "heading"
