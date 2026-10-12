@@ -54,8 +54,9 @@ def _maybe_ocr(args: argparse.Namespace, output: Path) -> Iterator[Path]:
 
 def _print_ocr_summary(report: ocr.OcrReport) -> None:
     guessed = " (guessed)" if report.languages_guessed else ""
+    macrons = ", Latin macrons restored" if report.macrons_restored else ""
     print(
-        f"OCR ({report.mode}, {'+'.join(report.languages)}{guessed}): "
+        f"OCR ({report.mode}, {'+'.join(report.languages)}{guessed}{macrons}): "
         f"pages without text {len(report.empty_pages_before)} -> "
         f"{len(report.empty_pages_after)} of {report.page_count}"
     )
@@ -89,6 +90,14 @@ def _add_ocr_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "-j", "--jobs", type=int, help="Pages to OCR in parallel (default: all CPU cores)."
     )
+    parser.add_argument(
+        "--no-latin-macrons",
+        dest="latin_macrons",
+        action="store_false",
+        default=None,
+        help="With Latin, keep Tesseract's accented vowels (à, ü...) instead of turning "
+        "them into macrons (ā, ū...).",
+    )
     parser.set_defaults(handler=_run_ocr)
 
 
@@ -101,6 +110,7 @@ def _run_ocr(args: argparse.Namespace) -> int:
         mode=args.mode,
         jobs=args.jobs,
         progress=sys.stderr.isatty(),
+        latin_macrons=args.latin_macrons,
     )
     print(f"Wrote {output}")
     _print_ocr_summary(report)
