@@ -79,17 +79,46 @@
   `markdown_export.py`, `epub.py`, `convert.py`, `cli.py`, `tests/test_convert.py`,
   `tests/test_integration_test_pdfs.py`, `README.md`.
 
+### Feature 4: OCR with Tesseract via OCRmyPDF (2026-10-12)
+- Chosen engine: Tesseract via OCRmyPDF, the recommendation in `docs/ocr-plan.md`. It
+  writes a PDF with a text layer, so the existing commands work on the result unchanged.
+- New `src/pdf_worker/ocr.py` and `pdf-worker ocr in.pdf [-o out.pdf] [--lang lat+eng]
+  [--mode skip|redo|force] [-j N]`. `extract-text` and `convert` also take
+  `--ocr [MODE]` and `--ocr-lang`, which OCR into a temporary PDF next to the output and
+  delete it afterwards.
+- The language is guessed: from the text layer if there is one, otherwise from an
+  English OCR of 2 middle pages. Guesses map to Tesseract codes (`es` to `spa`, `la` to
+  `lat`). Missing Tesseract, missing OCRmyPDF and missing language models each give a
+  clean `Error:` with an install hint.
+- `ocrmypdf>=17.13` is in a new `ocr` extra. Ghostscript isn't needed with
+  `output_type="pdf"`.
+- Familia Romana, full book with `--mode redo`: language guessed as `lat`, and the
+  image-only cover now has text. Tesseract reads long vowels as accents (`Màrcus`,
+  `Iülia`, `nón`) where the old layer dropped them (`Marcus`, `Julia`). Margin glosses
+  are cleaner (`-um` instead of `-urn`), with some junk from the pictures. `convert` on
+  the result is still fragmented (459 headings, 9,725 paragraphs). The cause is the
+  layout (line numbers, margin column), not the OCR.
+- Tests: `tests/test_ocr.py` (12 tests, generated image-only PDFs, skipped when Tesseract
+  is missing) and an integration test on Familia Romana pages 1 and 25.
+- Files: `ocr.py`, `cli.py`, `convert.py` (`pdf_title`), `pyproject.toml`, `README.md`,
+  `docs/ocr-plan.md`, `tests/test_ocr.py`, `tests/test_integration_test_pdfs.py`.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- All three requested items are shipped: footnotes (PR #2), OCR plan (PR #3), and
-  EPUB/Markdown conversion (branch `feature/convert`, PR #4).
-- Waiting on the user: go-ahead for OCR phase 1 (`docs/ocr-plan.md`), and feedback from a
-  real Kindle on the EPUB output.
-- Candidate next steps: OCR phase 1; images in EPUB; superscript-referenced endnotes
-  ("Notes" chapters); skipping the on-page table of contents.
+- Shipped: footnotes (PR #2), OCR plan (PR #3), EPUB/Markdown conversion (PR #4), and
+  OCR phase 1 (Tesseract, branch `feature/ocr`, PR #5).
+- Waiting on the user: feedback from a real Kindle on the EPUB output.
+- Candidate next steps:
+  - For `lat`, map the accented vowels Tesseract outputs to macrons (`à`/`á` to `ā`,
+    `ü` to `ū`, and so on).
+  - Handle margin glosses and line numbers in layout analysis (Familia Romana).
+  - OCR phase 2 (PaddleOCR-VL evaluation).
+  - Images in EPUB.
+  - Superscript-referenced endnotes ("Notes" chapters).
+  - Skip the on-page table of contents.
 - epubcheck is installed via brew at `/opt/homebrew/bin/epubcheck`.
 - Before resuming: `git status`, `git switch main`, `git pull --ff-only`.
 
@@ -99,3 +128,5 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
 2. OCR: research the best free tools, then write a plan. Plan done (`docs/ocr-plan.md`).
 3. Conversion: EPUB (Kindle-friendly) and Markdown from the extracted text. Done
    (Feature 3).
+4. (2026-10-12) "Choose the best [OCR] and implement it": Tesseract/OCRmyPDF. Done
+   (Feature 4).

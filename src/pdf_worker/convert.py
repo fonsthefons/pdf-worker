@@ -81,13 +81,23 @@ def convert_pdf(
         profile = analyze_document(doc)
         info = doc.metadata or {}
         meta = Metadata(
-            title=title or _clean_title(info.get("title", "")) or Path(pdf_path).stem,
+            title=title or _title_from(info, pdf_path),
             author=author or (info.get("author") or "").strip(),
             language=language or guess_language(profile.text_sample),
         )
         writer = write_epub if fmt == "epub" else write_markdown
         stats = writer(iter_blocks(doc, profile), output_path, meta)
     return ConvertReport(output_path=output_path, metadata=meta, stats=stats)
+
+
+def pdf_title(pdf_path: str | Path) -> str:
+    """The book title convert would use: PDF metadata, else the file name."""
+    with open_pdf(pdf_path) as doc:
+        return _title_from(doc.metadata or {}, pdf_path)
+
+
+def _title_from(info: dict, pdf_path: str | Path) -> str:
+    return _clean_title(info.get("title", "")) or Path(pdf_path).stem
 
 
 def _clean_title(title: str) -> str:
