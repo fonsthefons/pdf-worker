@@ -10,6 +10,7 @@ import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
+from pdf_worker.inline import LinkClose, LinkOpen, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
 
@@ -39,6 +40,28 @@ def escape_markdown(text: str, line_start: bool = True) -> str:
     return _LIST_NUMBER_RE.sub(r"\1\\\2\3", _LINE_START_RE.sub(r"\\\1", escaped))
 
 
+def render_markdown(text: str, line_start: bool = True) -> str:
+    """Escape block text for Markdown and render its inline markers: web links become
+    ``[text](url)``; links within the book and page starts are dropped."""
+    out: list[str] = []
+    targets: list[str | None] = []
+    first = True
+    for piece in pieces(text):
+        if isinstance(piece, str):
+            out.append(escape_markdown(piece, line_start=line_start and first))
+            first = False
+        elif isinstance(piece, LinkOpen):
+            uri = piece.target[2:] if piece.target.startswith("u:") else None
+            targets.append(uri)
+            if uri:
+                out.append("[")
+        elif isinstance(piece, LinkClose):
+            uri = targets.pop() if targets else None
+            if uri:
+                out.append(f"](<{uri}>)")
+    return "".join(out)
+
+
 def _yaml(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -62,15 +85,15 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
                 if isinstance(block, Heading):
                     stats.headings += 1
                     level = min(block.level, 6)
-                    text = escape_markdown(block.text, line_start=False)
+                    text = render_markdown(block.text, line_start=False)
                     body.write("#" * level + " " + text + "\n\n")
                 elif isinstance(block, Paragraph):
                     stats.paragraphs += 1
-                    body.write(escape_markdown(block.text) + "\n\n")
+                    body.write(render_markdown(block.text) + "\n\n")
                 elif isinstance(block, Gloss):
                     stats.glosses += 1
                     # A blockquote, one margin line per line (backslash = hard break).
-                    lines = [escape_markdown(line) for line in block.lines]
+                    lines = [render_markdown(line) for line in block.lines]
                     body.write("> " + "\\\n> ".join(lines) + "\n\n")
                 elif isinstance(block, Note):
                     if block.continued and open_note and open_note.label == block.label:
@@ -96,5 +119,5 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
 
 def _write_note(out, note: Note) -> None:
     # Later paragraphs of a note are indented by four spaces (Pandoc footnote syntax).
-    paragraphs = [escape_markdown(p) for p in note.text.split("\n\n") if p.strip()]
+    paragraphs = [render_markdown(p) for p in note.text.split("\n\n") if plain(p).strip()]
     out.write(f"[^{note.label}]: " + "\n\n    ".join(paragraphs) + "\n\n")

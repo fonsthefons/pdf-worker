@@ -20,6 +20,14 @@ from pdf_worker.footnotes import (
     is_small,
     layout_page,
 )
+from pdf_worker.inline import (
+    LEADING_PAGE_MARKS_RE,
+    link,
+    page_mark,
+    page_target,
+    plain,
+    uri_target,
+)
 from pdf_worker.layout import HEADING_RATIO, DocumentProfile, Line
 from pdf_worker.margins import split_columns
 
@@ -42,12 +50,16 @@ PARAGRAPH_BREAK = " "
 class Heading:
     text: str
     level: int
+    page: int = -1  # PDF page index and position of the heading, for resolving links
+    top: float = 0.0
 
 
 @dataclass(frozen=True)
 class Paragraph:
     text: str
     small: bool = False  # smaller type than the body: glosses, captions, asides
+    page: int = -1  # where it starts, for resolving links (see Heading)
+    top: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -84,12 +96,16 @@ class _Builder:
     lines: int = 0
     bold: bool = True
     size_total: float = 0.0
+    page: int = -1  # where the block starts: PDF page index and top of its first line
+    top: float = 0.0
 
-    def add(self, text: str, bold: bool, size: float) -> None:
+    def add(self, text: str, line: Line, page: int) -> None:
+        if not self.lines:
+            self.page, self.top = page, line.top
         self.parts.append(text)
         self.lines += 1
-        self.bold = self.bold and bold
-        self.size_total += size
+        self.bold = self.bold and line.bold
+        self.size_total += line.size
 
     @property
     def size(self) -> float:
@@ -112,16 +128,22 @@ def join_lines(parts: list[str]) -> str:
                 out += "\n\n"
             continue
         part = part.strip()
+        # Page-start markers lead a page's first line; join on the text after them.
+        lead = ""
+        marks = LEADING_PAGE_MARKS_RE.match(part)
+        if marks:
+            lead, part = marks.group(1), marks.group(2).strip()
         if not part:
+            out += lead
             continue
-        if not out or out.endswith("\n\n"):
-            out += part
+        if not out or out.endswith("\n\n") or not plain(out):
+            out += lead + part
         elif len(out) > 1 and out[-1] == "-" and out[-2].isalpha() and part[0].islower():
-            out = out[:-1] + part
+            out = out[:-1] + lead + part
         elif _REF_ONLY_RE.match(part):
-            out += part  # a reference that wrapped onto its own line
+            out += lead + part  # a reference that wrapped onto its own line
         else:
-            out += " " + part
+            out += " " + lead + part
     return out
 
 
@@ -133,8 +155,59 @@ def iter_blocks(doc: pymupdf.Document, profile: DocumentProfile) -> Iterator[Blo
         page = doc.load_page(index)
         layout = layout_page(page, index, profile, previous_label)
         previous_label = layout.trailing_label
-        yield from state.add_page(layout, page.rect.width, page.rect.height)
+        label = profile.page_labels[index] if index < len(profile.page_labels) else ""
+        yield from state.add_page(
+            layout,
+            page.rect.width,
+            page.rect.height,
+            page_index=index,
+            page_label=label or str(index + 1),
+            links=_page_links(page, doc.page_count),
+        )
     yield from state.finish()
+
+
+def _page_links(page: pymupdf.Page, page_count: int) -> list[tuple[pymupdf.Rect, str]]:
+    """Links on a page as (area, inline target): web addresses and places in the book."""
+    out = []
+    for item in page.get_links():
+        rect = pymupdf.Rect(item["from"])
+        if item.get("uri") and item["kind"] == pymupdf.LINK_URI:
+            out.append((rect, uri_target(item["uri"])))
+        elif item["kind"] in (pymupdf.LINK_GOTO, pymupdf.LINK_NAMED):
+            target_page = item.get("page", -1)
+            if 0 <= target_page < page_count:
+                to = item.get("to")
+                out.append((rect, page_target(target_page, to.y if to else 0.0)))
+    return out
+
+
+def _link_line(body_line: BodyLine, links: list[tuple[pymupdf.Rect, str]]) -> BodyLine:
+    """Wrap the parts of a line that were links in the PDF with link markers."""
+    line, text = body_line.line, body_line.text
+    height = line.bbox[3] - line.bbox[1]
+    found = False
+    for rect, target in sorted(links, key=lambda item: item[0].x0):
+        overlap = min(rect.y1, line.bbox[3]) - max(rect.y0, line.bbox[1])
+        if overlap < 0.5 * height or rect.x1 <= line.x0 or rect.x0 >= line.x1:
+            continue
+        inside = [
+            span["text"]
+            for span in line.spans
+            if rect.x0 - 1 <= (span["bbox"][0] + span["bbox"][2]) / 2 <= rect.x1 + 1
+        ]
+        linked = "".join(inside).strip()
+        if not linked:
+            continue
+        if linked == plain(text).strip():
+            stripped = text.strip()
+            text = text.replace(stripped, link(target, stripped), 1)
+        elif linked in text:
+            text = text.replace(linked, link(target, linked), 1)
+        else:
+            continue
+        found = True
+    return BodyLine(text, line, body_line.endnote_label) if found else body_line
 
 
 class _State:
@@ -148,12 +221,23 @@ class _State:
         self.prev_margins: _Margins | None = None
         self.break_next = False  # a blank line was seen
         self.in_notes = False  # inside a chapter-endnotes area (see pdf_worker.endnotes)
+        self.page_index = 0
+        self.pending_marks: list[str] = []  # page starts not yet attached to a line
 
     # -- page handling ----------------------------------------------------------------
     def add_page(
-        self, layout: PageLayout, page_width: float, page_height: float
+        self,
+        layout: PageLayout,
+        page_width: float,
+        page_height: float,
+        page_index: int = 0,
+        page_label: str = "",
+        links: list[tuple[pymupdf.Rect, str]] | None = None,
     ) -> Iterator[Block]:
         profile = self.profile
+        self.page_index = page_index
+        # The page's start is marked on its first line (pages without text pass it on).
+        self.pending_marks.append(page_mark(page_index, page_label or str(page_index + 1)))
         columns = split_columns(
             [
                 bl
@@ -173,6 +257,13 @@ class _State:
             if not body_line.text.strip():
                 self.break_next = not new_page
                 continue
+            if links:
+                body_line = _link_line(body_line, links)
+            if self.pending_marks:
+                marks, self.pending_marks = "".join(self.pending_marks), []
+                body_line = BodyLine(
+                    marks + body_line.text, body_line.line, body_line.endnote_label
+                )
             yield from self._add_line(body_line, margins, new_page)
             new_page = False
         if columns.glosses:
@@ -209,7 +300,12 @@ class _State:
             )
             starts = self._starts_paragraph(line, text, margins, new_page)
             if level and not last:
-                return  # a group heading inside the notes area ("2 The Foundation ...")
+                # A group heading inside the notes area ("2 The Foundation ..."): drop it,
+                # but keep any page-start marker it carried for the next line.
+                marks = LEADING_PAGE_MARKS_RE.match(text.strip())
+                if marks:
+                    self.pending_marks.append(marks.group(1))
+                return
             other_type = abs(line.size - self.current.size) > _SIZE_JITTER * self.current.size
             if last and (level or (starts and other_type)):
                 # The notes area ends after a group's last note, at a heading or where
@@ -219,7 +315,7 @@ class _State:
                 return
             if starts:
                 self.current.parts.append(PARAGRAPH_BREAK)  # a note with paragraphs
-            self.current.add(text, line.bold, line.size)
+            self.current.add(text, line, self.page_index)
             self.prev, self.prev_text = line, text
             self.break_next = False
             return
@@ -242,7 +338,7 @@ class _State:
             if starts or self.current.kind != kind:
                 yield from self._flush()
                 self.current = _Builder(kind=kind)
-        self.current.add(text, line.bold, line.size)
+        self.current.add(text, line, self.page_index)
         self.prev, self.prev_text = line, text
         self.break_next = False
 
@@ -253,10 +349,11 @@ class _State:
         reference = self.current.size or prev.size
         if abs(line.size - reference) > max(0.6, _SIZE_JITTER * reference):
             return True
-        stripped = self.prev_text.rstrip()
+        stripped = plain(self.prev_text).rstrip()
         # A trailing footnote reference doesn't hide the punctuation before it.
         stripped = REF_RE.sub("", stripped).rstrip()
         ends_sentence = stripped.endswith(_SENTENCE_END)
+        text = plain(text)
         if len(text) - len(text.lstrip(" ")) >= 2:
             return True  # typed indentation (leading spaces)
         size = line.size or self.profile.body_size
@@ -283,17 +380,17 @@ class _State:
         if current.kind == "":
             pass
         elif current.kind == "heading":
-            yield Heading(current.text(), current.level)
+            yield Heading(current.text(), current.level, current.page, current.top)
         elif current.kind == "note":
             yield Note(current.label, current.text())
         else:
             text = current.text()
             if text:
-                level = self._implicit_heading_level(current, text)
+                level = self._implicit_heading_level(current, plain(text))
                 if level:
-                    yield Heading(text, level)
+                    yield Heading(text, level, current.page, current.top)
                 else:
-                    yield Paragraph(text, small=current.kind == "small")
+                    yield Paragraph(text, current.kind == "small", current.page, current.top)
         yield from self._flush_notes()
 
     def _flush_notes(self) -> Iterator[Block]:

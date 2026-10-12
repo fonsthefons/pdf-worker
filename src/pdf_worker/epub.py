@@ -10,15 +10,17 @@
 import html
 import os
 import re
+import shutil
 import tempfile
 import uuid
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from pdf_worker.footnotes import display_marker
+from pdf_worker.inline import LinkClose, LinkOpen, PageMark, parse_page_target, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
 
@@ -28,6 +30,18 @@ from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph
 _MIN_CHAPTER_CHARS = 2_000
 _MAX_CHAPTER_CHARS = 150_000
 _NOTES_FILE = "notes.xhtml"
+# Link targets are written as placeholders and resolved at the end (see _EpubBuilder).
+_LINK_START, _LINK_END = "", ""
+_PLACEHOLDER_RE = re.compile("([^]*)")
+# A link to a page resolves to the first heading at most this far above its target
+# position, else the page start; pages without anchors pass it on to the next ones.
+_LINK_SLACK = 30.0
+_LINK_LOOKAHEAD_PAGES = 4
+# Link text vs. block start: compare this many letters/digits, and at least this many.
+_KEY_SEP = ""
+_KEY_CHARS = 40
+_MIN_KEY = 6
+_TRAILING_PAGE_RE = re.compile(r"(?<=\S)[\s.·…]+(?:\d{1,4}|[ivxlcdm]{1,7})\s*$", re.I)
 # Characters that are not allowed in XML 1.0 documents.
 _XML_INVALID_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
 
@@ -48,6 +62,23 @@ div.gloss { font-size: 0.8em; margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
   border-left: 2px solid #999; }
 div.gloss p { text-indent: 0; text-align: left; }
 """
+
+
+def _match_key(text: str) -> str:
+    """Letters and digits only, lower case: "CAPÍTULO 1 –" and "Capítulo 1" compare equal."""
+    return "".join(c for c in text.casefold() if c.isalnum())[:_KEY_CHARS]
+
+
+def _link_text(items: list, position: int) -> str:
+    """The text of the link opened at ``items[position]``."""
+    texts = []
+    for piece in items[position + 1 :]:
+        if isinstance(piece, LinkClose | LinkOpen):
+            break
+        if isinstance(piece, str):
+            texts.append(piece)
+    # Contents entries end with their page number ("Preface xv"): not part of the title.
+    return _TRAILING_PAGE_RE.sub("", REF_RE.sub("", "".join(texts)))
 
 
 def _clean(text: str) -> str:
@@ -83,8 +114,15 @@ class _TocEntry:
 
 
 class _EpubBuilder:
-    def __init__(self, zf: zipfile.ZipFile, notes_file, meta: Metadata) -> None:
-        self.zf = zf
+    """Assembles chapters, notes, the TOC and the page list.
+
+    Chapter files go to ``work_dir`` first: a link may point forward (a contents entry to
+    a later chapter), so link targets are written as placeholders and resolved once the
+    whole book has been seen (``resolve``).
+    """
+
+    def __init__(self, work_dir: Path, notes_file, meta: Metadata) -> None:
+        self.work_dir = work_dir
         self.notes = notes_file
         self.meta = meta
         self.stats = WriteStats()
@@ -98,6 +136,9 @@ class _EpubBuilder:
         self.ref_counts: dict[str, int] = {}
         self.defined: set[str] = set()
         self.open_note: Note | None = None
+        # PDF page index -> [(top, href, match key)] of the page start and its blocks.
+        self.anchors: dict[int, list[tuple[float, str, str]]] = {}
+        self.page_list: list[tuple[int, str, str]] = []  # (page index, label, href)
 
     # -- chapters ---------------------------------------------------------------------
     @property
@@ -110,7 +151,7 @@ class _EpubBuilder:
         name = self.current_file
         title = self.chapter_title or f"{self.meta.title} ({len(self.chapter_files) + 1})"
         page = _xhtml_page(title, self.meta.language, "".join(self.parts))
-        self.zf.writestr(f"OEBPS/{name}", page)
+        (self.work_dir / name).write_text(page, encoding="utf-8")
         self.chapter_files.append(name)
         if not any(entry.href.startswith(name) for entry in self.toc):
             self.toc.append(_TocEntry(1, title, name))
@@ -125,24 +166,34 @@ class _EpubBuilder:
             tag = f"h{min(block.level, 6)}"
             text = self._inline(block.text)
             self.parts.append(f'<{tag} id="{anchor}">{text}</{tag}>\n')
-            self.toc.append(
-                _TocEntry(
-                    block.level, REF_RE.sub("", block.text).strip(), f"{self.current_file}#{anchor}"
+            title = REF_RE.sub("", plain(block.text)).strip()
+            self.toc.append(_TocEntry(block.level, title, f"{self.current_file}#{anchor}"))
+            if block.page >= 0:
+                self.anchors.setdefault(block.page, []).append(
+                    (block.top, f"{self.current_file}#{anchor}", _match_key(title))
                 )
-            )
             if not self.chapter_title:
-                self.chapter_title = REF_RE.sub("", block.text).strip()
+                self.chapter_title = title
             self.chars += len(block.text)
         elif isinstance(block, Paragraph):
             self.stats.paragraphs += 1
             css = ' class="small"' if block.small else ""
-            self.parts.append(f"<p{css}>{self._inline(block.text)}</p>\n")
+            # Every paragraph is a possible link target ("b12"): links from a contents
+            # page land on the exact block, even when its heading looked like body text.
+            anchor = f"b{self.stats.paragraphs}"
+            text = self._inline(block.text)
+            if block.page >= 0:
+                key = _match_key(REF_RE.sub("", plain(block.text)))
+                self.anchors.setdefault(block.page, []).append(
+                    (block.top, f"{self.current_file}#{anchor}", key)
+                )
+            self.parts.append(f'<p id="{anchor}"{css}>{text}</p>\n')
             self.chars += len(block.text)
             if self.chars >= _MAX_CHAPTER_CHARS:
                 self._close_chapter()
         elif isinstance(block, Gloss):
             self.stats.glosses += 1
-            lines = "<br/>".join(_esc(line) for line in block.lines)
+            lines = "<br/>".join(_esc(plain(line)) for line in block.lines)
             self.parts.append(f'<div class="gloss"><p>{lines}</p></div>\n')
             self.chars += sum(len(line) for line in block.lines)
         elif isinstance(block, Note):
@@ -154,15 +205,84 @@ class _EpubBuilder:
             self.note_ids[label] = f"n{len(self.note_ids) + 1}"
         return self.note_ids[label]
 
-    def _inline(self, text: str) -> str:
+    def _inline(self, text: str, file: str | None = None, notes: bool = False) -> str:
+        """Block text as XHTML: footnote references, page starts and links.
+
+        In notes (``notes=True``) references become plain markers.
+        """
+        file = file or self.current_file
         out = []
-        last = 0
-        for match in REF_RE.finditer(text):
-            out.append(_esc(text[last : match.start()]))
-            out.append(self._noteref(match.group(1)))
-            last = match.end()
-        out.append(_esc(text[last:]))
+        open_links = 0
+        items = list(pieces(text))
+        for position, piece in enumerate(items):
+            if isinstance(piece, PageMark):
+                page_id = f"pg{piece.index}"
+                self.anchors.setdefault(piece.index, []).insert(0, (-1.0, f"{file}#{page_id}", ""))
+                self.page_list.append((piece.index, piece.label, f"{file}#{page_id}"))
+                out.append(
+                    f'<span epub:type="pagebreak" role="doc-pagebreak" id="{page_id}" '
+                    f'aria-label="{_attr(piece.label)}"></span>'
+                )
+            elif isinstance(piece, LinkOpen):
+                if open_links:
+                    out.append("</a>")  # links can't nest: close the outer one first
+                # The placeholder carries the link's text too, to match it with the start
+                # of the target block (a contents entry and its heading).
+                key = _match_key(_link_text(items, position))
+                out.append(f'<a href="{_LINK_START}{piece.target}{_KEY_SEP}{key}{_LINK_END}">')
+                open_links = 1
+            elif isinstance(piece, LinkClose):
+                if open_links:
+                    out.append("</a>")
+                    open_links = 0
+            else:
+                last = 0
+                for match in REF_RE.finditer(piece):
+                    out.append(_esc(piece[last : match.start()]))
+                    if notes or open_links:
+                        # No links inside links: a reference in linked text is plain.
+                        out.append(f"<sup>{_esc(display_marker(match.group(1)))}</sup>")
+                    else:
+                        out.append(self._noteref(match.group(1)))
+                    last = match.end()
+                out.append(_esc(piece[last:]))
+        out.append("</a>" * open_links)
         return "".join(out)
+
+    def resolve(self, text: str) -> str:
+        """Replace link placeholders with real hrefs, now that every page is placed."""
+
+        def _href(match: re.Match) -> str:
+            target, _, key = match.group(1).partition(_KEY_SEP)
+            return _attr(self._target_href(target, key))
+
+        return _PLACEHOLDER_RE.sub(_href, text)
+
+    def _target_href(self, target: str, key: str = "") -> str:
+        if target.startswith("u:"):
+            return target[2:]
+        place = parse_page_target(target)
+        first = self.chapter_files[0] if self.chapter_files else "c001.xhtml"
+        if place is None:
+            return first
+        page, y = place
+        # Best: a block on (or next to) the target page that starts with the link text.
+        if len(key) >= _MIN_KEY:
+            for index in (page, page - 1, page + 1):
+                for _, href, block_key in self.anchors.get(index, ()):
+                    same_start = block_key[: len(key)] == key[: len(block_key)]
+                    if len(block_key) >= _MIN_KEY and same_start:
+                        return href
+        for index in range(page, page + _LINK_LOOKAHEAD_PAGES):
+            anchors = self.anchors.get(index)
+            if not anchors:
+                continue
+            if index == page:
+                # The first block at or just below the target, else the page start.
+                below = [a for a in anchors if a[0] >= y - _LINK_SLACK]
+                return min(below)[1] if below else anchors[0][1]
+            return anchors[0][1]
+        return first
 
     def _noteref(self, label: str) -> str:
         note_id = self._note_id(label)
@@ -193,8 +313,11 @@ class _EpubBuilder:
     def _inline_note(self, text: str) -> str:
         # References inside notes are rare; render them as plain markers. Paragraphs
         # after the first become their own <p>.
-        text = REF_RE.sub(lambda m: display_marker(m.group(1)), text)
-        return "</p><p>".join(_esc(p) for p in text.split("\n\n") if p.strip())
+        return "</p><p>".join(
+            self._inline(p, file=_NOTES_FILE, notes=True)
+            for p in text.split("\n\n")
+            if plain(p).strip()
+        )
 
     def _write_note(self, label: str, body: str) -> None:
         note_id = self._note_id(label)
@@ -224,12 +347,15 @@ def write_epub(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wr
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.")
     os.close(fd)
-    nfd, notes_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.n.")
+    work_dir = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.w."))
+    notes_path = work_dir / "notes.part"
     try:
-        with (
-            zipfile.ZipFile(tmp_name, "w", compression=zipfile.ZIP_DEFLATED) as zf,
-            os.fdopen(nfd, "w", encoding="utf-8", newline="\n") as notes,
-        ):
+        with notes_path.open("w", encoding="utf-8", newline="\n") as notes:
+            builder = _EpubBuilder(work_dir, notes, meta)
+            for block in blocks:
+                builder.add(block)
+            builder.finish()
+        with zipfile.ZipFile(tmp_name, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             # The mimetype entry must come first and be stored uncompressed.
             zf.writestr(
                 zipfile.ZipInfo("mimetype"),
@@ -238,27 +364,31 @@ def write_epub(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wr
             )
             zf.writestr("META-INF/container.xml", _CONTAINER)
             zf.writestr("OEBPS/style.css", _CSS)
-            builder = _EpubBuilder(zf, notes, meta)
-            for block in blocks:
-                builder.add(block)
-            builder.finish()
-            notes.close()
+            for name in builder.chapter_files:
+                chapter = (work_dir / name).read_text(encoding="utf-8")
+                zf.writestr(f"OEBPS/{name}", builder.resolve(chapter))
+                (work_dir / name).unlink()
             has_notes = bool(builder.defined)
             if has_notes:
-                _write_notes_file(zf, Path(notes_name), meta)
-            zf.writestr("OEBPS/nav.xhtml", _nav(builder.toc, meta, has_notes))
+                _write_notes_file(zf, notes_path, meta, builder.resolve)
+            pages = sorted(builder.page_list)
+            zf.writestr("OEBPS/nav.xhtml", _nav(builder.toc, meta, has_notes, pages))
             zf.writestr("OEBPS/toc.ncx", _ncx(builder.toc, meta, has_notes))
-            zf.writestr("OEBPS/content.opf", _opf(builder.chapter_files, meta, has_notes))
+            zf.writestr(
+                "OEBPS/content.opf", _opf(builder.chapter_files, meta, has_notes, bool(pages))
+            )
         os.replace(tmp_name, output_path)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
     finally:
-        Path(notes_name).unlink(missing_ok=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
     return builder.stats
 
 
-def _write_notes_file(zf: zipfile.ZipFile, notes_path: Path, meta: Metadata) -> None:
+def _write_notes_file(
+    zf: zipfile.ZipFile, notes_path: Path, meta: Metadata, resolve: Callable[[str], str]
+) -> None:
     title = _notes_title(meta.language)
     head, tail = _xhtml_page(title, meta.language, "\0", epub_type="backmatter").split("\0")
     with zf.open(f"OEBPS/{_NOTES_FILE}", "w") as out:
@@ -266,9 +396,10 @@ def _write_notes_file(zf: zipfile.ZipFile, notes_path: Path, meta: Metadata) -> 
         out.write(
             f'<section epub:type="endnotes" role="doc-endnotes">\n<h2>{_esc(title)}</h2>\n'.encode()
         )
-        with open(notes_path, "rb") as notes:
-            for chunk in iter(lambda: notes.read(1 << 16), b""):
-                out.write(chunk)
+        # One note per line, so links can be resolved line by line.
+        with notes_path.open(encoding="utf-8") as notes:
+            for note in notes:
+                out.write(resolve(note).encode("utf-8"))
         out.write(b"</section>\n")
         out.write(tail.encode("utf-8"))
 
@@ -298,7 +429,7 @@ _CONTAINER = """\
 """
 
 
-def _opf(chapters: list[str], meta: Metadata, has_notes: bool) -> str:
+def _opf(chapters: list[str], meta: Metadata, has_notes: bool, has_pages: bool = False) -> str:
     modified = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = [
         '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
@@ -313,6 +444,8 @@ def _opf(chapters: list[str], meta: Metadata, has_notes: bool) -> str:
         items.append(f'<item id="notes" href="{_NOTES_FILE}" media-type="application/xhtml+xml"/>')
         spine.append('<itemref idref="notes"/>')
     creator = f"<dc:creator>{_esc(meta.author)}</dc:creator>\n    " if meta.author else ""
+    if has_pages:
+        creator += '<meta property="schema:accessibilityFeature">printPageNumbers</meta>\n    '
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
@@ -339,7 +472,30 @@ def _toc_entries(toc: list[_TocEntry], meta: Metadata, has_notes: bool) -> list[
     return entries
 
 
-def _nav(toc: list[_TocEntry], meta: Metadata, has_notes: bool) -> str:
+def _page_list(pages: list[tuple[int, str, str]]) -> str:
+    """EPUB 3 page list: printed page numbers that readers (Kindle) show as real pages.
+
+    Each entry points into the text, so the numbers stay right at any font size.
+    """
+    seen: set[int] = set()
+    items = []
+    for index, label, href in pages:
+        if index in seen:
+            continue
+        seen.add(index)
+        items.append(f'<li><a href="{_attr(href)}">{_esc(label)}</a></li>')
+    return (
+        '<nav epub:type="page-list" id="page-list" role="doc-pagelist" hidden="hidden">\n'
+        "<h2>Pages</h2>\n<ol>" + "".join(items) + "</ol>\n</nav>\n"
+    )
+
+
+def _nav(
+    toc: list[_TocEntry],
+    meta: Metadata,
+    has_notes: bool,
+    pages: list[tuple[int, str, str]] | None = None,
+) -> str:
     entries = _toc_entries(toc, meta, has_notes)
     out = []
     depth = 0
@@ -358,6 +514,8 @@ def _nav(toc: list[_TocEntry], meta: Metadata, has_notes: bool) -> str:
         depth -= 1
     body = f'<nav epub:type="toc" id="toc" role="doc-toc">\n<h1>{_esc(meta.title)}</h1>\n'
     body += "\n".join(out) + "\n</nav>\n"
+    if pages:
+        body += _page_list(pages)
     return _xhtml_page(meta.title, meta.language, body)
 
 

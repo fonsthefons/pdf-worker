@@ -229,11 +229,42 @@
   Familia still has 0 notes.
 - Tests: `tests/test_endnotes.py` (5) and 3 new integration tests.
 
+### Feature 8: EPUB links and Kindle page numbers (2026-10-13, PR #10)
+- New `inline.py`: private-use-character markers in block text carry page starts
+  (index plus printed label) and links (`u:<uri>` or `p:<page>:<y>`).
+  `structure._page_links` reads PDF link annotations (URI, GOTO, NAMED);
+  `_link_line` wraps the linked text of each line. `join_lines` keeps page marks
+  through dehyphenation.
+- Page labels (`layout._page_labels`): the PDF's page labels, else printed margin numbers
+  with one consistent offset (≥ 25% of pages agree), else index + 1; pages before
+  printed page 1 get i, ii, iii.
+- EPUB:
+  - Every page start becomes `<span epub:type="pagebreak" id="pgN" aria-label=...>`, and
+    nav.xhtml gets a hidden `page-list` nav. The OPF declares
+    `schema:accessibilityFeature printPageNumbers`.
+  - Headings (`hN`) and paragraphs (`bN`) are anchors with their page and position.
+  - Chapters are written to a work dir, and link placeholders (with the link's text)
+    are resolved at the end: first a block near the target page whose start matches
+    the link text (trailing page numbers removed), then the first block at or below the
+    target y, then the page start.
+  - Links never nest, and references inside links render as plain superscripts.
+- Markdown: web links become `[text](<url>)`; page marks and internal links are dropped.
+- Results:
+  - Encyclical: all index links land on their sections. Before this, it had no links.
+  - 9/11: 1,024 internal links; page list i–xviii then 1…, matching the print edition.
+  - epubcheck: 0 messages on both.
+- Not verified on a device: whether Send to Kindle turns the page-list into Kindle "real
+  page numbers". The user should check.
+- Tests: `tests/test_links_pages.py` (5) and integration checks on the encyclical and the
+  9/11 report.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
+- **Stopped at the usage limit after PR #10 (items 1, 2, 9, 10 done). Next: items 3
+  (images and cover), 4, 5, 6, 7, 8, in that order. Start from main.**
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
@@ -255,11 +286,11 @@
      title for OCR'd files.
   7. [ ] Formats: docx, html, txt, pdf.
   8. [ ] GitHub Actions CI.
-  9. [ ] (added mid-task) Internal links: PDF link annotations (contents entries,
+  9. [x] (PR #10) (added mid-task) Internal links: PDF link annotations (contents entries,
      cross-references) become working EPUB links to the target chapter or page. The
      user noticed the encyclical's index wasn't linked. A printed TOC whose entries
      resolve to links is kept as a linked list; one without links is dropped.
-  10. [ ] (added mid-task) Kindle page numbers instead of only "Loc": EPUB 3 page-list
+  10. [x] (PR #10) (added mid-task) Kindle page numbers instead of only "Loc": EPUB 3 page-list
      nav, `epub:type="pagebreak"` markers and an NCX pageList, using the printed page
      labels. These are fixed to the text, so they work at any font size, like store
      ebooks. Can't verify on a device: the user should check.

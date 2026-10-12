@@ -24,6 +24,9 @@ _MARGIN_ZONE = 0.1
 # A margin line repeated on at least this share of pages (and 3 pages) is running text.
 _RUNNING_SHARE = 0.2
 _MIN_SMALL_RUNNING = 4
+# The printed page numbers must agree on this share of all pages.
+_MIN_PRINTED_SHARE = 0.25
+_PRINTED_NUMBER_RE = re.compile(r"^\s*(\d{1,4})\s*$")
 # A mid-page line on at least this share of pages (and 5 pages) is a watermark.
 _WATERMARK_SHARE = 0.5
 _MIN_WATERMARK_CHARS = 12
@@ -120,6 +123,8 @@ class DocumentProfile:
     endnote_defs: dict[int, tuple[int, int]] = field(default_factory=dict)
     # Superscript-referenced endnotes collected per chapter (see ``pdf_worker.endnotes``).
     chapter_notes: ChapterNotes = field(default_factory=ChapterNotes)
+    # Printed page number of each page ("23", front matter "xii"), for EPUB page lists.
+    page_labels: list[str] = field(default_factory=list)
     text_sample: str = ""
     page_count: int = 0
 
@@ -144,6 +149,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     gaps: Counter[float] = Counter()
     margin_texts: Counter[str] = Counter()
     margin_sizes: dict[str, float] = {}
+    offsets: Counter[int] = Counter()  # printed page number minus page index
     inner_texts: Counter[str] = Counter()
     occurrences: Counter[int] = Counter()
     line_starts: dict[int, tuple[int, int]] = {}
@@ -158,6 +164,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         lines = page_lines(page)
         page_margin_texts = set()
         page_inner_texts = set()
+        page_offsets: set[int] = set()
         for line_index, line in enumerate(lines):
             text = line.text
             for span in line.spans:
@@ -166,6 +173,9 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
                 key = running_key(text)
                 page_margin_texts.add(key)
                 margin_sizes[key] = max(margin_sizes.get(key, 0.0), line.size)
+                printed = _PRINTED_NUMBER_RE.match(text)
+                if printed:
+                    page_offsets.add(int(printed.group(1)) - page_index)
             elif len(text.strip()) >= _MIN_WATERMARK_CHARS:
                 page_inner_texts.add(running_key(text))
             if line_index and lines[line_index - 1].size == line.size:
@@ -193,6 +203,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
                 occurrences[number] += 1
         margin_texts.update(page_margin_texts)
         inner_texts.update(page_inner_texts)
+        offsets.update(page_offsets)
 
     sizes.pop(0.0, None)
     body_size = sizes.most_common(1)[0][0] if sizes else 0.0
@@ -225,9 +236,40 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         running_texts=running,
         endnote_defs=_endnote_candidates(occurrences, line_starts, referenced_mid_line),
         chapter_notes=match_chapter_notes(sup_refs, note_lines),
+        page_labels=_page_labels(doc, offsets),
         text_sample=" ".join(sample),
         page_count=doc.page_count,
     )
+
+
+def _page_labels(doc: pymupdf.Document, offsets: Counter[int]) -> list[str]:
+    """Printed page numbers: the PDF's own page labels, else the numbers printed in the
+    margins (one consistent offset from the page index), else the page index + 1.
+
+    Pages before printed page 1 (front matter) get lower-case Roman numerals.
+    """
+    if doc.get_page_labels():
+        return [doc.load_page(i).get_label() or str(i + 1) for i in range(doc.page_count)]
+    offset = 0
+    if offsets:
+        best, count = offsets.most_common(1)[0]
+        if count >= max(3, doc.page_count * _MIN_PRINTED_SHARE):
+            offset = best
+    return [
+        str(i + offset) if i + offset >= 1 else _roman(i + 1).lower() for i in range(doc.page_count)
+    ]
+
+
+def _roman(number: int) -> str:
+    out = []
+    for value, letters in (
+        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+        (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+    ):  # fmt: skip
+        while number >= value:
+            out.append(letters)
+            number -= value
+    return "".join(out)
 
 
 def _endnote_candidates(
