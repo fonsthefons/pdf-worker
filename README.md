@@ -36,6 +36,7 @@ Footnotes are marked explicitly, in Markdown/Pandoc footnote syntax:
 | Superscript marker in the text, small note at the bottom of page 12 | `...claim[^p12-1] continues` and, at the end of that page's text, `[^p12-1]: The note.` |
 | A note that runs onto the next page | `[^p12-1]: (continued) rest of the note.` on page 13 |
 | Bracketed endnotes: `[31]` in the text, a later line starting `[31]` | `...claim[^31]` ... `[^31]: The note.` |
+| Chapter endnotes: superscript numbers restarting in each chapter, notes as `12. Text` at the end of the chapter or in a "Notes" section | `...claim[^c3-12]` ... `[^c3-12]: Text` (chapter group 3, note 12) |
 
 A reference is only rewritten when its note was found, so exponents (`m²`) and stray
 numbers stay as they are. Numbered lists like `[1] ... [2] ...` and margin notes beside
@@ -43,8 +44,14 @@ the body text are not treated as notes. The command reports how many notes it ma
 and warns about notes without references (or references without notes).
 Use `--no-footnotes` to get the raw text layer instead.
 
-Not detected yet: endnotes referenced only by superscript numbers (e.g. a "Notes" chapter
-at the end of a book) and footnotes in scanned PDFs without a text layer.
+Footnotes are found under the text column even when a watermark crosses them, when they
+are set in two columns, or when OCR jitters their size. Chapter endnotes are paired with
+their notes by order and count, so a numbered list inside a note doesn't break the
+sequence. In EPUB and Markdown, notes with several paragraphs keep them.
+
+Scanned books: OCR them first (`--ocr redo`). Tesseract usually garbles superscript
+markers (`observe.**`), so their notes are taken out of the body and kept, but often
+can't be linked to the exact spot in the text.
 
 ### Convert to EPUB or Markdown
 
@@ -134,3 +141,11 @@ your own copies locally; tests for missing files are skipped. The expected sampl
   image-only cover pages.
 - `Magnifica Humanitas Encíclica May 15 2026.pdf`: web page printout with 224
   bracketed endnotes (`[1]` ... `[224]`).
+- Public-domain downloads:
+  - `Trump v CASA (US Supreme Court 2025).pdf`: 42 bottom-of-page footnotes and a
+    watermark
+    (https://www.supremecourt.gov/opinions/24pdf/606us2r66_j426.pdf).
+  - `9-11 Commission Report.pdf`: 1,742 chapter endnotes in a Notes section
+    (https://www.govinfo.gov/content/pkg/GPO-911REPORT/pdf/GPO-911REPORT.pdf).
+  - `Gibbon Decline and Fall vol 1 (1872 scan).pdf`: a scanned book with footnotes
+    (https://archive.org/download/historyofdeclin01gibb/historyofdeclin01gibb.pdf).

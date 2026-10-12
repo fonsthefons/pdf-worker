@@ -95,4 +95,6 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
 
 
 def _write_note(out, note: Note) -> None:
-    out.write(f"[^{note.label}]: {escape_markdown(note.text)}\n\n")
+    # Later paragraphs of a note are indented by four spaces (Pandoc footnote syntax).
+    paragraphs = [escape_markdown(p) for p in note.text.split("\n\n") if p.strip()]
+    out.write(f"[^{note.label}]: " + "\n\n    ".join(paragraphs) + "\n\n")

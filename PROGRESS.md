@@ -183,17 +183,96 @@
   background), then `.venv-paddle/bin/python scratch/paddle_eval.py familia:25 ...`,
   then `.venv/bin/python scratch/paddle_truth.py`.
 
+### Feature 7: chapter endnotes and real footnoted books (2026-10-13, PR #9)
+- Samples (public domain, in `test_pdfs/`, gitignored):
+  - Supreme Court Trump v. CASA (113 pages, 42 footnotes, a "Page Proof Pending
+    Publication" watermark).
+  - 9/11 Commission Report (585 pages, 1,742 endnotes in 13 chapter groups).
+  - Gibbon, Decline and Fall vol. 1 (archive.org scan, unusable word-level OCR layer; I
+    re-OCR'd it to `scratch/gibbon.ocr.pdf`).
+- New `endnotes.py`:
+  - Superscript number runs (restarting at 1) and numbered note lines (`12.` or
+    `12.Text`) are grouped into sequences.
+  - A sequence resumes after a numbered list inside a note.
+  - Runs pair with groups by an LCS on counts, with groups after runs. Labels are
+    `c<group>-<n>`.
+  - `section_continues` tells whether a notes section goes on, so per-chapter
+    subheadings inside it are dropped.
+- `structure.py`:
+  - Notes zone: a note's later paragraphs stay in the note (`PARAGRAPH_BREAK`, `\n\n`).
+  - Subheadings in the zone are dropped. The zone ends after a group's last note at a
+    heading or type change.
+  - Writers: Markdown indents continuation paragraphs; EPUB writes one `<p>` each.
+- Footnote detection fixes:
+  - The region is found in vertical order (so a watermark or a stray box doesn't hide
+    it), and watermark lines are skipped.
+  - The region must sit under a column of body-size text; this kills Familia glosses
+    and index pages.
+  - Two-column notes are accepted and read column by column.
+  - OCR jitter and specks are tolerated; printers' signature marks are skipped.
+  - `*8`-style OCR markers are recognised.
+  - Without superscript refs, a plain-text marker must be indented or ≤ 30 (this killed
+    the `341 F. 2d` false note).
+- Layout:
+  - Watermarks: mid-page lines repeated on ≥ 50% of pages are dropped.
+  - Small-type margin lines repeated on ≥ 4 pages are running heads ("NOTES TO
+    CHAPTER 1").
+  - Junk PDF titles like `201-635.job` are ignored.
+- Results:
+
+  | Sample | Before | After |
+  |---|---|---|
+  | Court opinion | 8 notes | 42/42 linked |
+  | 9/11 report | 49 false notes | 1,742/1,742 refs linked (1 extra def), EPUB valid |
+  | Gibbon after OCR | 34 pages with notes | 302 pages; 601 notes in EPUB, mostly unlinked because OCR garbles the markers |
+
+  Familia still has 0 notes.
+- Tests: `tests/test_endnotes.py` (5) and 3 new integration tests.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
+- **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
+  The user's answers:
+  - Test books: download public-domain footnoted and endnoted books (archive.org,
+    Gutenberg) into `test_pdfs/` (gitignored).
+  - Output formats for item 7: docx, HTML, clean plain text, reflowed PDF (EPUB and
+    Markdown exist already).
+  - Paddle: `--engine paddle` auto-starts and stops the MLX server from `.venv-paddle`.
+  - Printed contents pages: drop them (the EPUB has its own TOC).
+
+  The items, with status:
+  1. [x] Endnotes referenced by superscripts, with notes in a "Notes" section/chapter
+     (PR #9, together with item 2).
+  2. [x] Real footnoted books: downloaded the court opinion, the 9/11 report and the
+     Gibbon scan, tuned detection on them, added integration tests.
+  3. [ ] Images and a cover in the EPUB.
+  4. [ ] One-step `pdf-worker kindle`: auto-detect OCR need and mode, then EPUB.
+  5. [ ] `--engine paddle` (opt-in).
+  6. [ ] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the
+     title for OCR'd files.
+  7. [ ] Formats: docx, html, txt, pdf.
+  8. [ ] GitHub Actions CI.
+  9. [ ] (added mid-task) Internal links: PDF link annotations (contents entries,
+     cross-references) become working EPUB links to the target chapter or page. The
+     user noticed the encyclical's index wasn't linked. A printed TOC whose entries
+     resolve to links is kept as a linked list; one without links is dropped.
+  10. [ ] (added mid-task) Kindle page numbers instead of only "Loc": EPUB 3 page-list
+     nav, `epub:type="pagebreak"` markers and an NCX pageList, using the printed page
+     labels. These are fixed to the text, so they work at any font size, like store
+     ebooks. Can't verify on a device: the user should check.
+- User feedback: the EPUB footnotes "worked perfectly" on Kindle.
 - Shipped: footnotes (PR #2), OCR plan (PR #3), EPUB/Markdown conversion (PR #4), OCR
   phase 1 (Tesseract, PR #5), Latin macrons (PR #6), and margin glosses and line numbers
   (PR #7).
 - The PaddleOCR-VL evaluation (OCR phase 2) is done, on branch `feature/paddle-eval`
   (PR #8). Steps 1–3 of the 2026-10-12 request are complete.
-- Waiting on the user: feedback from a real Kindle on the EPUB output.
+- Kindle check (2026-10-12): the user reported that footnotes in the EPUB "worked
+  perfectly" on their Kindle (the encyclical, 224 linked notes). Keep the current
+  footnote markup (noteref links, `epub:type="footnote"` asides in `notes.xhtml`,
+  backlinks).
 - Candidate next steps:
   - OCR phase 3: `--engine paddle` (opt-in, slow, much better on diacritics).
   - Images in EPUB.

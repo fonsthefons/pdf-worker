@@ -191,8 +191,10 @@ class _EpubBuilder:
         self._write_note(note.label, self._inline_note(note.text))
 
     def _inline_note(self, text: str) -> str:
-        # References inside notes are rare; render them as plain markers.
-        return _esc(REF_RE.sub(lambda m: display_marker(m.group(1)), text))
+        # References inside notes are rare; render them as plain markers. Paragraphs
+        # after the first become their own <p>.
+        text = REF_RE.sub(lambda m: display_marker(m.group(1)), text)
+        return "</p><p>".join(_esc(p) for p in text.split("\n\n") if p.strip())
 
     def _write_note(self, label: str, body: str) -> None:
         note_id = self._note_id(label)

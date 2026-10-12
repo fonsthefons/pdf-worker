@@ -21,21 +21,35 @@ from dataclasses import dataclass
 
 import pymupdf
 
-from pdf_worker.layout import PAGE_NUMBER_RE, SUPERSCRIPT, DocumentProfile, Line, page_lines
+from pdf_worker.layout import (
+    NUMBERED_NOTE_RE,
+    PAGE_NUMBER_RE,
+    SUPERSCRIPT,
+    DocumentProfile,
+    Line,
+    page_lines,
+    running_key,
+)
 
 # Lines this much smaller than the body font count as footnote-sized.
 SMALL_RATIO = 0.92
 # Footnote regions must start in the lower part of the page.
 _REGION_MIN_TOP = 0.4
 CONTINUED = "(continued) "
+# Highest note number trusted when the marker looks like ordinary text.
+_MAX_PLAIN_MARKER = 30
 
 _MARKER = r"\d{1,3}|[*†‡§¶]{1,3}"
 _MARKER_RE = re.compile(rf"^(?:{_MARKER})$")
 _MARKER_LIST_RE = re.compile(rf"^(?:{_MARKER})(?:\s*,\s*(?:{_MARKER}))*$")
 _DEF_START_RE = re.compile(rf"^\s*({_MARKER})(?:[.)]\s*|\s+)(?=\S)")
+# OCR often garbles a superscript marker into stray symbols: "*8 It is", "‘3 See".
+_OCR_DEF_START_RE = re.compile(r"^\s*[*'‘’\"“”^°]{1,2}(\d{1,3})\s+(?=\S)")
 _BRACKET_REF_RE = re.compile(r"[ \t ]*\[(\d{1,4})\]")
 _BRACKET_DEF_RE = re.compile(r"^\s*\[(\d{1,4})\][\s ]*")
 SEPARATOR_RE = re.compile(r"^\s*[_\-—–]{3,}\s*$")
+# A printer's signature mark at the foot of a page: "P 2", "B", "Q 3".
+_SIGNATURE_RE = re.compile(r"^[A-Z]{1,2}(?:\s*\d)?$")
 
 
 @dataclass(frozen=True)
@@ -67,8 +81,8 @@ class RenderedPage:
 
 
 def display_marker(label: str) -> str:
-    """The marker a reader sees: ``p12-1`` -> ``1``; endnote ``31`` -> ``31``."""
-    if label.startswith("p") and "-" in label:
+    """The marker a reader sees: ``p12-1`` / ``c3-1`` -> ``1``; endnote ``31`` -> ``31``."""
+    if label[:1] in ("p", "c") and "-" in label:
         return label.split("-", 1)[1]
     return label
 
@@ -81,13 +95,19 @@ def layout_page(
 ) -> PageLayout:
     """Split a page into body lines (references marked) and its footnotes."""
     lines = page_lines(page)
-    region_start = _find_region(lines, profile.body_size, page.rect.height)
+    chapter_notes = profile.chapter_notes
+    region = None
+    if page_index not in chapter_notes.note_pages:
+        watermarks = {
+            i for i, line in enumerate(lines) if running_key(line.text) in profile.watermarks
+        }
+        region = _find_region(lines, profile.body_size, page.rect.height, watermarks)
     notes: list[tuple[str, list[str]]] = []
     marker_labels: dict[str, str] = {}
     consumed: set[int] = set()
-    if region_start is not None:
+    if region is not None:
         notes, marker_labels, consumed = _collect_footnotes(
-            lines, region_start, page_index + 1, previous_label
+            lines, region, page_index + 1, previous_label
         )
 
     references: list[str] = []
@@ -97,7 +117,19 @@ def layout_page(
     for line_index, line in enumerate(lines):
         if line_index in consumed:
             continue
-        text = _render_line(line, marker_labels, references)
+        chapter_refs = chapter_notes.refs.get((page_index, line_index), {})
+        text = _render_line(line, marker_labels, references, chapter_refs)
+        chapter_def = chapter_notes.defs.get((page_index, line_index))
+        if chapter_def:
+            definitions.append(chapter_def)
+            body.append(
+                BodyLine(
+                    text=NUMBERED_NOTE_RE.sub("", text, count=1),
+                    line=line,
+                    endnote_label=chapter_def,
+                )
+            )
+            continue
         endnote, text = _split_endnote(text, page_index, line_index, profile)
         if endnote:
             definitions.append(endnote)
@@ -140,18 +172,30 @@ def is_small(line: Line, body_size: float) -> bool:
     return 0 < line.size < body_size * SMALL_RATIO
 
 
-def _definition_marker(line: Line) -> tuple[str, str] | None:
-    """If ``line`` starts a footnote, return (marker, text after the marker)."""
+def _definition_marker(line: Line) -> tuple[str, str, bool] | None:
+    """If ``line`` starts a footnote, return (marker, text after it, distinct).
+
+    ``distinct`` is True when the marker is typeset apart from the text (superscript or
+    smaller type), which makes it trustworthy even without matching references.
+    """
     spans = [span for span in line.spans if span["text"].strip()]
     if not spans:
         return None
     first = spans[0]
     if first["flags"] & SUPERSCRIPT and _MARKER_RE.match(first["text"].strip()):
         rest = line.text.split(first["text"], 1)[1]
-        return first["text"].strip(), rest.lstrip()
+        return first["text"].strip(), rest.lstrip(), True
     match = _DEF_START_RE.match(line.text)
     if match:
-        return match.group(1), line.text[match.end() :]
+        distinct = (
+            len(spans) > 1
+            and first["text"].strip() == match.group(1)
+            and first["size"] < spans[1]["size"] * 0.85
+        )
+        return match.group(1), line.text[match.end() :], distinct
+    match = _OCR_DEF_START_RE.match(line.text)
+    if match:
+        return match.group(1), line.text[match.end() :], False
     return None
 
 
@@ -165,42 +209,101 @@ def _superscript_markers(lines: list[Line]) -> list[str]:
     return markers
 
 
-def _find_region(lines: list[Line], body_size: float, page_height: float) -> int | None:
-    """Index of the first line of the bottom-of-page footnote region, if any."""
-    end = len(lines)
-    while end and (not lines[end - 1].text.strip() or PAGE_NUMBER_RE.match(lines[end - 1].text)):
+def _find_region(
+    lines: list[Line], body_size: float, page_height: float, skip: set[int] = frozenset()
+) -> list[int] | None:
+    """Indices (top to bottom) of the bottom-of-page footnote region's lines, if any.
+
+    Lines are taken in vertical order, not MuPDF's reading order, so a stray text box
+    emitted last doesn't hide the notes; ``skip`` lines (watermarks) are ignored.
+    """
+    order = sorted(
+        (i for i in range(len(lines)) if i not in skip),
+        key=lambda i: (lines[i].top, lines[i].x0),
+    )
+    end = len(order)
+    while end and _is_page_furniture(lines[order[end - 1]].text):
         end -= 1
     start = end
-    while start and (is_small(lines[start - 1], body_size) or not lines[start - 1].text.strip()):
+    while start:
+        line = lines[order[start - 1]]
+        # OCR jitter: one line a little too big (or a stray fragment like "2S") between
+        # two small ones still belongs to the notes.
+        jitter = (
+            start >= 2
+            and start < end
+            and (line.size < body_size or len(line.text.strip()) <= 4)
+            and is_small(lines[order[start - 2]], body_size)
+            and is_small(lines[order[start]], body_size)
+        )
+        if not (is_small(line, body_size) or not line.text.strip() or jitter):
+            break
         start -= 1
-    while start < end and not lines[start].text.strip():
+    while start < end and not lines[order[start]].text.strip():
         start += 1
     if start == end:
         return None
-    region_top = min(line.top for line in lines[start:end] if line.text.strip())
+    region = order[start:end]
+    region_top = min(lines[i].top for i in region if lines[i].text.strip())
     if region_top < page_height * _REGION_MIN_TOP:
         return None
-    for line in lines[:start]:
-        if line.text.strip() and line.top >= region_top:
+    for i in order[:start]:
+        if lines[i].text.strip() and lines[i].top >= region_top:
             return None  # body text beside or below it: margin notes, not footnotes
-    return start
+    above = [lines[i] for i in order[:start]]
+    if not _under_body_column(above, [lines[i] for i in region], body_size):
+        return None
+    return region
+
+
+def _under_body_column(above: list[Line], region: list[Line], body_size: float) -> bool:
+    """Footnotes sit under a column of body text; glosses and line numbers sit beside it,
+    and pages set entirely in small type (indexes, notes sections) have no footnotes."""
+    body = [ln for ln in above if ln.text.strip() and abs(ln.size - body_size) < 0.1 * body_size]
+    if len(body) < 3:
+        return False
+    left, right = _column_edges(body)
+    middle = left + 0.5 * (right - left)
+    # Tiny fragments ("ae", "2S") are OCR specks, often in the gutter; ignore them.
+    region = [line for line in region if len(line.text.strip()) > 3]
+    # Notes may be set in two columns (and OCR splits lines into fragments), but a fair
+    # share of their text starts in the left half; glosses sit wholly to one side.
+    chars = sum(len(line.text.strip()) for line in region)
+    left_chars = sum(len(line.text.strip()) for line in region if line.x0 < middle)
+    return left_chars >= 0.35 * chars and all(line.x1 > left and line.x0 < right for line in region)
+
+
+def _column_edges(lines: list[Line]) -> tuple[float, float]:
+    lefts = sorted(line.x0 for line in lines)
+    rights = sorted(line.x1 for line in lines)
+    return lefts[len(lefts) // 5], rights[len(rights) * 4 // 5]
+
+
+def _is_page_furniture(text: str) -> bool:
+    """Blank lines, page numbers, and printers' signature marks ("P 2") at the foot."""
+    stripped = text.strip()
+    return not stripped or bool(PAGE_NUMBER_RE.match(text)) or bool(_SIGNATURE_RE.match(stripped))
 
 
 def _collect_footnotes(
-    lines: list[Line], region_start: int, page_number: int, previous_label: str | None
+    lines: list[Line], region: list[int], page_number: int, previous_label: str | None
 ) -> tuple[list[tuple[str, list[str]]], dict[str, str], set[int]]:
     """Split the footnote region into (label, text lines) notes.
 
     Returns the notes, a marker -> label map for rewriting references, and the indices
     of the lines that were moved into notes (all other lines stay in the body).
     """
-    body_refs = _superscript_markers(lines[:region_start])
+    in_region = set(region)
+    body_refs = _superscript_markers([ln for i, ln in enumerate(lines) if i not in in_region])
     footnotes: list[tuple[str, list[str]]] = []
     marker_labels: dict[str, str] = {}
     consumed: set[int] = set()
     leading: list[int] = []  # region lines before the first note marker
     last_number = 0
-    for index in range(region_start, len(lines)):
+    region = _column_order(lines, region)
+    # A note's first line is usually indented against its wrapped lines.
+    region_left = min((lines[i].x0 for i in region if lines[i].text.strip()), default=0.0)
+    for index in region:
         line = lines[index]
         text = line.text
         if not text.strip() or PAGE_NUMBER_RE.match(text):
@@ -209,8 +312,11 @@ def _collect_footnotes(
             consumed.add(index)
             continue
         found = _definition_marker(line)
-        if found and _accept_marker(found[0], body_refs, marker_labels, last_number):
-            marker, rest = found
+        if found:
+            indented = line.x0 > region_left + 0.3 * (line.size or 1.0)
+            found = (found[0], found[1], found[2] or indented)
+        if found and _accept_marker(found[0], found[2], body_refs, marker_labels, last_number):
+            marker, rest, _ = found
             label = f"p{page_number}-{marker}"
             marker_labels[marker] = label
             footnotes.append((label, [rest]))
@@ -233,24 +339,55 @@ def _collect_footnotes(
     return footnotes, marker_labels, consumed
 
 
+def _column_order(lines: list[Line], region: list[int]) -> list[int]:
+    """Notes set in two columns are read left column first, then right."""
+    texts = [i for i in region if lines[i].text.strip()]
+    if not texts:
+        return region
+    middle = (min(lines[i].x0 for i in texts) + max(lines[i].x1 for i in texts)) / 2
+    right = [i for i in texts if lines[i].x0 >= middle]
+    if not right or len(right) == len(texts):
+        return region
+    return sorted(region, key=lambda i: (lines[i].x0 >= middle, lines[i].top, lines[i].x0))
+
+
 def _accept_marker(
-    marker: str, body_refs: list[str], seen: dict[str, str], last_number: int
+    marker: str, distinct: bool, body_refs: list[str], seen: dict[str, str], last_number: int
 ) -> bool:
     if marker in seen:
         return False
     if body_refs:
         return marker in body_refs
-    # No superscript references to confirm against: require an increasing sequence.
-    return not marker.isdigit() or int(marker) > last_number
+    # No superscript references to confirm against: require an increasing sequence, and
+    # a marker set apart from the text or a small number (not "341 F. 2d 1003").
+    if not marker.isdigit():
+        return True
+    number = int(marker)
+    return number > last_number and (distinct or number <= _MAX_PLAIN_MARKER)
 
 
-def _render_line(line: Line, marker_labels: dict[str, str], references: list[str]) -> str:
-    if not marker_labels:
+def _render_line(
+    line: Line,
+    marker_labels: dict[str, str],
+    references: list[str],
+    chapter_refs: dict[int, str] | None = None,
+) -> str:
+    if not marker_labels and not chapter_refs:
         return line.text
     parts: list[str] = []
-    for span in line.spans:
+    for span_index, span in enumerate(line.spans):
         text = span["text"]
         stripped = text.strip()
+        if chapter_refs and span_index in chapter_refs and stripped not in marker_labels:
+            while parts and not parts[-1].strip():
+                parts.pop()
+            if parts:
+                parts[-1] = parts[-1].rstrip()
+            parts.append(f"[^{chapter_refs[span_index]}]")
+            references.append(chapter_refs[span_index])
+            if text != text.rstrip():
+                parts.append(" ")
+            continue
         if span["flags"] & SUPERSCRIPT and _MARKER_LIST_RE.match(stripped):
             markers = [m.strip() for m in stripped.split(",")]
             if all(m in marker_labels for m in markers):
