@@ -376,12 +376,22 @@
   (2,343 internal) and is 2.2 MB; the docx has 224 footnotes.
 - Tests: `tests/test_formats.py` (6) and one HTML/PDF pictures test.
 
+### Feature 14: CI (2026-10-13, PR #16)
+- GitHub Actions on ubuntu-latest, Python 3.12 and 3.14. It apt-installs tesseract-ocr
+  (+lat, spa), pandoc and epubcheck, installs `.[dev,ocr,paddle]`, then runs ruff
+  check, `ruff format --check` and `pytest -m "not integration"`.
+- The first run caught a real bug: `KindleReport.ocr` shadowed the `ocr` module in its
+  own annotation. Python 3.12 evaluates annotations eagerly (3.14 lazily, which is why
+  it passed locally). Renamed to `ocr_report`. Both versions now pass.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- **Items 1–7, 9 and 10 done (PRs #9–#15). Next: item 8 (CI). Start from main.**
+- **The overnight list is complete: items 1–10 (PRs #9–#16).** Waiting on the user:
+  check page numbers and the cover on a real Kindle. CI runs on every PR
+  (`.github/workflows/tests.yml`).
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
