@@ -298,7 +298,9 @@ def test_underlined_scan_pages_are_read_without_the_underlines(tmp_path):
     with pymupdf.open(tmp_path / "ocr.pdf") as doc:
         underlined, spread = doc[0].get_text(), doc[1].get_text()
     assert "simultáneamente" in underlined  # ABBYY: "iinujltáiieanjentee"
-    assert "Lo que produce placer es el hecho" in underlined  # ABBYY: "produce,placer_.es el ,hecho"
+    assert (
+        "Lo que produce placer es el hecho" in underlined
+    )  # ABBYY: "produce,placer_.es el ,hecho"
     assert "Considera, pues, Protarco" in spread
 
 

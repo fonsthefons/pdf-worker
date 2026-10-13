@@ -477,6 +477,35 @@
 - Candidate next step: link footnote references in OCR layers that set them as plain
   digits glued to words, by matching against the note numbers found on the page.
 
+### Word vote for scans (2026-10-13)
+- User: "I as a human can read that text, so there must be something we can improve."
+- Tried and measured (bag-of-words recall vs the good edition):
+  - Apple Vision alone on pp. 19–20: 0.84 (worse than ABBYY 0.92, Tesseract 0.89).
+  - Lexicon correction with Tesseract's own Spanish word list (dumped with
+    `combine_tessdata` + `dawg2wordlist`): useless, the list contains `parce`, `jo`,
+    `asi`, `cl` and lacks many verb forms.
+  - Book-internal bigram noisy-channel model (`scratch/platon_spell2.py`): fixes
+    `parce`, `Jo`, but also breaks real words; +0.1–1.5 pts depending on tuning. Dropped.
+  - Two readings + language model (`scratch/platon_rover.py`): too weak to settle ties.
+  - **Three-way word vote** (`scratch/platon_vote.py`): best and simplest. Kept.
+- New `consensus.py`: each scanned page is re-read by Tesseract (CLI, 300 dpi,
+  underlines erased) and Apple Vision (`ocrmac`); readings are aligned with the page's
+  letter-run tokens (difflib); a word changes when both other readings agree on another
+  word that is more common in the book (leave-one-out), and accents are only added.
+  Pages that Tesseract already wrote (redone underlined pages) use the original
+  (ABBYY) layer as the second voter instead.
+- Fixes are stored per page as `/PdfWorkerFixes` (JSON: box, old, new) and applied in
+  `layout.page_lines`, so sizes, fonts and positions (footnotes, headings) are kept.
+- `kindle` runs it on scanned books after any OCR step and reports the count.
+  `ocrmac` added to the `ocr` extra (macOS only); without it the step is skipped.
+- Results on the Platón book: ~600 words fixed, 4 min for 293 pages (kindle total
+  ~7 min). pp. 19–20: recall 0.924 → 0.936, precision 0.951 → 0.964. Underlined
+  pp. 9–15: 0.945 → 0.952. Spot checks: the large majority of fixes are right; wrong
+  ones cluster in foreign-language bibliography lines and one-letter words.
+- Tests: `tests/test_consensus.py` (4).
+- Next ideas: a fourth reader (PaddleOCR-VL, slow) would allow 3-of-4 votes; footnote
+  reference linking is still open.
+
 ## Blocked
 - 2026-10-13: `gh pr merge 20` was denied by the permission classifier; the user has to
   merge PR #20 (and the stacked PR) themselves or allow `gh pr merge`.

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
+from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
 
 # Text-only extraction flags: never decode images (scanned books would bloat memory).
@@ -83,10 +84,14 @@ class Line:
 
 
 def page_lines(page: pymupdf.Page) -> list[Line]:
-    """All text lines of a page in MuPDF reading order."""
+    """All text lines of a page in MuPDF reading order, with OCR fixes from
+    ``pdf_worker.consensus`` applied."""
+    fixes = page_fixes(page)
     lines = []
     for block in page.get_text("rawdict", flags=_TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", ()):
+            if fixes:
+                apply_fixes([char for span in line["spans"] for char in span["chars"]], fixes)
             spans = _with_text(line["spans"])
             sizes: Counter[float] = Counter()
             for span in spans:
