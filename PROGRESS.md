@@ -390,8 +390,9 @@
 
 ## Resume here (keep this current; a new session should start from this)
 - **The overnight list is complete: items 1–10 (PRs #9–#16).** Waiting on the user:
-  check page numbers and the cover on a real Kindle. CI runs on every PR
-  (`.github/workflows/tests.yml`).
+  check page numbers and the cover on a real Kindle.
+- No CI: the user asked (2026-10-13) to remove the GitHub Actions tests, and they were
+  removed in PR #17. Don't add CI back; run tests locally.
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
