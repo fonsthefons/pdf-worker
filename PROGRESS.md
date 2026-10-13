@@ -402,7 +402,7 @@
   6. [x] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the
      title for OCR'd files (PR #14).
   7. [x] Formats: docx, html, txt, pdf (PR #15).
-  8. [ ] GitHub Actions CI.
+  8. [x] GitHub Actions CI (PR #16).
   9. [x] (PR #10) (added mid-task) Internal links: PDF link annotations (contents entries,
      cross-references) become working EPUB links to the target chapter or page. The
      user noticed the encyclical's index wasn't linked. A printed TOC whose entries

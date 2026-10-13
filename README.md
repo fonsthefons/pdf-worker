@@ -199,8 +199,12 @@ pdf-worker convert scan.pdf --ocr redo --ocr-lang spa
 .venv/bin/ruff check . && .venv/bin/ruff format .
 ```
 
-The EPUB validation test uses `epubcheck` (`brew install epubcheck`) and the OCR tests use
-Tesseract; each is skipped if it isn't installed.
+The EPUB validation test uses `epubcheck` (`brew install epubcheck`), the OCR tests use
+Tesseract and the Word test uses Pandoc; each is skipped if its tool isn't installed.
+
+GitHub Actions (`.github/workflows/tests.yml`) runs lint and the fast tests on every
+pull request and push to `main`, on Ubuntu with Python 3.12 and 3.14, with Tesseract,
+Pandoc and epubcheck installed.
 
 Integration tests use sample PDFs in `test_pdfs/`. The folder is gitignored, so add
 your own copies locally; tests for missing files are skipped. The expected samples are:
