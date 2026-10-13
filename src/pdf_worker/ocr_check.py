@@ -3,6 +3,8 @@
 * No text on most pages: OCR the pages without text (``skip``).
 * Scanned pages (one full-page image each) whose text layer is broken into single
   words or full of misread characters: replace that layer (``redo``).
+* Scanned pages with hand-drawn underlines: replace the layer on those pages only
+  (``redo`` with ``pages``), reading them with the underlines erased.
 * Otherwise the text layer is good: no OCR.
 """
 
@@ -36,14 +38,15 @@ class TextLayerReport:
     scanned_pages: float = 0.0  # share of sampled pages that are one full-page image
     jittery_lines: float = 0.0
     suspect_words: float = 0.0
+    # OCR only these pages (1-based); empty means all pages the mode applies to.
+    pages: tuple[int, ...] = ()
 
 
 def assess_text_layer(doc: pymupdf.Document) -> TextLayerReport:
     count = doc.page_count
     if not count:
         return TextLayerReport(None, "empty document")
-    step = max(1, count // _SAMPLE_PAGES)
-    indices = list(range(0, count, step))[:_SAMPLE_PAGES]
+    indices = _sample(count)
     with_text = scanned = words = lines_seen = suspect = jittery = 0
     for index in indices:
         page = doc.load_page(index)
@@ -76,7 +79,41 @@ def assess_text_layer(doc: pymupdf.Document) -> TextLayerReport:
             return TextLayerReport("redo", "the scan's text layer has many misreadings", **report)
         if report["text_pages"] < 1.0:
             return TextLayerReport("skip", "some scanned pages have no text", **report)
+        underlined = underlined_pages(doc)
+        if underlined:
+            return TextLayerReport(
+                "redo",
+                f"{len(underlined)} page(s) have hand-drawn underlines that garble their text",
+                **report,
+                pages=tuple(underlined),
+            )
     return TextLayerReport(None, "the text layer looks good", **report)
+
+
+def _sample(count: int) -> list[int]:
+    step = max(1, count // _SAMPLE_PAGES)
+    return list(range(0, count, step))[:_SAMPLE_PAGES]
+
+
+def underlined_pages(doc: pymupdf.Document, sample_only: bool = False) -> list[int]:
+    """Scanned pages (1-based) with hand-drawn underlines (see ``pdf_worker.underlines``).
+
+    All pages are checked (about 0.1 s a page) only if a sampled page is underlined;
+    ``sample_only`` returns the underlined pages of the sample. Empty without OpenCV.
+    """
+    try:
+        from pdf_worker.underlines import is_underlined
+    except ImportError:  # numpy/OpenCV come with the ocr extra
+        return []
+
+    def underlined(index: int) -> bool:
+        page = doc.load_page(index)
+        return _is_scanned(page) and is_underlined(page)
+
+    hits = [index + 1 for index in _sample(doc.page_count) if underlined(index)]
+    if not hits or sample_only:
+        return hits
+    return [index + 1 for index in range(doc.page_count) if underlined(index)]
 
 
 def _is_scanned(page: pymupdf.Page) -> bool:

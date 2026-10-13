@@ -92,8 +92,22 @@ def page_lines(page: pymupdf.Page) -> list[Line]:
             for span in spans:
                 sizes[round(span["size"], 1)] += len(span["text"].strip())
             size = sizes.most_common(1)[0][0] if sizes else 0.0
-            lines.append(Line(spans=spans, size=size, bbox=tuple(line["bbox"])))
+            lines.append(Line(spans=spans, size=size, bbox=ink_bbox(spans, line["bbox"])))
     return lines
+
+
+def ink_bbox(spans: tuple[dict, ...], fallback) -> tuple[float, float, float, float]:
+    """The box around a line's visible text. Spaces don't count: OCR layers (ABBYY) give
+    word-gap spaces odd sizes and heights, which would shift the line's top."""
+    boxes = [span["bbox"] for span in spans if span["text"].strip()]
+    if not boxes:
+        return tuple(fallback)
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
 
 
 def _with_text(spans: list[dict]) -> tuple[dict, ...]:

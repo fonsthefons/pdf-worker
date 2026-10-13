@@ -27,6 +27,8 @@ REPORT_PDF = TEST_PDFS_DIR / "9-11 Commission Report.pdf"
 SCAN_PDF = TEST_PDFS_DIR / "Gibbon Decline and Fall vol 1 (1872 scan).pdf"
 # Born-digital Spanish reader of the Greek New Testament: polytonic Greek + Spanish.
 GREEK_PDF = TEST_PDFS_DIR / "sample-text-spanish-ancient-greek.pdf"
+# A poor ABBYY FineReader scan with pencil underlining (Platón, Diálogos VI).
+PLATON_PDF = TEST_PDFS_DIR / "platon_dialogos_vi_bad.pdf"
 
 
 def _require(path):
@@ -254,6 +256,50 @@ def test_scanned_book_footnotes_after_ocr(tmp_path):
     # The notes left the body: the body text runs on without them.
     body_page_1 = text.split("\f")[0].split("\n[^")[0]
     assert "regretted" not in body_page_1
+
+
+def _platon_pages(tmp_path, *pages):
+    _require(PLATON_PDF)
+    sample = tmp_path / "platon.pdf"
+    with pymupdf.open(PLATON_PDF) as doc, pymupdf.open() as small:
+        for page in pages:
+            small.insert_pdf(doc, from_page=page - 1, to_page=page - 1)
+        small.save(sample)
+    return sample
+
+
+def test_abbyy_scan_layer_converts_to_clean_dialogue(tmp_path):
+    # pp. 19-20: the start of the Filebo, Stephanus numbers in the margins.
+    sample = _platon_pages(tmp_path, 19, 20)
+
+    convert_pdf(sample, tmp_path / "out.md", "md")
+
+    text = (tmp_path / "out.md").read_text(encoding="utf-8")
+    assert "qué tesis vas a asumir ahora" in text  # margin "11" dropped
+    assert "Resumamos ¿quieres? una y otra.\n" in text  # margin "b" dropped
+    assert "La refutación por" in text  # soft hyphen joined, no paragraph break
+    assert "verdaderos— resultan" in text
+    assert "\n\nPro. — En efecto, es necesario.\n" in text  # margin "d" dropped
+    assert "\n\nFilebo. — Exactísimamente, Sócrates.\n" in text  # speaker turn
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")
+def test_underlined_scan_pages_are_read_without_the_underlines(tmp_path):
+    pytest.importorskip("ocrmypdf")
+    pytest.importorskip("cv2")
+    from pdf_worker.ocr import ocr_pdf
+
+    # p. 13 is underlined in pencil; p. 19's MediaBox starts at x=330 (a spread's half).
+    sample = _platon_pages(tmp_path, 13, 19)
+
+    report = ocr_pdf(sample, tmp_path / "ocr.pdf", languages="spa", mode="redo")
+
+    assert report.underlines_erased
+    with pymupdf.open(tmp_path / "ocr.pdf") as doc:
+        underlined, spread = doc[0].get_text(), doc[1].get_text()
+    assert "simultáneamente" in underlined  # ABBYY: "iinujltáiieanjentee"
+    assert "Lo que produce placer es el hecho" in underlined  # ABBYY: "produce,placer_.es el ,hecho"
+    assert "Considera, pues, Protarco" in spread
 
 
 def test_footnote_mode_matches_raw_text_when_no_notes(tmp_path):

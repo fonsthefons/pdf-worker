@@ -80,8 +80,11 @@ def _maybe_ocr(args: argparse.Namespace, output: Path) -> Iterator[Path]:
 def _print_ocr_summary(report: ocr.OcrReport) -> None:
     guessed = " (guessed)" if report.languages_guessed else ""
     macrons = ", Latin macrons restored" if report.macrons_restored else ""
+    pages = f", {len(report.pages)} page(s) only" if report.pages else ""
+    underlines = ", underlines erased" if report.underlines_erased else ""
     print(
-        f"OCR ({report.mode}, {'+'.join(report.languages)}{guessed}{macrons}): "
+        f"OCR ({report.mode}, {'+'.join(report.languages)}{guessed}{macrons}{pages}"
+        f"{underlines}): "
         f"pages without text {len(report.empty_pages_before)} -> "
         f"{len(report.empty_pages_after)} of {report.page_count}"
     )

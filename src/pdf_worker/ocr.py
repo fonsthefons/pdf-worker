@@ -30,8 +30,9 @@ MODES = ("skip", "redo", "force")
 ENGINES = ("tesseract", "paddle")
 DEFAULT_LANGUAGE = "eng"
 INSTALL_HINT = "install it with: brew install tesseract tesseract-lang"
-# OCRmyPDF plugin (by module name) that restores Latin macrons.
+# OCRmyPDF plugins (by module name): restore Latin macrons; erase hand-drawn underlines.
 LATIN_PLUGIN = "pdf_worker.ocr_latin_plugin"
+UNDERLINE_PLUGIN = "pdf_worker.ocr_underline_plugin"
 
 # ISO 639-1 (what guess_language returns) -> Tesseract language code.
 TESSERACT_CODES = {
@@ -80,6 +81,8 @@ class OcrReport:
     # Pages with no text layer before and after OCR (1-based).
     empty_pages_before: list[int] = field(default_factory=list)
     empty_pages_after: list[int] = field(default_factory=list)
+    pages: list[int] = field(default_factory=list)  # OCR was limited to these (1-based)
+    underlines_erased: bool = False  # hand-drawn underlines were erased before OCR
 
 
 def tesseract_path() -> str:
@@ -133,15 +136,18 @@ def ocr_pdf(
     progress: bool = False,
     latin_macrons: bool | None = None,
     engine: str = "tesseract",
+    pages: Sequence[int] | None = None,
 ) -> OcrReport:
     """OCR ``pdf_path`` into a searchable PDF at ``output_path`` (written atomically).
 
     ``languages`` are Tesseract codes (``"spa"``, ``"lat+eng"``); by default they are
     guessed from the document. ``latin_macrons`` turns accented vowels into macrons in
     the paragraphs that read as Latin (see ``pdf_worker.macrons``); by default it is on
-    when Latin is a language.
+    when Latin is a language. ``pages`` (1-based) limits OCR to those pages; the others
+    keep their text layer. In books with hand-drawn underlines (a sampled page has
+    them, or ``pages`` is given), they are erased from what Tesseract reads.
     ``engine="paddle"`` uses PaddleOCR-VL instead (``pdf_worker.paddle_ocr``; slow,
-    better on diacritics; ``languages`` and ``jobs`` don't apply).
+    better on diacritics; ``languages``, ``jobs`` and ``pages`` don't apply).
     """
     if engine not in ENGINES:
         raise OcrError(f"Unknown OCR engine {engine!r}; choose from {', '.join(ENGINES)}")
@@ -171,20 +177,73 @@ def ocr_pdf(
     report.languages = chosen
     report.macrons_restored = "lat" in chosen if latin_macrons is None else latin_macrons
     plugins = [LATIN_PLUGIN] if report.macrons_restored else []
+    report.pages = list(pages or [])
+    if report.pages or _has_underlines(pdf_path):
+        # Only for underlined books: the plugin decodes every page image, which alone
+        # changes what Tesseract reads (Familia Romana lost macrons).
+        plugins.append(UNDERLINE_PLUGIN)
+        report.underlines_erased = True
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         dir=output_path.parent, prefix=f".{output_path.name}.", suffix=".pdf"
     )
     os.close(fd)
+    source = Path(tmp_name).with_suffix(".in.pdf")
     try:
-        _run_ocrmypdf(ocrmypdf, pdf_path, Path(tmp_name), chosen, mode, jobs, progress, plugins)
+        if not _zero_origin_copy(pdf_path, source):
+            source = pdf_path
+        _run_ocrmypdf(
+            ocrmypdf, source, Path(tmp_name), chosen, mode, jobs, progress, plugins, report.pages
+        )
         _, report.empty_pages_after = _empty_pages(Path(tmp_name))
         os.replace(tmp_name, output_path)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
+    finally:
+        if source != pdf_path:
+            source.unlink(missing_ok=True)
     return report
+
+
+def _has_underlines(pdf_path: Path) -> bool:
+    """A quick look at a sample of pages for hand-drawn underlines (needs OpenCV)."""
+    from pdf_worker.ocr_check import underlined_pages
+
+    with open_pdf(pdf_path) as doc:
+        return bool(underlined_pages(doc, sample_only=True))
+
+
+def _zero_origin_copy(pdf_path: Path, target: Path) -> bool:
+    """Write a copy of the PDF whose pages all start at (0, 0), if any page doesn't.
+
+    Scans of two-page spreads (ABBYY FineReader) give every other page a MediaBox
+    such as [330 0 660 518]; OCRmyPDF then places that page's text off the page.
+    Returns False (and writes nothing) when every page already starts at the origin.
+    """
+    import pikepdf
+
+    with pikepdf.open(pdf_path) as pdf:
+        moved = False
+        for page in pdf.pages:
+            x0, y0, x1, y1 = (float(v) for v in page.mediabox)
+            if not (x0 or y0):
+                continue
+            # shortcut: annotations (links) keep their old coordinates; scans rarely
+            # have any, shift their /Rect too if that changes.
+            page.contents_add(
+                pdf.make_stream(f"q 1 0 0 1 {-x0:g} {-y0:g} cm\n".encode()), prepend=True
+            )
+            page.contents_add(pdf.make_stream(b"\nQ"))
+            page.mediabox = [0, 0, x1 - x0, y1 - y0]
+            for box in ("/CropBox", "/TrimBox", "/BleedBox", "/ArtBox"):
+                if box in page.obj:
+                    del page.obj[box]
+            moved = True
+        if moved:
+            pdf.save(target)
+        return moved
 
 
 @contextmanager
@@ -224,7 +283,9 @@ def _import_ocrmypdf():
     return ocrmypdf
 
 
-def _run_ocrmypdf(ocrmypdf, source, target, languages, mode, jobs, progress, plugins) -> None:
+def _run_ocrmypdf(
+    ocrmypdf, source, target, languages, mode, jobs, progress, plugins, pages=()
+) -> None:
     from ocrmypdf import exceptions
 
     try:
@@ -233,6 +294,7 @@ def _run_ocrmypdf(ocrmypdf, source, target, languages, mode, jobs, progress, plu
             target,
             language=languages,
             mode=mode,
+            pages=",".join(str(page) for page in pages) or None,
             # Plain PDF: PDF/A would need Ghostscript and changes nothing we use.
             output_type="pdf",
             jobs=jobs,

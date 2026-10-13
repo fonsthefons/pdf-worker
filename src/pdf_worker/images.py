@@ -31,6 +31,9 @@ _INK_CONTRAST = 55  # grey levels below the paper that count as ink
 _MIN_INK_SHARE = 0.03  # share of a row's pixels that must be dark
 _MIN_BAND_SHARE = 0.12  # share of the page height
 _MIN_WIDTH_SHARE = 0.25  # share of the page width
+# A column (row) in the outer tenth of the page that is dark over 60% of it is a scan edge.
+_EDGE_SHARE = 0.6
+_EDGE_ZONE = 0.1
 _MAX_GAP_ROWS = 3
 # Text lines at least this long count as text; shorter ones may be labels in a picture.
 _TEXT_LINE_CHARS = 12
@@ -134,6 +137,7 @@ def _illustrations_in_scan(page: pymupdf.Page, lines: list[Line]) -> list[pymupd
             max(0, int(line.bbox[1] * scale) - 1), min(height, int(line.bbox[3] * scale) + 2)
         ):
             pixels[row * width + x0 : row * width + x1] = blank[: x1 - x0]
+    _blank_scan_edges(pixels, width, height, dark)
     samples = bytes(pixels)
     min_ink = max(1, int(width * _MIN_INK_SHARE))
     inked = [
@@ -151,6 +155,28 @@ def _illustrations_in_scan(page: pymupdf.Page, lines: list[Line]) -> list[pymupd
             pymupdf.Rect(left / scale, start / scale, right / scale, end / scale) & page.rect
         )
     return rects
+
+
+def _blank_scan_edges(pixels: bytearray, width: int, height: int, dark: int) -> None:
+    """Blank columns and rows near the page's edges that are dark across most of it: the
+    black edges a scanner leaves beside the paper. A picture's frame only spans the
+    picture, and a wide picture sits inside the margins."""
+    columns = [0] * width
+    rows = [0] * height
+    for row in range(height):
+        offset = row * width
+        for column in range(width):
+            if pixels[offset + column] < dark:
+                columns[column] += 1
+                rows[row] += 1
+    near_x, near_y = int(width * _EDGE_ZONE), int(height * _EDGE_ZONE)
+    for column, count in enumerate(columns):
+        if count >= _EDGE_SHARE * height and not near_x <= column < width - near_x:
+            for row in range(height):
+                pixels[row * width + column] = 255
+    for row, count in enumerate(rows):
+        if count >= _EDGE_SHARE * width and not near_y <= row < height - near_y:
+            pixels[row * width : (row + 1) * width] = bytes([255]) * width
 
 
 def _runs(flags: list[bool]) -> list[tuple[int, int]]:

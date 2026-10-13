@@ -25,6 +25,9 @@ pdf-worker kindle scan.pdf --ocr-lang lat
 This checks the PDF's text layer first:
 - **No text on most pages:** those pages are OCR'd.
 - **A scan with a word-by-word or badly misread OCR layer:** that layer is replaced.
+- **A scan with hand-drawn underlines** (pencil or pen, which the scan's own OCR reads
+  as stray letters): only the underlined pages are OCR'd again, with the underlines
+  erased first. The other pages keep their layer.
 - **Born-digital PDF:** used as it is.
 
 Then it builds the EPUB, with footnotes, pictures, cover, links and page numbers. It
@@ -131,7 +134,9 @@ How structure is detected:
   sit beside: as a blockquote with one line per gloss in Markdown, and as a small boxed
   `div.gloss` in EPUB.
 - Line numbers in the gutter (`5`, `10`, ...) are dropped, including ones OCR glued onto a
-  text line. Table cells on one row are joined into one line, and OCR noise from
+  text line, as are the section marks of classical editions (`11`, `b`, `c` beside the
+  text, as in Stephanus numbering). Soft hyphens at line ends are joined, and speaker
+  turns in dialogues start their own paragraphs. Table cells on one row are joined into one line, and OCR noise from
   pictures (lines with no letters or digits) is dropped. Section breaks like `* * *`
   are kept.
 
@@ -172,6 +177,11 @@ pdf-worker convert scan.pdf --ocr redo --ocr-lang spa
   couple of pages. Set it with `--lang` (`--ocr-lang` for `extract-text`/`convert`);
   `tesseract --list-langs` lists the installed ones.
 - Pages are OCR'd in parallel on all cores (`--jobs N` to limit).
+- **Underlined scans:** when sampled pages have hand-drawn underlines, they are erased
+  from the image Tesseract reads (the visible page keeps them). On the Platón sample
+  this raised word recall on underlined pages from 91% (the scan's ABBYY layer) to 95%.
+- Scans of two-page spreads whose pages don't start at (0, 0) (some ABBYY FineReader
+  PDFs) are moved to the origin first; OCRmyPDF otherwise loses those pages' text.
 - **PaddleOCR-VL (`--engine paddle`):** much more accurate on diacritics. For example,
   it reads Latin long vowels that Tesseract misses (94% vs. about 50% in
   `docs/ocr-plan.md`). It is slow (12–24 s a page on an M1) and Apple-Silicon only.
@@ -220,3 +230,6 @@ your own copies locally; tests for missing files are skipped. The expected sampl
     (https://www.govinfo.gov/content/pkg/GPO-911REPORT/pdf/GPO-911REPORT.pdf).
   - `Gibbon Decline and Fall vol 1 (1872 scan).pdf`: a scanned book with footnotes
     (https://archive.org/download/historyofdeclin01gibb/historyofdeclin01gibb.pdf).
+- `platon_dialogos_vi_bad.pdf`: a poor black-and-white scan with an ABBYY FineReader
+  layer, pencil underlining, Stephanus margin marks and footnotes.
+  `platon_dialogos_vi_good.pdf` is a clean edition of the same text, used to score OCR.
