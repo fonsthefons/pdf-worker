@@ -401,8 +401,9 @@
 ## Resume here (keep this current; a new session should start from this)
 - **The overnight list is complete: items 1–10 (PRs #9–#16).** Kindle check done
   (2026-10-13): cover and links work; page numbers don't survive Send to Kindle (see
-  the `pdf-worker help` entry). CI runs on every PR
-  (`.github/workflows/tests.yml`).
+  the `pdf-worker help` entry).
+- No CI: the user asked (2026-10-13) to remove the GitHub Actions tests, and they were
+  removed in PR #17. Don't add CI back; run tests locally.
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
