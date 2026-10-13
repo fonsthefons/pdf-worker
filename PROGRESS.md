@@ -384,13 +384,24 @@
   own annotation. Python 3.12 evaluates annotations eagerly (3.14 lazily, which is why
   it passed locally). Renamed to `ocr_report`. Both versions now pass.
 
+### `pdf-worker help` (2026-10-13)
+- `pdf-worker help`, or `pdf-worker` with no command, prints a cheat sheet: example
+  commands with a one-line description each (`CHEAT_SHEET` in `cli.py`; keep it current
+  when adding commands or options).
+- The `convert` and `ocr` help texts now list all formats and both engines.
+- Kindle check: cover and links work. Page numbers show as "Loc": Send to Kindle seems
+  to drop the EPUB page-list. Likely fix is Calibre's KFX Output plugin plus USB; not
+  done, the user hasn't asked for it.
+- Tests: 2 new in `tests/test_cli.py`.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- **The overnight list is complete: items 1–10 (PRs #9–#16).** Waiting on the user:
-  check page numbers and the cover on a real Kindle. CI runs on every PR
+- **The overnight list is complete: items 1–10 (PRs #9–#16).** Kindle check done
+  (2026-10-13): cover and links work; page numbers don't survive Send to Kindle (see
+  the `pdf-worker help` entry). CI runs on every PR
   (`.github/workflows/tests.yml`).
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:

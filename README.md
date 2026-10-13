@@ -12,6 +12,9 @@ brew install tesseract tesseract-lang   # only needed for OCR
 
 ## Features
 
+Forgot a command? `pdf-worker help` (or just `pdf-worker`) lists them all, each with a
+one-line description. `pdf-worker <command> --help` shows every option.
+
 ### Make a Kindle book (one step)
 
 ```bash

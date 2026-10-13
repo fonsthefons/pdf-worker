@@ -28,6 +28,20 @@ def test_extract_text_warns_about_empty_pages(make_pdf, capsys):
     assert "no text layer" in capsys.readouterr().err
 
 
+def test_help_lists_every_command(capsys):
+    assert main(["help"]) == 0
+
+    out = capsys.readouterr().out
+    for command in ("kindle", "convert", "extract-text", "ocr", "help"):
+        assert f"pdf-worker {command}" in out
+
+
+def test_no_command_shows_help(capsys):
+    assert main([]) == 0
+
+    assert "pdf-worker kindle book.pdf" in capsys.readouterr().out
+
+
 def test_extract_text_reports_errors_without_traceback(tmp_path, capsys):
     exit_code = main(["extract-text", str(tmp_path / "missing.pdf")])
 

@@ -90,8 +90,9 @@ def _print_ocr_summary(report: ocr.OcrReport) -> None:
 def _add_ocr_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "ocr",
-        help="Add a searchable text layer to a scanned PDF (Tesseract).",
-        description="OCR a PDF with Tesseract (via OCRmyPDF) and write a searchable PDF.",
+        help="Add a searchable text layer to a scanned PDF (Tesseract or PaddleOCR-VL).",
+        description="OCR a PDF with Tesseract (via OCRmyPDF) or PaddleOCR-VL and write a "
+        "searchable PDF.",
     )
     parser.add_argument("pdf", type=Path, help="Input PDF file.")
     parser.add_argument(
@@ -211,9 +212,9 @@ def _run_extract_text(args: argparse.Namespace) -> int:
 def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "convert",
-        help="Convert a PDF into an EPUB (Kindle-friendly) or Markdown book.",
+        help="Convert a PDF into EPUB, Markdown, HTML, clean text, Word or a reflowed PDF.",
         description="Rebuild a PDF as a reflowable book: headings, paragraphs and "
-        "footnotes become EPUB 3 or Markdown.",
+        "footnotes become EPUB 3, Markdown, HTML, clean text, Word or an A5 PDF.",
     )
     parser.add_argument("pdf", type=Path, help="Input PDF file.")
     parser.add_argument(
@@ -337,14 +338,89 @@ def _run_kindle(args: argparse.Namespace) -> int:
     return 0
 
 
+# The cheat sheet printed by `pdf-worker help`: (section, [(command, what it does)]).
+CHEAT_SHEET = [
+    (
+        "Kindle book in one step",
+        [
+            ("pdf-worker kindle book.pdf", "EPUB for Kindle; OCRs scans when needed"),
+            ("pdf-worker kindle scan.pdf --ocr-lang lat", "Same, telling OCR the language"),
+            ("pdf-worker kindle scan.pdf --engine paddle", "Same, with slow but sharper OCR"),
+            ("pdf-worker kindle book.pdf --no-ocr", "Same, but never OCR"),
+        ],
+    ),
+    (
+        "Convert to another format",
+        [
+            ("pdf-worker convert book.pdf", "EPUB ebook (the default)"),
+            ("pdf-worker convert book.pdf --to md", "Markdown, pictures in a folder"),
+            ("pdf-worker convert book.pdf --to html", "One web page, pictures included"),
+            ("pdf-worker convert book.pdf --to txt", "Clean text, one paragraph per line"),
+            ("pdf-worker convert book.pdf --to docx", "Word, with footnotes (needs Pandoc)"),
+            ("pdf-worker convert book.pdf --to pdf", "New A5 PDF, easy to read on a tablet"),
+            ("pdf-worker convert scan.pdf --ocr redo", "Redo a scan's bad OCR, then convert"),
+        ],
+    ),
+    (
+        "Raw text",
+        [
+            ("pdf-worker extract-text book.pdf", "The PDF's text as .txt, notes marked"),
+            ("pdf-worker extract-text book.pdf --no-footnotes", "Same, without marking notes"),
+        ],
+    ),
+    (
+        "OCR (make scans searchable)",
+        [
+            ("pdf-worker ocr scan.pdf", "Add text to pages that have none"),
+            ("pdf-worker ocr scan.pdf --mode redo", "Replace a bad existing text layer"),
+            ("pdf-worker ocr scan.pdf --lang lat+eng", "Set the OCR language(s)"),
+            ("pdf-worker ocr scan.pdf --engine paddle", "Slow but sharper OCR (Apple Silicon)"),
+        ],
+    ),
+    (
+        "Help",
+        [
+            ("pdf-worker help", "Show this list"),
+            ("pdf-worker <command> --help", "Every option of one command"),
+        ],
+    ),
+]
+
+
+def _add_help_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "help",
+        help="List all commands with a one-line description.",
+        description="List all commands with a one-line description.",
+    )
+    parser.set_defaults(handler=_run_help)
+
+
+def _run_help(args: argparse.Namespace) -> int:
+    width = max(len(command) for _, rows in CHEAT_SHEET for command, _ in rows)
+    print("Run from the repo folder as .venv/bin/pdf-worker. -o FILE sets the output path.")
+    for section, rows in CHEAT_SHEET:
+        print(f"\n{section}")
+        for command, description in rows:
+            print(f"  {command:<{width}}  {description}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="pdf-worker", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="pdf-worker",
+        description=__doc__,
+        epilog="Run 'pdf-worker help' for examples of every command.",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    # With no command, show the cheat sheet.
+    parser.set_defaults(handler=_run_help)
+    subparsers = parser.add_subparsers(dest="command")
     _add_extract_text_command(subparsers)
     _add_convert_command(subparsers)
     _add_ocr_command(subparsers)
     _add_kindle_command(subparsers)
+    _add_help_command(subparsers)
     return parser
 
 
