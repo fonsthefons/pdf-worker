@@ -10,8 +10,12 @@ per paragraph, only where the paragraph reads as Latin (``restore_macrons_if_lat
 
 import re
 import unicodedata
+from collections.abc import Collection
 
 from pdf_worker.convert import stopword_scores
+
+# Word endings that only Latin has among the guessed languages (Spanish, French...).
+_LATIN_ENDING_RE = re.compile(r"[^\W\d_]{2,}(?:um|ae|orum|arum|ibus)\b", re.IGNORECASE)
 
 _VOWELS = "aeiouyAEIOUY"
 # Combining marks Tesseract uses where the page has a macron (or a breve).
@@ -51,15 +55,20 @@ def restore_macrons(text: str) -> str:
     return _REPEATED_LONG_RE.sub(r"\1", text)
 
 
-def reads_as_latin(text: str, default: bool) -> bool:
-    """Whether ``text`` has more Latin stopwords than any other language's; ``default``
-    when it is a tie (a heading, a name: too few words to tell)."""
+def reads_as_latin(text: str, default: bool, rivals: Collection[str] | None = None) -> bool:
+    """Whether ``text`` has more Latin stopwords than any rival language's (ISO 639-1
+    codes; all known languages if None). On a tie (a heading, a name: too few words),
+    a word with a Latin-only ending ("Secundum") decides, else ``default``."""
     scores = stopword_scores(text)
     latin = scores.pop("la")
-    other = max(scores.values())
-    return default if latin == other else latin > other
+    other = max((s for lang, s in scores.items() if rivals is None or lang in rivals), default=0)
+    if latin != other:
+        return latin > other
+    return bool(_LATIN_ENDING_RE.search(text)) or default
 
 
-def restore_macrons_if_latin(text: str, default: bool) -> str:
+def restore_macrons_if_latin(
+    text: str, default: bool, rivals: Collection[str] | None = None
+) -> str:
     """:func:`restore_macrons` if ``text`` reads as Latin, else ``text`` unchanged."""
-    return restore_macrons(text) if reads_as_latin(text, default) else text
+    return restore_macrons(text) if reads_as_latin(text, default, rivals) else text

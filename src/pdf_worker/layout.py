@@ -16,6 +16,9 @@ from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
 _TEXT_FLAGS = pymupdf.TEXTFLAGS_TEXT
 SUPERSCRIPT = 1  # MuPDF span flag bits
 BOLD = 16
+# A gap between two letters wider than this share of the font size is a word space
+# (a normal space is ~0.25 em; letters sit much closer, kerned or not).
+_WORD_GAP = 0.15
 
 # Lines whose font is this much bigger than the body font are headings.
 HEADING_RATIO = 1.15
@@ -82,15 +85,36 @@ class Line:
 def page_lines(page: pymupdf.Page) -> list[Line]:
     """All text lines of a page in MuPDF reading order."""
     lines = []
-    for block in page.get_text("dict", flags=_TEXT_FLAGS)["blocks"]:
+    for block in page.get_text("rawdict", flags=_TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", ()):
-            spans = tuple(line["spans"])
+            spans = _with_text(line["spans"])
             sizes: Counter[float] = Counter()
             for span in spans:
                 sizes[round(span["size"], 1)] += len(span["text"].strip())
             size = sizes.most_common(1)[0][0] if sizes else 0.0
             lines.append(Line(spans=spans, size=size, bbox=tuple(line["bbox"])))
     return lines
+
+
+def _with_text(spans: list[dict]) -> tuple[dict, ...]:
+    """A line's ``rawdict`` spans as ``dict`` spans: chars joined into ``text``, with a
+    space wherever the PDF leaves a word gap but no space character. MuPDF misses some
+    of these, e.g. after accented Greek vowels in XeTeX books ("καὶἦλθεν")."""
+    prev = None
+    for span in spans:
+        out = []
+        for char in span.pop("chars"):
+            if (
+                prev is not None
+                and not prev["c"].isspace()
+                and not char["c"].isspace()
+                and char["bbox"][0] - prev["bbox"][2] > _WORD_GAP * span["size"]
+            ):
+                out.append(" ")
+            out.append(char["c"])
+            prev = char
+        span["text"] = "".join(out)
+    return tuple(spans)
 
 
 def is_superscript_number(span: dict, line: Line) -> bool:

@@ -139,6 +139,18 @@ def test_ocr_redo_on_scanned_book(tmp_path):
     assert "Iūlia" in body and "Iülia" not in body
 
 
+def test_greek_words_are_not_glued_together(tmp_path):
+    _require(GREEK_PDF)
+    out = tmp_path / "greek.txt"
+
+    extract_text_to_file(GREEK_PDF, out)
+
+    text = out.read_text(encoding="utf-8")
+    # MuPDF alone gives "καὶἦλθεν", "τοῦἸορδάνου" and "ὁθεὸς".
+    assert "καὶ ἦλθεν" in text and "τοῦ Ἰορδάνου" in text and "ὁ θεὸς" in text
+    assert "καὶἦλθεν" not in text
+
+
 @pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")
 def test_ocr_scanned_spanish_book_with_greek(tmp_path):
     _require(GREEK_PDF)

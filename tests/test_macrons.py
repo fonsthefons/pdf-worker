@@ -39,6 +39,15 @@ def test_only_latin_text_is_restored():
     # Too few words to tell: the default decides.
     assert reads_as_latin("Càput I", default=True)
     assert not reads_as_latin("Capítulo I", default=False)
+    # ...unless a word has an ending only Latin has.
+    assert reads_as_latin("Liber Secùndum", default=False)
+    assert reads_as_latin("Rosae", default=False)
+
+
+def test_only_the_given_rival_languages_count():
+    # "in" is an English stopword too, so against all languages this is a tie.
+    assert not reads_as_latin("Roma in Italia", default=False)
+    assert reads_as_latin("Roma in Italia", default=False, rivals={"es"})
 
 
 def test_markup_is_untouched():
