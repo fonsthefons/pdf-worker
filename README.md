@@ -78,7 +78,21 @@ end-of-line hyphenation undone) and footnotes.
 pdf-worker convert book.pdf                       # writes book.epub
 pdf-worker convert book.pdf -o book.md            # format from the extension
 pdf-worker convert book.pdf --to epub --title "Crítica de la razón pura" --author Kant
+pdf-worker convert book.pdf --to docx             # Word, with real footnotes
+pdf-worker convert book.pdf --to html             # one self-contained web page
+pdf-worker convert book.pdf --to txt              # clean text: book.clean.txt
+pdf-worker convert book.pdf --to pdf              # retypeset A5 PDF: book.reflowed.pdf
 ```
+
+Formats: `epub`, `md`, `html`, `txt`, `docx` and `pdf`. All are built from the same
+rebuilt book (headings, paragraphs, notes, pictures, tables, links):
+- **HTML:** one page with a contents list, linked footnotes, and pictures embedded.
+- **Plain text:** one paragraph per line, references as `[n]`, notes at the end. Unlike
+  `extract-text`, it has no page breaks, running heads or line numbers.
+- **Word:** made with Pandoc (`brew install pandoc`). Notes become Word footnotes and the
+  title becomes a document property.
+- **PDF:** reflowed onto A5 pages with working contents and footnote links. Good for
+  reading a scanned or awkwardly laid-out book on a tablet.
 
 - **EPUB 3:** passes `epubcheck` with no warnings, and is made for Send to Kindle.
   Footnotes and endnotes become pop-up notes, with links from the reference to the note

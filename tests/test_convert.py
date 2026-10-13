@@ -183,7 +183,9 @@ def test_unsupported_format_is_rejected(make_layout_pdf, tmp_path):
     pdf = make_layout_pdf([[_body(100, "text")]])
 
     with pytest.raises(UnsupportedFormatError):
-        convert_pdf(pdf, tmp_path / "out.docx", "docx")
+        convert_pdf(pdf, tmp_path / "out.odt", "odt")
+    with pytest.raises(UnsupportedFormatError, match="overwrite the input"):
+        convert_pdf(pdf, pdf, "pdf")
 
 
 def test_cli_convert_picks_format_from_extension(make_layout_pdf, tmp_path, capsys):
