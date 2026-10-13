@@ -21,6 +21,11 @@ dev = [
 ocr = [
     "ocrmypdf>=17.13",
 ]
+# `--engine paddle`: a Unicode font for the text layer. PaddleOCR-VL itself runs in a
+# separate environment (see README / docs/ocr-plan.md).
+paddle = [
+    "pymupdf-fonts>=1.0",
+]
 # Tools used to compare OCR engines (see docs/ocr-plan.md); macOS only for ocrmac.
 ocr-eval = [
     "ocrmac>=1.0",

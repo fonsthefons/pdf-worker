@@ -146,6 +146,22 @@ pdf-worker convert scan.pdf --ocr redo --ocr-lang spa
   couple of pages. Set it with `--lang` (`--ocr-lang` for `extract-text`/`convert`);
   `tesseract --list-langs` lists the installed ones.
 - Pages are OCR'd in parallel on all cores (`--jobs N` to limit).
+- **PaddleOCR-VL (`--engine paddle`):** much more accurate on diacritics. For example,
+  it reads Latin long vowels that Tesseract misses (94% vs. about 50% in
+  `docs/ocr-plan.md`). It is slow (12–24 s a page on an M1) and Apple-Silicon only.
+  pdf-worker starts and stops the model server itself and writes the result as the
+  same kind of text layer, so `--engine paddle` works with `ocr`, `kindle` and
+  `--ocr` alike. One-time setup:
+  ```bash
+  brew install python@3.12
+  python3.12 -m venv .venv-paddle
+  .venv-paddle/bin/pip install paddlepaddle==3.2.1 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+  .venv-paddle/bin/pip install "paddleocr[doc-parser]" "mlx-vlm>=0.3.11" pymupdf
+  .venv/bin/pip install -e '.[paddle]'
+  pdf-worker kindle scan.pdf --engine paddle   # first run downloads ~2 GB of models
+  ```
+  The models go to `~/.cache/pdf-worker/paddle` (`--paddle-cache DIR` or
+  `PDF_WORKER_PADDLE_CACHE` to change; `PDF_WORKER_PADDLE_PYTHON` for another venv).
 - **Latin macrons:** Tesseract has no macrons and reads Latin long vowels as accented ones
   (`Màrcus`, `Iülia`). When Latin is an OCR language, those accents are turned back into
   macrons (`Mārcus`, `Iūlia`) before the text layer is written. `--no-latin-macrons`
