@@ -282,13 +282,38 @@
 - Not handled: vector drawings (charts, maps made of paths).
 - Tests: `tests/test_images.py` (6).
 
+### Feature 10: `pdf-worker kindle` (2026-10-13, PR #12)
+- New `ocr_check.py` (`assess_text_layer`) samples 24 pages and measures:
+  - the share with text;
+  - the share that are full-page scans;
+  - "jittery" lines, whose words differ in size by more than 25%;
+  - suspect words (digits inside letters, stray symbols, `liBer`).
+- Rules, tuned on all samples:
+  - Text on fewer than 50% of pages: `skip`.
+  - Scanned, with more than 20% jittery lines (archive.org's word-level layer is 0.30,
+    Tesseract's ≤ 0.07): `redo`.
+  - Scanned, with more than 1% suspect words (old Familia layer 1.3%, after re-OCR
+    0.6%, digital ≤ 0.3%): `redo`.
+  - Scanned with some text-less pages: `skip`.
+  - Otherwise no OCR.
+  - Results: Familia → redo, Gibbon → redo, all digital PDFs and the re-OCR'd files →
+    none.
+- New `kindle.py` (`make_kindle_book`): assess, then OCR into a temporary copy if
+  needed (keeping the original title), then convert to EPUB. The CLI `kindle` command
+  reports what it did and warns above the 50 MB e-mail limit.
+- Tests: `tests/test_kindle.py` (5).
+- Fix found on the full Gibbon run: the picture finder got only body lines, so
+  footnote text (moved to notes) wasn't masked and every page "had" a picture. It now
+  gets all page lines. Gibbon went from 300+ false pictures to 1 (the frontispiece);
+  Familia still has 58. Gibbon end to end: auto redo OCR, 6 MB EPUB, epubcheck clean.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- **Items 1, 2, 3, 9 and 10 done (PRs #9, #10, #11). Next: items 4, 5, 6, 7, 8, in
-  that order. Start from main.**
+- **Items 1, 2, 3, 4, 9 and 10 done (PRs #9–#12). Next: items 5, 6, 7, 8, in that
+  order. Start from main.**
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
@@ -304,7 +329,7 @@
   2. [x] Real footnoted books: downloaded the court opinion, the 9/11 report and the
      Gibbon scan, tuned detection on them, added integration tests.
   3. [x] Images and a cover in the EPUB (PR #11).
-  4. [ ] One-step `pdf-worker kindle`: auto-detect OCR need and mode, then EPUB.
+  4. [x] One-step `pdf-worker kindle`: auto-detect OCR need and mode, then EPUB (PR #12).
   5. [ ] `--engine paddle` (opt-in).
   6. [ ] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the
      title for OCR'd files.

@@ -29,7 +29,7 @@ from pdf_worker.inline import (
     plain,
     uri_target,
 )
-from pdf_worker.layout import HEADING_RATIO, DocumentProfile, Line
+from pdf_worker.layout import HEADING_RATIO, DocumentProfile, Line, page_lines
 from pdf_worker.margins import split_columns
 
 # Gap between line tops, relative to normal line spacing, that starts a new paragraph.
@@ -173,8 +173,8 @@ def iter_blocks(
         label = profile.page_labels[index] if index < len(profile.page_labels) else ""
         pictures = []
         if images:
-            lines = [body_line.line for body_line in layout.lines]
-            pictures = page_images(page, lines, profile.repeated_images)
+            # All of the page's text (footnotes too) must be masked out of scans.
+            pictures = page_images(page, page_lines(page), profile.repeated_images)
         yield from state.add_page(
             layout,
             page.rect.width,
