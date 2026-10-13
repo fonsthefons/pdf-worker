@@ -430,6 +430,53 @@
 - Tests: `_with_text` unit test, `test_greek_words_are_not_glued_together` (integration),
   rival/ending tests in `test_macrons.py` and `test_ocr_latin_plugin.py`.
 
+### Bad scans: Platón, Diálogos VI (2026-10-13)
+- Samples: `test_pdfs/platon_dialogos_vi_bad.pdf` (293 pages, ABBYY FineReader layer,
+  ~900 dpi bilevel scan, pencil underlining, Stephanus marks in the margins, page
+  footnotes) and `platon_dialogos_vi_good.pdf` (calibre edition, notes at the end), used
+  as ground truth. Scoring: bag-of-words recall/precision against the good text
+  (`scratch/platon_eval.py` for bad pp. 19–20 vs good p13 + notes 1–6;
+  `scratch/platon_eval2.py` for any passage, e.g. bad pp. 9–15).
+- Findings: ABBYY's layer is better than Tesseract on clean pages (pp. 19–20 recall 0.92
+  vs 0.89; PaddleOCR-VL also 0.92), so it is kept there. On underlined pages it is bad
+  (pp. 9–15 recall 0.908).
+- OCR changes:
+  - New `underlines.py`: hand-drawn underlines are chains of thin blobs at one height
+    (OpenCV connected components). `ocr_underline_plugin.py` (OCRmyPDF
+    `filter_ocr_image`) scales the page to 300 dpi, binarizes it and erases them, only
+    on pages that have them. Underlined pp. 9–15: recall 0.908 → 0.945.
+  - The plugin is loaded only for underlined books (sample check, or `pages` given):
+    merely decoding images in the hook changed Tesseract's output (Familia lost
+    macrons).
+  - `ocr_pdf(pages=...)` limits OCR to some pages. `assess_text_layer` returns `redo`
+    with `pages` = the underlined scanned pages (36 in this book); `kindle` passes them.
+  - Fixed: OCRmyPDF dropped the text of pages whose MediaBox doesn't start at (0, 0)
+    (every other page of this book, `[330 0 660 518]`). `_zero_origin_copy` moves them
+    first (pikepdf).
+  - numpy + opencv-python-headless added to the `ocr` extra.
+- Structure changes (all books):
+  - `Line.bbox` now spans the inked spans only (`layout.ink_bbox`): ABBYY's space
+    spans have sizes up to 35 pt, which moved line tops and broke paragraphs mid-sentence.
+  - Soft hyphens (U+00AD) at line ends are joined (`join_lines`).
+  - Short marks past the column edge after a gap (`11`, `b`, `<■`, `d`) are dropped
+    (`margins._trim_edge_marks`, median right edge).
+  - `_page_margins.left` is the leftmost edge shared by ≥ 20% of lines: in dialogue the
+    most common edge was the speaker indent, so turns ran together.
+  - Junk titles ending in `.tif`/`.jpg`/`.png` are ignored.
+  - Scan pictures: black scanner edges (columns/rows in the outer 10% dark over 60% of
+    the page) are blanked first; false pictures in this book 7 → 3.
+- Result: `pdf-worker kindle` on the book: 36 underlined pages re-OCR'd, 2,679
+  paragraphs, 154 notes, EPUB passes epubcheck.
+- Not done / known limits:
+  - Footnote references are not linked in this book: ABBYY reads superscripts as plain
+    digits (`ventajoso5`, `Filebo* 4 * 6`) and some note markers as `J`. Notes are kept
+    but unlinked, and some notes are missed (165 found; the book has more).
+  - 3 false pictures remain (partial scanner smudges, pp. 137, 138, 140).
+  - Tesseract on a single page swings ±4% with tiny image changes; judge on several pages.
+- Tests: `tests/test_bad_scans.py` (8), 2 integration tests on the Platón PDF.
+- Candidate next step: link footnote references in OCR layers that set them as plain
+  digits glued to words, by matching against the note numbers found on the page.
+
 ## Blocked
 - 2026-10-13: `gh pr merge 20` was denied by the permission classifier; the user has to
   merge PR #20 (and the stacked PR) themselves or allow `gh pr merge`.

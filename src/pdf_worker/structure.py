@@ -57,6 +57,7 @@ _NUMBERING_RE = re.compile(r"^\s*(?:\d{1,3}|[IVXLC]{1,6})\.?\s*$")
 # A footnote reference in block text: ``[^label]``.
 REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
 _REF_ONLY_RE = re.compile(r"^(?:\[\^[^\]\s]+\])+$")
+SOFT_HYPHEN = "­"
 # Marks a paragraph break inside a block's lines (multi-paragraph notes).
 PARAGRAPH_BREAK = " "
 
@@ -172,6 +173,8 @@ def join_lines(parts: list[str]) -> str:
             out += lead + part
         elif len(out) > 1 and out[-1] == "-" and out[-2].isalpha() and part[0].islower():
             out = out[:-1] + lead + part
+        elif out[-1] == SOFT_HYPHEN:
+            out = out[:-1] + lead + part  # the layer marks the break as hyphenation
         elif _REF_ONLY_RE.match(part):
             out += lead + part  # a reference that wrapped onto its own line
         else:
@@ -516,9 +519,13 @@ def _page_margins(lines: list[BodyLine], body_size: float) -> _Margins:
     for body_line in lines:
         line = body_line.line
         if body_line.text.strip() and abs(line.size - body_size) < 0.6:
-            lefts[round(line.x0)] += 1
+            lefts[round(line.x0 / 3) * 3] += 1
             rights.append(line.x1)
     if not lefts:
         return _Margins(left=0.0, right=0.0)
     rights.sort()
-    return _Margins(left=float(lefts.most_common(1)[0][0]), right=rights[int(len(rights) * 0.8)])
+    # The leftmost edge shared by a fair share of lines: in dialogue most lines are
+    # indented speaker turns, so the most common edge would be the indent.
+    shared = [x for x, n in lefts.items() if n >= max(2, 0.2 * len(rights))]
+    left = min(shared) if shared else lefts.most_common(1)[0][0]
+    return _Margins(left=float(left), right=rights[int(len(rights) * 0.8)])

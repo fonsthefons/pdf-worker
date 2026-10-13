@@ -57,6 +57,7 @@ def make_kindle_book(
             mode=assessment.mode,
             progress=progress,
             engine=engine,
+            pages=assessment.pages,
         ) as (ocr_pdf, ocr_report):
             conversion = convert.convert_pdf(
                 ocr_pdf, output_path, "epub", title=title, author=author, language=language

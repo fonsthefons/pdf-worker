@@ -20,6 +20,9 @@ dev = [
 # `pdf-worker ocr` / `--ocr`. Also needs Tesseract: brew install tesseract tesseract-lang
 ocr = [
     "ocrmypdf>=17.13",
+    # Erasing hand-drawn underlines from scans before OCR (pdf_worker.underlines).
+    "numpy>=1.26",
+    "opencv-python-headless>=4.8",
 ]
 # `--engine paddle`: a Unicode font for the text layer. PaddleOCR-VL itself runs in a
 # separate environment (see README / docs/ocr-plan.md).

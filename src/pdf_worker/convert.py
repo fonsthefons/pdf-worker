@@ -46,7 +46,7 @@ _WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 # Producer junk that PDF tools put into the title field.
 _OCR_SUFFIX_RE = re.compile(r"(?:\.ocr)+$", re.IGNORECASE)
 _JUNK_TITLE_RE = re.compile(
-    r"^(microsoft word|untitled|document\d*$)|\.(docx?|pdf|indd)$"
+    r"^(microsoft word|untitled|document\d*$)|\.(docx?|pdf|indd|tiff?|jpe?g|png)$"
     # A bare file name such as "201-635.job" or "book_final.qxd".
     r"|^[\w\-]+\.[a-z]{2,4}$",
     re.I,

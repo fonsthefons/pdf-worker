@@ -7,12 +7,13 @@ line into body text, a margin gloss, or something to drop.
 """
 
 import re
+import statistics
 from collections import Counter
 from dataclasses import dataclass
 
 from pdf_worker.footnotes import BodyLine
 from pdf_worker.inline import CELL
-from pdf_worker.layout import Line
+from pdf_worker.layout import Line, ink_bbox
 
 # Lines at least this share of the page width are candidates for the body column.
 _LONG_LINE_SHARE = 0.35
@@ -42,6 +43,11 @@ def split_columns(lines: list[BodyLine], page_width: float, body_size: float) ->
     if column is None:
         return _no_margins(lines, body_size)
     left, right = column
+    # Justified lines end at the median right edge; marks past it stick out.
+    edge = statistics.median(
+        bl.line.x1 for bl in lines if bl.line.x1 - bl.line.x0 >= page_width * _LONG_LINE_SHARE
+    )
+    lines = [_trim_edge_marks(bl, left, edge, body_size) for bl in lines]
     tolerance = 0.5 * body_size
     body: list[BodyLine] = []
     margin: list[BodyLine] = []
@@ -76,6 +82,47 @@ def split_columns(lines: list[BodyLine], page_width: float, body_size: float) ->
     # join table cells that sit on one row.
     body.sort(key=lambda bl: (bl.line.top, bl.line.x0))
     return PageColumns(body=tuple(merge_rows(body, body_size)), glosses=tuple(glosses))
+
+
+def _trim_edge_marks(body_line: BodyLine, left: float, right: float, body_size: float) -> BodyLine:
+    """Drop short marks that OCR read into a body line from the margin beside it, such as
+    the section numbers and letters of classical editions ("vas a 11", "d Pro. —").
+
+    A mark starts past the column edge, after a word gap, and is at most 4 characters.
+    """
+    line, text = body_line.line, body_line.text
+    spans = list(line.spans)
+    inked = [i for i, span in enumerate(spans) if span["text"].strip()]
+    if len(inked) < 2:
+        return body_line
+    gap = 0.3 * (line.size or body_size)
+    first, second, last, before_last = inked[0], inked[1], inked[-1], inked[-2]
+    cut_head = cut_tail = None
+    mark = spans[last]["text"].strip()
+    if (
+        spans[last]["bbox"][0] > right
+        and len(mark) <= 4
+        and spans[last]["bbox"][0] - spans[before_last]["bbox"][2] > gap
+        and text.rstrip().endswith(mark)
+    ):
+        cut_tail = last
+        text = text.rstrip()[: -len(mark)].rstrip() + " "
+    mark = spans[first]["text"].strip()
+    if (
+        spans[first]["bbox"][2] < left
+        and len(mark) <= 4
+        and spans[second]["bbox"][0] - spans[first]["bbox"][2] > gap
+        and text.lstrip().startswith(mark)
+        and second != cut_tail
+    ):
+        cut_head = first
+        text = text.lstrip()[len(mark) :].lstrip()
+    if cut_head is None and cut_tail is None:
+        return body_line
+    start = cut_head + 1 if cut_head is not None else 0
+    kept = tuple(spans[start : cut_tail if cut_tail is not None else len(spans)])
+    trimmed = Line(spans=kept, size=line.size, bbox=ink_bbox(kept, line.bbox))
+    return BodyLine(text, trimmed, body_line.endnote_label)
 
 
 def _no_margins(lines: list[BodyLine], body_size: float) -> PageColumns:
