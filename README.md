@@ -12,6 +12,22 @@ brew install tesseract tesseract-lang   # only needed for OCR
 
 ## Features
 
+### Make a Kindle book (one step)
+
+```bash
+pdf-worker kindle book.pdf            # writes book.epub, ready for Send to Kindle
+pdf-worker kindle scan.pdf --ocr-lang lat
+```
+
+This checks the PDF's text layer first:
+- **No text on most pages:** those pages are OCR'd.
+- **A scan with a word-by-word or badly misread OCR layer:** that layer is replaced.
+- **Born-digital PDF:** used as it is.
+
+Then it builds the EPUB, with footnotes, pictures, cover, links and page numbers. It
+warns if the result is over Send to Kindle's 50 MB e-mail limit. `--no-ocr` never OCRs.
+The steps are also available on their own (below).
+
 ### Extract text
 
 Extracts a PDF's embedded text layer into a UTF-8 `.txt` file. Pages are read and

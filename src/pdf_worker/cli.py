@@ -7,7 +7,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-from pdf_worker import __version__, ocr
+from pdf_worker import __version__, kindle, ocr
 from pdf_worker import convert as conversion
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.text_extraction import (
@@ -246,6 +246,66 @@ def _run_convert(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_kindle_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "kindle",
+        help="One step from any PDF to a Kindle-ready EPUB (OCRs scans when needed).",
+        description="Check the PDF's text layer, OCR it if it is missing or poor, and "
+        "build an EPUB with footnotes, pictures, cover, links and page numbers.",
+    )
+    parser.add_argument("pdf", type=Path, help="Input PDF file.")
+    parser.add_argument(
+        "-o", "--output", type=Path, help="Output .epub (default: next to the input)."
+    )
+    parser.add_argument("--title", help="Book title (default: PDF metadata or file name).")
+    parser.add_argument("--author", help="Author (default: PDF metadata).")
+    parser.add_argument("--language", help="Language code such as 'es' (default: guessed).")
+    parser.add_argument(
+        "--no-ocr", dest="use_ocr", action="store_false", help="Never OCR, even scans."
+    )
+    parser.add_argument(
+        "--ocr-lang", help="Tesseract language(s) for OCR, e.g. 'lat' (default: guessed)."
+    )
+    parser.set_defaults(handler=_run_kindle)
+
+
+def _run_kindle(args: argparse.Namespace) -> int:
+    report = kindle.make_kindle_book(
+        args.pdf,
+        args.output,
+        title=args.title,
+        author=args.author,
+        language=args.language,
+        use_ocr=args.use_ocr,
+        ocr_languages=args.ocr_lang,
+        progress=sys.stderr.isatty(),
+    )
+    assessment = report.assessment
+    if report.ocr:
+        print(f"Text layer: {assessment.reason}, so it was OCR'd ({assessment.mode}).")
+        _print_ocr_summary(report.ocr)
+    elif assessment.mode:
+        print(f"Text layer: {assessment.reason}; OCR skipped (--no-ocr).")
+    else:
+        print(f"Text layer: {assessment.reason}; no OCR needed.")
+    stats, meta = report.conversion.stats, report.conversion.metadata
+    size_mb = report.size_bytes / (1024 * 1024)
+    print(
+        f"Wrote {report.output_path} ({size_mb:.1f} MB): {meta.title!r}, language {meta.language}"
+    )
+    print(
+        f"{stats.headings} heading(s), {stats.paragraphs} paragraph(s), {stats.notes} note(s), "
+        f"{stats.images} picture(s)"
+    )
+    if report.too_big_for_email:
+        print(
+            "Note: over 50 MB, too big for Send to Kindle by e-mail; use the Send to "
+            "Kindle app or web page instead.",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pdf-worker", description=__doc__)
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -253,6 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_extract_text_command(subparsers)
     _add_convert_command(subparsers)
     _add_ocr_command(subparsers)
+    _add_kindle_command(subparsers)
     return parser
 
 
