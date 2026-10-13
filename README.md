@@ -121,8 +121,17 @@ How structure is detected:
 To send to a Kindle, use the Send to Kindle app, web page or e-mail address with the
 `.epub` file.
 
+- Tables: text set side by side on two or more consecutive rows becomes a table (an
+  HTML table in EPUB, a pipe table in Markdown).
+- A printed table of contents without links is dropped; the EPUB has its own. One with
+  links is kept, with working links.
+- Headings: OCR'd heading sizes that differ by a few percent count as one level.
+  Several lines of large print are a passage, not a heading. Lines set wholly in
+  another font than the body (bold, or display faces without a bold flag) count as
+  emphasis.
+
 Limitations: drawings made of vector lines (charts, maps without an image) aren't
-carried over, and tables come out as one line per row. Multi-column layouts and scanned books give rougher results; use `--ocr` /
+carried over, and a table cell that wraps onto a second line splits the table. Multi-column layouts and scanned books give rougher results; use `--ocr` /
 `--ocr redo` for scans.
 
 ### OCR

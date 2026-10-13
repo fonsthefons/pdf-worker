@@ -22,7 +22,16 @@ from pathlib import Path
 from pdf_worker.footnotes import display_marker
 from pdf_worker.inline import LinkClose, LinkOpen, PageMark, parse_page_target, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph
+from pdf_worker.structure import (
+    REF_RE,
+    Block,
+    Gloss,
+    Heading,
+    Image,
+    Note,
+    Paragraph,
+    Table,
+)
 
 # Start a new chapter file at a heading once the current one has this much text, and
 # force one at a paragraph boundary when it grows past the hard limit (Kindle prefers
@@ -63,6 +72,8 @@ aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; }
 div.gloss { font-size: 0.8em; margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
   border-left: 2px solid #999; }
 div.gloss p { text-indent: 0; text-align: left; }
+table.data { border-collapse: collapse; margin: 0.6em 0; }
+table.data td { padding: 0.1em 0.6em 0.1em 0; vertical-align: top; text-align: left; }
 div.figure { text-align: center; margin: 0.8em 0; }
 div.figure img { max-width: 100%; height: auto; }
 div.cover { text-align: center; margin: 0; }
@@ -204,6 +215,14 @@ class _EpubBuilder:
             lines = "<br/>".join(_esc(plain(line)) for line in block.lines)
             self.parts.append(f'<div class="gloss"><p>{lines}</p></div>\n')
             self.chars += sum(len(line) for line in block.lines)
+        elif isinstance(block, Table):
+            self.stats.tables += 1
+            rows = "".join(
+                "<tr>" + "".join(f"<td>{self._inline(cell)}</td>" for cell in row) + "</tr>"
+                for row in block.rows
+            )
+            self.parts.append(f'<table class="data"><tbody>{rows}</tbody></table>\n')
+            self.chars += sum(len(cell) for row in block.rows for cell in row)
         elif isinstance(block, Image):
             self.stats.images += 1
             name = f"images/img{self.stats.images}.jpg"

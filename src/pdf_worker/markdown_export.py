@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pdf_worker.inline import LinkClose, LinkOpen, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph
+from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph, Table
 
 # Characters that would otherwise start Markdown formatting.
 _INLINE_SPECIAL_RE = re.compile(r"([\\`*_<])")
@@ -90,6 +90,9 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
                 elif isinstance(block, Paragraph):
                     stats.paragraphs += 1
                     body.write(render_markdown(block.text) + "\n\n")
+                elif isinstance(block, Table):
+                    stats.tables += 1
+                    body.write(_table(block) + "\n")
                 elif isinstance(block, Image):
                     # Pictures go to a folder next to the .md file: book_images/img1.jpg.
                     stats.images += 1
@@ -123,6 +126,17 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
     finally:
         Path(notes_name).unlink(missing_ok=True)
     return stats
+
+
+def _table(table: Table) -> str:
+    """A pipe table; its first row is the header row (Markdown tables need one)."""
+
+    def cell(text: str) -> str:
+        return render_markdown(text, line_start=False).replace("|", "\\|") or " "
+
+    rows = ["| " + " | ".join(cell(c) for c in row) + " |" for row in table.rows]
+    rule = "|" + "|".join(" --- " for _ in table.rows[0]) + "|"
+    return "\n".join([rows[0], rule, *rows[1:]]) + "\n"
 
 
 def _write_note(out, note: Note) -> None:

@@ -11,6 +11,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from pdf_worker.footnotes import BodyLine
+from pdf_worker.inline import CELL
 from pdf_worker.layout import Line
 
 # Lines at least this share of the page width are candidates for the body column.
@@ -119,7 +120,8 @@ def _join(a: BodyLine, b: BodyLine) -> BodyLine:
         max(a.line.bbox[3], b.line.bbox[3]),
     )
     line = Line(spans=(*a.line.spans, space, *b.line.spans), size=a.line.size, bbox=bbox)
-    return BodyLine(a.text.rstrip() + " " + b.text.lstrip(), line, a.endnote_label)
+    # The cells stay apart (CELL), so rows of several cells can become tables.
+    return BodyLine(a.text.rstrip() + CELL + b.text.lstrip(), line, a.endnote_label)
 
 
 def _body_column(lines: list[BodyLine], page_width: float) -> tuple[float, float] | None:

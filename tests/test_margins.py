@@ -72,10 +72,11 @@ def test_table_rows_are_joined(make_layout_pdf, tmp_path):
         for c, cell in enumerate(cells):
             page.append((72 + 130 * c, 200 + 2 * LINE * r, cell, BODY))
 
-    text, _ = _md(make_layout_pdf, tmp_path, [page])
+    text, report = _md(make_layout_pdf, tmp_path, [page])
 
-    assert "\nNominative Accusative Verb\n" in text
-    assert "\nMarcus Iuliam pulsat.\n" in text
+    assert "\n| Nominative | Accusative | Verb |\n| --- | --- | --- |\n" in text
+    assert "\n| Marcus | Iuliam | pulsat. |\n" in text
+    assert report.stats.tables == 1
 
 
 def test_two_equal_columns_are_not_glosses(make_layout_pdf, tmp_path):
