@@ -64,13 +64,18 @@ class ConvertReport:
     stats: WriteStats
 
 
-def guess_language(text: str) -> str:
-    """Best-guess ISO 639-1 code from stopword frequencies; ``en`` if unsure."""
+def stopword_scores(text: str) -> dict[str, int]:
+    """Stopword hits per ISO 639-1 language, e.g. ``{"en": 0, "es": 4, ...}``."""
     words = Counter(word.lower() for word in _WORD_RE.findall(text))
-    scores = {
+    return {
         language: sum(words[word] for word in stopwords.split())
         for language, stopwords in _STOPWORDS.items()
     }
+
+
+def guess_language(text: str) -> str:
+    """Best-guess ISO 639-1 code from stopword frequencies; ``en`` if unsure."""
+    scores = stopword_scores(text)
     best = max(scores, key=scores.get)
     return best if scores[best] >= 5 else "en"
 

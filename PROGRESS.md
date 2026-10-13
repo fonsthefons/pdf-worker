@@ -394,6 +394,26 @@
   done, the user hasn't asked for it.
 - Tests: 2 new in `tests/test_cli.py`.
 
+### Mixed-language books: Latin + Spanish, Greek passages (2026-10-13, uncommitted)
+- Macrons are restored only in paragraphs that read as Latin (`reads_as_latin` in
+  `macrons.py`: Latin stopwords beat every other language's, from
+  `convert.stopword_scores`). Before, `lat+spa` turned `canción` into `cancīōn`.
+  Paragraphs too short to tell follow the page; Tesseract pages that can't tell count as
+  Latin only if no other Latin-script language was asked for. Tesseract: per hOCR
+  `ocr_par` and per blank-line paragraph of the text file (`ocr_latin_plugin.py`).
+  Paddle: per block; on when any block reads as Latin.
+- The language guess adds `grc` when the sample has ≥20 Greek letters. The scan probe
+  now OCRs with `eng+grc` and samples 3 pages spread over the book (it was 2 adjacent
+  middle pages, which in the sample book were all Spanish introduction and missed the Greek).
+- Sample `test_pdfs/sample-text-spanish-ancient-greek.pdf` (XeTeX, born-digital): text
+  layer extracts Greek fine. As a 300 dpi scan: `spa` alone gets 0 Greek words, `spa+grc`
+  ~70% (misses are mostly words with footnote letters glued on). Guess: `["spa", "grc"]`.
+- Not handled: the text layer drops some spaces between Greek words (`καὶἦλθεν`); the
+  EPUB has one `lang` for the whole book. Scratch scripts: `scratch/greek_scan_trial.py`,
+  `scratch/guess_full_scan.py`.
+- Tests: `tests/test_ocr_latin_plugin.py` (2), new tests in `test_macrons.py`,
+  `test_ocr.py` (2), integration `test_ocr_scanned_spanish_book_with_greek`.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)

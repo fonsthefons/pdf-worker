@@ -9,6 +9,7 @@ See ``docs/ocr-plan.md`` for why Tesseract/OCRmyPDF was chosen.
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -45,8 +46,13 @@ _TESSERACT_CODES = {
 # Text needed before we trust a language guess, and how many pages to sample for it.
 _MIN_SAMPLE_CHARS = 500
 _SAMPLE_PAGES = 12
-_PROBE_PAGES = 2
+_PROBE_PAGES = 3
 _PROBE_DPI = 150
+# Greek passages (often Ancient Greek in classics books) need Tesseract's "grc" model
+# alongside the main language; a few stray letters (a misread "o", a "π") don't count.
+GREEK_LANGUAGE = "grc"
+_GREEK_RE = re.compile(r"[Ͱ-Ͽἀ-῿]")
+_MIN_GREEK_LETTERS = 20
 
 log = logging.getLogger(__name__)
 
@@ -102,17 +108,20 @@ def parse_languages(value: str | Sequence[str] | None) -> list[str] | None:
 
 
 def guess_ocr_languages(pdf_path: str | Path) -> list[str]:
-    """Guess the Tesseract language of a PDF.
+    """Guess the Tesseract language(s) of a PDF, e.g. ``["spa"]`` or ``["lat", "grc"]``.
 
     Uses the existing text layer when there is enough of it; otherwise OCRs a couple
     of pages with English (stopwords survive misread accents) and guesses from that.
+    Ancient Greek is added when the sample has Greek passages.
     """
     with open_pdf(pdf_path) as doc:
         sample = _sample_text_layer(doc)
         if len(sample) < _MIN_SAMPLE_CHARS:
             sample += _probe_ocr(doc)
-    code = guess_language(sample)
-    return [_TESSERACT_CODES.get(code, DEFAULT_LANGUAGE)]
+    languages = [_TESSERACT_CODES.get(guess_language(sample), DEFAULT_LANGUAGE)]
+    if len(_GREEK_RE.findall(sample)) >= _MIN_GREEK_LETTERS:
+        languages.append(GREEK_LANGUAGE)
+    return languages
 
 
 def ocr_pdf(
@@ -128,8 +137,9 @@ def ocr_pdf(
     """OCR ``pdf_path`` into a searchable PDF at ``output_path`` (written atomically).
 
     ``languages`` are Tesseract codes (``"spa"``, ``"lat+eng"``); by default they are
-    guessed from the document. ``latin_macrons`` turns accented vowels into macrons
-    (see ``pdf_worker.macrons``); by default it is on when Latin is a language.
+    guessed from the document. ``latin_macrons`` turns accented vowels into macrons in
+    the paragraphs that read as Latin (see ``pdf_worker.macrons``); by default it is on
+    when Latin is a language.
     ``engine="paddle"`` uses PaddleOCR-VL instead (``pdf_worker.paddle_ocr``; slow,
     better on diacritics; ``languages`` and ``jobs`` don't apply).
     """
@@ -256,13 +266,18 @@ def _sample_text_layer(doc: pymupdf.Document) -> str:
 
 
 def _probe_ocr(doc: pymupdf.Document) -> str:
-    """OCR a few pages from the middle of the book with English, for a language guess."""
-    middle = doc.page_count // 2
+    """OCR a few pages spread over the book with English (plus Greek, so Greek passages
+    show up as Greek letters), for a language guess."""
+    probe = DEFAULT_LANGUAGE
+    if GREEK_LANGUAGE in available_languages():
+        probe += "+" + GREEK_LANGUAGE
+    # Spread out: an introduction or a run of Greek text can fill several pages.
+    indexes = {doc.page_count * (k + 1) // (_PROBE_PAGES + 1) for k in range(_PROBE_PAGES)}
     texts = []
-    for index in range(middle, min(middle + _PROBE_PAGES, doc.page_count)):
+    for index in sorted(indexes):
         png = doc.load_page(index).get_pixmap(dpi=_PROBE_DPI, colorspace=pymupdf.csGRAY)
         result = subprocess.run(
-            [tesseract_path(), "stdin", "stdout", "-l", DEFAULT_LANGUAGE],
+            [tesseract_path(), "stdin", "stdout", "-l", probe],
             input=png.tobytes("png"),
             capture_output=True,
             check=False,
