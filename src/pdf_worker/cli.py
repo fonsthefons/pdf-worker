@@ -312,9 +312,9 @@ def _run_kindle(args: argparse.Namespace) -> int:
         engine=args.engine,
     )
     assessment = report.assessment
-    if report.ocr:
+    if report.ocr_report:
         print(f"Text layer: {assessment.reason}, so it was OCR'd ({assessment.mode}).")
-        _print_ocr_summary(report.ocr)
+        _print_ocr_summary(report.ocr_report)
     elif assessment.mode:
         print(f"Text layer: {assessment.reason}; OCR skipped (--no-ocr).")
     else:

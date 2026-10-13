@@ -20,7 +20,7 @@ class KindleReport:
     output_path: Path
     assessment: TextLayerReport
     conversion: convert.ConvertReport
-    ocr: ocr.OcrReport | None = None
+    ocr_report: ocr.OcrReport | None = None
     size_bytes: int = 0
 
     @property
@@ -70,6 +70,6 @@ def make_kindle_book(
         output_path=output_path,
         assessment=assessment,
         conversion=conversion,
-        ocr=ocr_report,
+        ocr_report=ocr_report,
         size_bytes=output_path.stat().st_size,
     )

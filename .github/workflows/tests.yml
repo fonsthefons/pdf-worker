@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: System tools (OCR, Word output, EPUB validation)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            tesseract-ocr tesseract-ocr-lat tesseract-ocr-spa pandoc epubcheck
+
+      - name: Install pdf-worker
+        run: pip install -e '.[dev,ocr,paddle]'
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      # The sample books in test_pdfs/ are not in the repository (size, copyright), so
+      # the integration tests skip themselves; PaddleOCR-VL needs Apple Silicon.
+      - name: Tests
+        run: |
+          mkdir -p scratch
+          pytest -m "not integration"
