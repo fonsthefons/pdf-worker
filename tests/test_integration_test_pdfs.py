@@ -80,6 +80,9 @@ def test_convert_endnotes_pdf_to_valid_epub(tmp_path):
 
     assert report.stats.notes == 224
     assert report.metadata.language == "es"
+    # Section subheadings are set in other (Type3) fonts without a bold flag: still
+    # headings, so the EPUB's own contents lists every section.
+    assert report.stats.headings >= 90
     # The index at the top links every section; each link lands on its section.
     with zipfile.ZipFile(out) as zf:
         files = {n: zf.read(n).decode() for n in zf.namelist() if n.endswith(".xhtml")}

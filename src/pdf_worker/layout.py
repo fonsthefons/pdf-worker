@@ -19,6 +19,10 @@ BOLD = 16
 
 # Lines whose font is this much bigger than the body font are headings.
 HEADING_RATIO = 1.15
+# Sizes within this share of a heading size belong to it (OCR jitter).
+_HEADING_BAND = 0.05
+_MAX_HEADING_LEVELS = 4
+_BODY_FONT_SHARE = 0.85
 # Running headers/footers live in this fraction of the page at the top and bottom.
 _MARGIN_ZONE = 0.1
 # A margin line repeated on at least this share of pages (and 3 pages) is running text.
@@ -128,14 +132,29 @@ class DocumentProfile:
     page_labels: list[str] = field(default_factory=list)
     # Images placed on many pages (logos, rules): not figures.
     repeated_images: set[int] = field(default_factory=set)
+    # Fonts that set most of the text. A line set wholly in other fonts is emphasised
+    # (bold or a display face), even when the PDF has no bold flag (Type3 fonts).
+    body_fonts: set[str] = field(default_factory=set)
+
+    def emphasized(self, line: Line) -> bool:
+        if line.bold:
+            return True
+        names = {span.get("font", "") for span in line.spans if span["text"].strip()}
+        return bool(names) and bool(self.body_fonts) and not names & self.body_fonts
+
     text_sample: str = ""
     page_count: int = 0
 
     def heading_level(self, size: float) -> int | None:
+        """Level of the nearest heading size, if ``size`` is within its jitter band."""
+        best = None
         for level, heading_size in enumerate(self.heading_sizes, start=1):
-            if abs(size - heading_size) < 0.3:
-                return level
-        return None
+            distance = abs(size - heading_size)
+            if distance <= max(0.3, heading_size * 2 * _HEADING_BAND) and (
+                best is None or distance < best[0]
+            ):
+                best = (distance, level)
+        return best[1] if best else None
 
     def is_running(self, line: Line, page_height: float) -> bool:
         """True for running headers/footers and bare page numbers in the margins, and
@@ -154,6 +173,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     margin_sizes: dict[str, float] = {}
     offsets: Counter[int] = Counter()  # printed page number minus page index
     image_pages: Counter[int] = Counter()  # image xref -> pages it is placed on
+    fonts: Counter[str] = Counter()  # font name -> characters set in it
     inner_texts: Counter[str] = Counter()
     occurrences: Counter[int] = Counter()
     line_starts: dict[int, tuple[int, int]] = {}
@@ -174,6 +194,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
             text = line.text
             for span in line.spans:
                 sizes[round(span["size"], 1)] += len(span["text"].strip())
+                fonts[span.get("font", "")] += len(span["text"].strip())
             if text.strip() and not height * _MARGIN_ZONE < line.top < height * (1 - _MARGIN_ZONE):
                 key = running_key(text)
                 page_margin_texts.add(key)
@@ -214,8 +235,8 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     body_size = sizes.most_common(1)[0][0] if sizes else 0.0
     body_gaps = Counter({gap: n for (size, gap), n in gaps.items() if size == body_size})
     line_spacing = body_gaps.most_common(1)[0][0] if body_gaps else body_size * 1.2
-    heading_sizes = sorted(
-        {s for s, n in sizes.items() if s >= body_size * HEADING_RATIO and n >= 3}, reverse=True
+    heading_sizes = _cluster_sizes(
+        {s: n for s, n in sizes.items() if s >= body_size * HEADING_RATIO and n >= 3}
     )
     threshold = max(3, doc.page_count * _RUNNING_SHARE)
     # Per-chapter running heads ("NOTES TO CHAPTER 1") repeat on fewer pages; small
@@ -242,6 +263,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         endnote_defs=_endnote_candidates(occurrences, line_starts, referenced_mid_line),
         chapter_notes=match_chapter_notes(sup_refs, note_lines),
         page_labels=_page_labels(doc, offsets),
+        body_fonts=_body_fonts(fonts),
         repeated_images={
             xref
             for xref, n in image_pages.items()
@@ -250,6 +272,36 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         text_sample=" ".join(sample),
         page_count=doc.page_count,
     )
+
+
+def _body_fonts(fonts: Counter[str]) -> set[str]:
+    """The most used fonts, together setting ``_BODY_FONT_SHARE`` of all characters."""
+    total = sum(fonts.values())
+    body: set[str] = set()
+    covered = 0
+    for name, count in fonts.most_common():
+        if covered >= total * _BODY_FONT_SHARE:
+            break
+        body.add(name)
+        covered += count
+    return body
+
+
+def _cluster_sizes(sizes: dict[float, int]) -> list[float]:
+    """Heading sizes, largest first, with sizes a few percent apart merged into one.
+
+    OCR'd text layers size each line from its height, so one printed heading size shows
+    up as many slightly different sizes; each cluster is one heading level, at the
+    size used most within it. At most ``_MAX_HEADING_LEVELS`` levels are kept.
+    """
+    clusters: list[dict[float, int]] = []
+    for size in sorted(sizes, reverse=True):
+        if clusters and size >= max(clusters[-1]) * (1 - 2 * _HEADING_BAND):
+            clusters[-1][size] = sizes[size]
+        else:
+            clusters.append({size: sizes[size]})
+    levels = [max(cluster, key=cluster.get) for cluster in clusters]
+    return levels[:_MAX_HEADING_LEVELS]
 
 
 def _page_labels(doc: pymupdf.Document, offsets: Counter[int]) -> list[str]:

@@ -13,6 +13,8 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+# Between the cells of a table row (text pieces that sat side by side on one row).
+CELL = ""
 _PAGE_OPEN, _PAGE_CLOSE = "", ""
 _LINK_OPEN, _LINK_MID, _LINK_CLOSE = "", "", ""
 _TOKEN_RE = re.compile("(\\d+)\\|([^]*)|([^]*)|")
@@ -60,7 +62,8 @@ def parse_page_target(target: str) -> tuple[int, float] | None:
 
 
 def pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
-    """Split block text into plain text and markers, in order."""
+    """Split block text into plain text and markers, in order (cells become spaces)."""
+    text = text.replace(CELL, " ")
     last = 0
     for match in _TOKEN_RE.finditer(text):
         if match.start() > last:
@@ -77,5 +80,5 @@ def pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
 
 
 def plain(text: str) -> str:
-    """The text without page and link markers."""
-    return _TOKEN_RE.sub("", text)
+    """The text without page and link markers (table cells joined by spaces)."""
+    return _TOKEN_RE.sub("", text).replace(CELL, " ")

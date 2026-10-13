@@ -22,6 +22,7 @@ from pdf_worker.footnotes import (
 )
 from pdf_worker.images import PageImage, labels_inside, page_images
 from pdf_worker.inline import (
+    CELL,
     LEADING_PAGE_MARKS_RE,
     link,
     page_mark,
@@ -40,6 +41,19 @@ _SENTENCE_END = tuple('.!?»"”’)]')
 # Font size change (share of the block's size) that starts a new block. OCR'd text layers
 # size each line from its height, so sizes wobble by a few percent.
 _SIZE_JITTER = 0.08
+# A "heading" longer than this is large print, not a heading.
+_MAX_HEADING_LINES = 3
+_MAX_HEADING_CHARS = 160
+# A contents entry: a title, then dot leaders or spaces, then a page number.
+# (The page number may sit in a column of its own: then the entry ends in leaders.)
+_CONTENTS_ENTRY_RE = re.compile(
+    r"^\s*\S.*?(?:[.·…_ ]*[.·…_]{3,}\s*(?:\d{1,4}|[ivxlcdm]{1,7})?"
+    r"|\s+(?:\d{1,4}|[ivxlcdm]{1,7}))\s*$",
+    re.IGNORECASE,
+)
+_MIN_CONTENTS_ENTRIES = 5
+# Chapter numbers are short headings too: "3", "IV", "II.".
+_NUMBERING_RE = re.compile(r"^\s*(?:\d{1,3}|[IVXLC]{1,6})\.?\s*$")
 # A footnote reference in block text: ``[^label]``.
 REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
 _REF_ONLY_RE = re.compile(r"^(?:\[\^[^\]\s]+\])+$")
@@ -86,7 +100,14 @@ class Image:
     height: int
 
 
-Block = Heading | Paragraph | Note | Gloss | Image
+@dataclass(frozen=True)
+class Table:
+    """Rows of cells: text that sat side by side on two or more consecutive rows."""
+
+    rows: tuple[tuple[str, ...], ...]
+
+
+Block = Heading | Paragraph | Note | Gloss | Image | Table
 
 
 @dataclass
@@ -99,7 +120,7 @@ class _Margins:
 class _Builder:
     """The block currently being assembled."""
 
-    kind: str = ""  # "", "para", "small", "note", "heading"
+    kind: str = ""  # "", "para", "small", "note", "heading", "table"
     label: str = ""
     level: int = 0
     parts: list[str] = field(default_factory=list)
@@ -108,13 +129,14 @@ class _Builder:
     size_total: float = 0.0
     page: int = -1  # where the block starts: PDF page index and top of its first line
     top: float = 0.0
+    rows: list[list[str]] = field(default_factory=list)  # kind "table"
 
-    def add(self, text: str, line: Line, page: int) -> None:
+    def add(self, text: str, line: Line, page: int, emphasized: bool = False) -> None:
         if not self.lines:
             self.page, self.top = page, line.top
         self.parts.append(text)
         self.lines += 1
-        self.bold = self.bold and line.bold
+        self.bold = self.bold and (line.bold or emphasized)
         self.size_total += line.size
 
     @property
@@ -185,6 +207,13 @@ def iter_blocks(
             images=pictures,
         )
     yield from state.finish()
+
+
+def _is_contents_page(lines: list[BodyLine]) -> bool:
+    """Most lines are contents entries: text ending in a page number."""
+    texts = [plain(bl.text).strip() for bl in lines if bl.text.strip()]
+    entries = sum(1 for text in texts if _CONTENTS_ENTRY_RE.match(text))
+    return entries >= _MIN_CONTENTS_ENTRIES and entries >= 0.5 * len(texts)
 
 
 def _page_links(page: pymupdf.Page, page_count: int) -> list[tuple[pymupdf.Rect, str]]:
@@ -274,6 +303,12 @@ class _State:
             profile.body_size,
         )
         lines = list(columns.body)
+        glosses = columns.glosses
+        if _is_contents_page(lines) and not links:
+            # A printed table of contents without links: the EPUB has its own, so the
+            # entries ("Chapter One ...... 42") and a column of page numbers are dropped.
+            lines = [bl for bl in lines if not _CONTENTS_ENTRY_RE.match(plain(bl.text))]
+            glosses = ()
         margins = _page_margins(lines, profile.body_size)
         new_page = True
         # Blank lines only separate paragraphs between two lines of the same page; blanks
@@ -298,9 +333,9 @@ class _State:
             new_page = False
         for picture in pictures:  # pictures below the page's last line
             self.pending.append(Image(picture.data, picture.width, picture.height))
-        if columns.glosses:
+        if glosses:
             # Like footnotes, the page's glosses follow the paragraph in progress.
-            self.pending.append(Gloss(columns.glosses))
+            self.pending.append(Gloss(glosses))
         for label, texts in layout.notes:
             continued = bool(texts) and texts[0].startswith(CONTINUED)
             parts = [texts[0][len(CONTINUED) :] if continued else texts[0], *texts[1:]]
@@ -351,6 +386,19 @@ class _State:
             self.prev, self.prev_text = line, text
             self.break_next = False
             return
+        elif CELL in text and not level:
+            # A row of side-by-side cells: start or extend a table.
+            cells = [cell.strip() for cell in text.split(CELL)]
+            current = self.current
+            if current.kind != "table" or abs(len(cells) - len(current.rows[0])) > 1:
+                yield from self._flush()
+                self.current = current = _Builder(kind="table")
+                current.page, current.top = self.page_index, line.top
+            current.rows.append(cells)
+            current.lines += 1
+            self.prev, self.prev_text = line, text
+            self.break_next = False
+            return
         elif level:
             same_heading = (
                 self.current.kind == "heading"
@@ -370,7 +418,7 @@ class _State:
             if starts or self.current.kind != kind:
                 yield from self._flush()
                 self.current = _Builder(kind=kind)
-        self.current.add(text, line, self.page_index)
+        self.current.add(text, line, self.page_index, profile.emphasized(line))
         self.prev, self.prev_text = line, text
         self.break_next = False
 
@@ -381,6 +429,8 @@ class _State:
         reference = self.current.size or prev.size
         if abs(line.size - reference) > max(0.6, _SIZE_JITTER * reference):
             return True
+        if self.profile.emphasized(prev) and not self.profile.emphasized(line):
+            return True  # a bold heading line, then the paragraph
         stripped = plain(self.prev_text).rstrip()
         # A trailing footnote reference doesn't hide the punctuation before it.
         stripped = REF_RE.sub("", stripped).rstrip()
@@ -412,9 +462,25 @@ class _State:
         if current.kind == "":
             pass
         elif current.kind == "heading":
-            yield Heading(current.text(), current.level, current.page, current.top)
+            text = current.text()
+            letters = sum(c.isalnum() for c in plain(text))
+            if letters < 3 and not _NUMBERING_RE.match(plain(text)):
+                pass  # a speck of OCR noise in large type ("y", "HN")
+            elif current.lines > _MAX_HEADING_LINES or len(plain(text)) > _MAX_HEADING_CHARS:
+                # Several lines of large type: a passage in big print, not a heading.
+                yield Paragraph(text, False, current.page, current.top)
+            else:
+                yield Heading(text, current.level, current.page, current.top)
         elif current.kind == "note":
             yield Note(current.label, current.text())
+        elif current.kind == "table":
+            if len(current.rows) >= 2:
+                width = max(len(row) for row in current.rows)
+                yield Table(tuple(tuple(row + [""] * (width - len(row))) for row in current.rows))
+            else:
+                # One row is no table: text with a wide gap, such as "Name      Date".
+                text = " ".join(current.rows[0])
+                yield Paragraph(text, False, current.page, current.top)
         else:
             text = current.text()
             if text:

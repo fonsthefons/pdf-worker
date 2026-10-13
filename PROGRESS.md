@@ -334,12 +334,37 @@
 - Tests: `tests/test_paddle_ocr.py`: 4 unit tests, plus 1 integration test that runs
   the real pipeline (about 15 s) when `.venv-paddle` exists.
 
+### Feature 12: clean-ups (2026-10-13, PR #14)
+- Headings:
+  - `layout._cluster_sizes` merges sizes within 10% of each other (one level each,
+    max 4), and `heading_level` takes the nearest level within that band.
+  - Heading blocks of more than 3 lines or 160 characters become paragraphs; specks
+    with fewer than 3 letters are dropped (chapter numbers kept).
+  - A new paragraph starts where emphasis ends. `profile.emphasized(line)` means bold,
+    or set wholly outside the body fonts (`body_fonts` = fonts setting 85% of the text);
+    this catches Type3 display faces.
+  - Results: Familia 343 → about 240 headings, mostly real. The encyclical 31 → 99:
+    every section subheading is now a heading.
+- Printed contents pages: a page where at least 5 lines and half of all lines are
+  entries (title, leaders and/or spaces, page number) loses those entries and its side
+  columns, unless the page has links. Familia's INDEX CAPITVLORVM is gone; the
+  encyclical's linked index stays.
+- Tables: `margins._join` now joins same-row pieces with a `CELL` marker
+  (`inline.CELL`). The structure pass makes two or more consecutive multi-cell rows
+  (±1 column) a `Table` block; a single row becomes a paragraph. EPUB writes
+  `table.data`, Markdown a pipe table with the first row as header. `plain`/`pieces`
+  turn CELL into a space elsewhere. Familia has 92 declension and verb tables; the 9/11
+  report has 12 (flight timelines). Wrapped cells split tables (a limitation).
+- Titles: "book.ocr.pdf" becomes "book"; underscores become spaces.
+- Tests: `tests/test_cleanups.py` (4); the table test was updated; the integration test
+  checks at least 90 encyclical headings.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- **Items 1–5, 9 and 10 done (PRs #9–#13). Next: items 6, 7, 8, in that order. Start
+- **Items 1–6, 9 and 10 done (PRs #9–#14). Next: items 7 (formats) and 8 (CI). Start
   from main.**
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
@@ -358,8 +383,8 @@
   3. [x] Images and a cover in the EPUB (PR #11).
   4. [x] One-step `pdf-worker kindle`: auto-detect OCR need and mode, then EPUB (PR #12).
   5. [x] `--engine paddle` (opt-in) (PR #13).
-  6. [ ] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the
-     title for OCR'd files.
+  6. [x] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the
+     title for OCR'd files (PR #14).
   7. [ ] Formats: docx, html, txt, pdf.
   8. [ ] GitHub Actions CI.
   9. [x] (PR #10) (added mid-task) Internal links: PDF link annotations (contents entries,

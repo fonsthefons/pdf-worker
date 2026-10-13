@@ -32,6 +32,7 @@ _STOPWORDS = {
 }
 _WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 # Producer junk that PDF tools put into the title field.
+_OCR_SUFFIX_RE = re.compile(r"(?:\.ocr)+$", re.IGNORECASE)
 _JUNK_TITLE_RE = re.compile(
     r"^(microsoft word|untitled|document\d*$)|\.(docx?|pdf|indd)$"
     # A bare file name such as "201-635.job" or "book_final.qxd".
@@ -112,7 +113,9 @@ def pdf_title(pdf_path: str | Path) -> str:
 
 
 def _title_from(info: dict, pdf_path: str | Path) -> str:
-    return _clean_title(info.get("title", "")) or Path(pdf_path).stem
+    """The PDF's title, else its file name without our own suffixes ("book.ocr.pdf")."""
+    stem = _OCR_SUFFIX_RE.sub("", Path(pdf_path).stem)
+    return _clean_title(info.get("title", "")) or stem.replace("_", " ").strip() or stem
 
 
 def _clean_title(title: str) -> str:
