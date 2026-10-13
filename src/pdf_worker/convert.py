@@ -1,4 +1,5 @@
-"""Convert a PDF into a reflowable book: EPUB (Kindle-friendly) or Markdown.
+"""Convert a PDF into a reflowable book: EPUB (Kindle-friendly), Markdown, HTML, clean
+plain text, Word (.docx) or a reflowed PDF.
 
 Pipeline: layout analysis -> footnote detection -> structure (headings, paragraphs,
 notes) -> writer. Every stage works page by page.
@@ -10,15 +11,26 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pdf_worker.document import open_pdf
+from pdf_worker.docx_export import write_docx
 from pdf_worker.epub import write_epub
 from pdf_worker.errors import PdfWorkerError
+from pdf_worker.html_export import write_html
 from pdf_worker.images import render_cover
 from pdf_worker.layout import analyze_document
 from pdf_worker.markdown_export import write_markdown
 from pdf_worker.output import Metadata, WriteStats
+from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import iter_blocks
+from pdf_worker.text_export import write_text
 
-FORMATS = {"epub": ".epub", "md": ".md"}
+FORMATS = {
+    "epub": ".epub",
+    "md": ".md",
+    "html": ".html",
+    "txt": ".txt",
+    "docx": ".docx",
+    "pdf": ".pdf",
+}
 
 # Very common short words per language, for a cheap language guess.
 _STOPWORDS = {
@@ -64,7 +76,10 @@ def guess_language(text: str) -> str:
 
 
 def default_output_path(pdf_path: str | Path, fmt: str) -> Path:
-    return Path(pdf_path).with_suffix(FORMATS[fmt])
+    """``book.pdf`` -> ``book.epub`` etc. A reflowed PDF is ``book.reflowed.pdf`` (not
+    the input itself) and clean text ``book.clean.txt`` (``book.txt`` is extract-text's)."""
+    suffix = {"pdf": ".reflowed.pdf", "txt": ".clean.txt"}.get(fmt, FORMATS[fmt])
+    return Path(pdf_path).with_suffix(suffix)
 
 
 def format_for_path(path: str | Path) -> str | None:
@@ -89,6 +104,8 @@ def convert_pdf(
     if fmt not in FORMATS:
         raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
     output_path = Path(output_path)
+    if output_path.resolve() == Path(pdf_path).resolve():
+        raise UnsupportedFormatError(f"The output would overwrite the input: {output_path}")
     with open_pdf(pdf_path) as doc:
         profile = analyze_document(doc)
         info = doc.metadata or {}
@@ -97,12 +114,19 @@ def convert_pdf(
             author=author or (info.get("author") or "").strip(),
             language=language or guess_language(profile.text_sample),
         )
-        blocks = iter_blocks(doc, profile, images=images)
+        blocks = iter_blocks(doc, profile, images=images and fmt != "txt")
         if fmt == "epub":
             cover_jpeg = render_cover(doc.load_page(0)) if cover and doc.page_count else None
             stats = write_epub(blocks, output_path, meta, cover=cover_jpeg)
         else:
-            stats = write_markdown(blocks, output_path, meta)
+            writer = {
+                "md": write_markdown,
+                "html": write_html,
+                "txt": write_text,
+                "docx": write_docx,
+                "pdf": write_pdf,
+            }[fmt]
+            stats = writer(blocks, output_path, meta)
     return ConvertReport(output_path=output_path, metadata=meta, stats=stats)
 
 

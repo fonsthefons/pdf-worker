@@ -130,6 +130,17 @@ def test_markdown_saves_pictures_next_to_the_file(tmp_path):
     assert (tmp_path / "book_images" / "img1.jpg").is_file()
 
 
+def test_html_embeds_and_pdf_places_pictures(tmp_path):
+    book = _digital_book(tmp_path)
+
+    convert_pdf(book, tmp_path / "book.html", "html")
+    convert_pdf(book, tmp_path / "book.reflowed.pdf", "pdf")
+
+    assert 'src="data:image/jpeg;base64,' in (tmp_path / "book.html").read_text()
+    with pymupdf.open(tmp_path / "book.reflowed.pdf") as doc:
+        assert sum(len(page.get_images()) for page in doc) >= 1
+
+
 @pytest.mark.skipif(EPUBCHECK is None, reason="epubcheck not installed")
 def test_epub_with_pictures_passes_epubcheck(tmp_path):
     out = tmp_path / "book.epub"

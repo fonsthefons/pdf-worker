@@ -359,13 +359,29 @@
 - Tests: `tests/test_cleanups.py` (4); the table test was updated; the integration test
   checks at least 90 encyclical headings.
 
+### Feature 13: HTML, clean text, Word and reflowed PDF (2026-10-13, PR #15)
+- `html_export.py`: builds the EPUB in a work dir and joins it into one HTML page:
+  - the nav TOC becomes `nav.contents`, followed by the chapter bodies as
+    `<section id="cNNN">` and then the notes;
+  - `cNNN.xhtml#x` links become `#x`, and `epub:type`/`role` attributes are dropped;
+  - pictures are embedded as data URIs, or saved to a folder (for the PDF).
+- `text_export.py`: reflowed paragraphs, `[n]` references, a Notes section at the
+  end, glosses indented, tables tab-separated. Default name `book.clean.txt`.
+- `docx_export.py`: our Markdown, then Pandoc (`brew install pandoc`; a clean error if
+  it's missing). Gives real Word footnotes and the title in the document properties.
+- `pdf_export.py`: our HTML laid out by `pymupdf.Story.write_with_links` onto A5 pages
+  with 42 pt margins, keeping internal links. Default name `book.reflowed.pdf`, and
+  convert refuses to overwrite its input.
+- Encyclical: all six formats convert in 3–8 s. The PDF has 163 pages, 4,660 links
+  (2,343 internal) and is 2.2 MB; the docx has 224 footnotes.
+- Tests: `tests/test_formats.py` (6) and one HTML/PDF pictures test.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- **Items 1–6, 9 and 10 done (PRs #9–#14). Next: items 7 (formats) and 8 (CI). Start
-  from main.**
+- **Items 1–7, 9 and 10 done (PRs #9–#15). Next: item 8 (CI). Start from main.**
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
@@ -385,7 +401,7 @@
   5. [x] `--engine paddle` (opt-in) (PR #13).
   6. [x] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the
      title for OCR'd files (PR #14).
-  7. [ ] Formats: docx, html, txt, pdf.
+  7. [x] Formats: docx, html, txt, pdf (PR #15).
   8. [ ] GitHub Actions CI.
   9. [x] (PR #10) (added mid-task) Internal links: PDF link annotations (contents entries,
      cross-references) become working EPUB links to the target chapter or page. The
