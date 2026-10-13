@@ -41,6 +41,7 @@ def make_kindle_book(
     use_ocr: bool = True,
     ocr_languages: str | None = None,
     progress: bool = False,
+    engine: str = "tesseract",
 ) -> KindleReport:
     """Build ``output_path`` (an EPUB) from ``pdf_path``, OCRing first if needed."""
     pdf_path = Path(pdf_path)
@@ -55,6 +56,7 @@ def make_kindle_book(
             languages=ocr_languages,
             mode=assessment.mode,
             progress=progress,
+            engine=engine,
         ) as (ocr_pdf, ocr_report):
             conversion = convert.convert_pdf(
                 ocr_pdf, output_path, "epub", title=title, author=author, language=language

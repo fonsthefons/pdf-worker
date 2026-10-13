@@ -26,6 +26,7 @@ from pdf_worker.errors import PdfOpenError, PdfWorkerError
 # skip: OCR only pages without text. redo: replace an existing OCR layer (keeps real
 # digital text). force: rasterize every page and OCR it (loses digital text).
 MODES = ("skip", "redo", "force")
+ENGINES = ("tesseract", "paddle")
 DEFAULT_LANGUAGE = "eng"
 INSTALL_HINT = "install it with: brew install tesseract tesseract-lang"
 # OCRmyPDF plugin (by module name) that restores Latin macrons.
@@ -122,13 +123,24 @@ def ocr_pdf(
     jobs: int | None = None,
     progress: bool = False,
     latin_macrons: bool | None = None,
+    engine: str = "tesseract",
 ) -> OcrReport:
     """OCR ``pdf_path`` into a searchable PDF at ``output_path`` (written atomically).
 
     ``languages`` are Tesseract codes (``"spa"``, ``"lat+eng"``); by default they are
     guessed from the document. ``latin_macrons`` turns accented vowels into macrons
     (see ``pdf_worker.macrons``); by default it is on when Latin is a language.
+    ``engine="paddle"`` uses PaddleOCR-VL instead (``pdf_worker.paddle_ocr``; slow,
+    better on diacritics; ``languages`` and ``jobs`` don't apply).
     """
+    if engine not in ENGINES:
+        raise OcrError(f"Unknown OCR engine {engine!r}; choose from {', '.join(ENGINES)}")
+    if engine == "paddle":
+        from pdf_worker.paddle_ocr import ocr_pdf_paddle
+
+        return ocr_pdf_paddle(
+            pdf_path, output_path, mode=mode, progress=progress, latin_macrons=latin_macrons
+        )
     if mode not in MODES:
         raise OcrError(f"Unknown OCR mode {mode!r}; choose from {', '.join(MODES)}")
     pdf_path, output_path = Path(pdf_path), Path(output_path)

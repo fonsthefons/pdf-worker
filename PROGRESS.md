@@ -307,13 +307,40 @@
   gets all page lines. Gibbon went from 300+ false pictures to 1 (the frontispiece);
   Familia still has 58. Gibbon end to end: auto redo OCR, 6 MB EPUB, epubcheck clean.
 
+### Feature 11: `--engine paddle` (2026-10-13, PR #13)
+- New `paddle_worker.py`: a script run by `.venv-paddle`'s Python, with no pdf_worker
+  imports. It renders pages at 200 dpi, runs `PaddleOCRVL(vl_rec_backend=
+  "mlx-vlm-server")`, and writes JSON lines with blocks (label, bbox, text).
+- New `paddle_ocr.py`:
+  - Starts `mlx_vlm.server` on a free port and waits for it (up to 15 min for the
+    first model download), runs the worker, then stops the server.
+  - Writes the blocks as an invisible text layer (render mode 3, Noto Sans from
+    `pymupdf-fonts`), fitting each block's text into its box.
+  - Wide blocks are rewrapped (Paddle keeps printed line breaks), aligned to one left
+    edge, and start with two typed spaces, so they read as one paragraph each.
+  - Missing glyphs fall back to their base letter; LaTeX wrappers are removed; macrons
+    are restored when the output reads as Latin.
+  - Redo/force first strips the old text with a full-page redaction that keeps
+    images and drawings.
+  - Caches: `PDF_WORKER_PADDLE_CACHE` (default `~/.cache/pdf-worker/paddle`). The
+    subprocess also gets `HOME` set to it.
+- `ocr.ocr_pdf(engine=...)`; CLI `--engine` / `--ocr-engine`, `--paddle-cache`; kindle
+  `--engine`. New extra `paddle = [pymupdf-fonts]` (installed in `.venv`).
+- Result on Familia pp. 9, 25 and 120 (redo): clean paragraphs with macrons (`Eurōpā`,
+  `Āfricā`, `rīdet`, `Quīntus`) and glosses separated. The model's own errors remain
+  (`Aemiliaam`, `nāo`, line numbers inside the text).
+- For my runs: `--paddle-cache /Users/fons/Documents/pdf-worker/scratch/paddle-home`
+  (models already there).
+- Tests: `tests/test_paddle_ocr.py`: 4 unit tests, plus 1 integration test that runs
+  the real pipeline (about 15 s) when `.venv-paddle` exists.
+
 ## Blocked
 - None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
   version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
-- **Items 1, 2, 3, 4, 9 and 10 done (PRs #9–#12). Next: items 5, 6, 7, 8, in that
-  order. Start from main.**
+- **Items 1–5, 9 and 10 done (PRs #9–#13). Next: items 6, 7, 8, in that order. Start
+  from main.**
 - **Overnight task (user request 2026-10-12): do next steps 1–8, PR and merge each.**
   The user's answers:
   - Test books: download public-domain footnoted and endnoted books (archive.org,
@@ -330,7 +357,7 @@
      Gibbon scan, tuned detection on them, added integration tests.
   3. [x] Images and a cover in the EPUB (PR #11).
   4. [x] One-step `pdf-worker kindle`: auto-detect OCR need and mode, then EPUB (PR #12).
-  5. [ ] `--engine paddle` (opt-in).
+  5. [x] `--engine paddle` (opt-in) (PR #13).
   6. [ ] Clean-ups: tables in EPUB, drop the printed TOC, fewer false headings, keep the
      title for OCR'd files.
   7. [ ] Formats: docx, html, txt, pdf.

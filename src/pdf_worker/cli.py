@@ -2,6 +2,7 @@
 
 import argparse
 import codecs
+import os
 import sys
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -33,6 +34,28 @@ def _add_ocr_options(parser: argparse.ArgumentParser) -> None:
         help="Tesseract language(s) for --ocr, e.g. 'spa' or 'lat+eng' "
         "(default: guessed from the document).",
     )
+    _add_engine_options(parser, "--ocr-engine")
+
+
+def _add_engine_options(parser: argparse.ArgumentParser, flag: str = "--engine") -> None:
+    parser.add_argument(
+        flag,
+        dest="engine",
+        choices=ocr.ENGINES,
+        default="tesseract",
+        help="OCR engine: tesseract (default, fast) or paddle (PaddleOCR-VL: slow, much "
+        "better on diacritics such as Latin macrons; needs its own setup, see README).",
+    )
+    parser.add_argument(
+        "--paddle-cache",
+        type=Path,
+        help="Folder for PaddleOCR-VL model files (default: ~/.cache/pdf-worker/paddle).",
+    )
+
+
+def _apply_engine_options(args: argparse.Namespace) -> None:
+    if getattr(args, "paddle_cache", None):
+        os.environ["PDF_WORKER_PADDLE_CACHE"] = str(args.paddle_cache)
 
 
 @contextmanager
@@ -41,12 +64,14 @@ def _maybe_ocr(args: argparse.Namespace, output: Path) -> Iterator[Path]:
     if not args.ocr:
         yield args.pdf
         return
+    _apply_engine_options(args)
     with ocr.ocr_temporary_copy(
         args.pdf,
         output.parent,
         languages=args.ocr_lang,
         mode=args.ocr,
         progress=sys.stderr.isatty(),
+        engine=args.engine,
     ) as (pdf, report):
         _print_ocr_summary(report)
         yield pdf
@@ -98,11 +123,13 @@ def _add_ocr_command(subparsers: argparse._SubParsersAction) -> None:
         help="With Latin, keep Tesseract's accented vowels (à, ü...) instead of turning "
         "them into macrons (ā, ū...).",
     )
+    _add_engine_options(parser)
     parser.set_defaults(handler=_run_ocr)
 
 
 def _run_ocr(args: argparse.Namespace) -> int:
     output = args.output or ocr.default_output_path(args.pdf)
+    _apply_engine_options(args)
     report = ocr.ocr_pdf(
         args.pdf,
         output,
@@ -111,6 +138,7 @@ def _run_ocr(args: argparse.Namespace) -> int:
         jobs=args.jobs,
         progress=sys.stderr.isatty(),
         latin_macrons=args.latin_macrons,
+        engine=args.engine,
     )
     print(f"Wrote {output}")
     _print_ocr_summary(report)
@@ -266,10 +294,12 @@ def _add_kindle_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--ocr-lang", help="Tesseract language(s) for OCR, e.g. 'lat' (default: guessed)."
     )
+    _add_engine_options(parser)
     parser.set_defaults(handler=_run_kindle)
 
 
 def _run_kindle(args: argparse.Namespace) -> int:
+    _apply_engine_options(args)
     report = kindle.make_kindle_book(
         args.pdf,
         args.output,
@@ -279,6 +309,7 @@ def _run_kindle(args: argparse.Namespace) -> int:
         use_ocr=args.use_ocr,
         ocr_languages=args.ocr_lang,
         progress=sys.stderr.isatty(),
+        engine=args.engine,
     )
     assessment = report.assessment
     if report.ocr:
