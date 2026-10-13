@@ -7,12 +7,14 @@ changed, so the accents of Spanish or French passages survive. See ``pdf_worker.
 
 import html
 import re
+from collections.abc import Collection
 from pathlib import Path
 
 from ocrmypdf import hookimpl
 from ocrmypdf.builtin_plugins.tesseract_ocr import TesseractOcrEngine
 
 from pdf_worker.macrons import reads_as_latin, restore_macrons, restore_macrons_if_latin
+from pdf_worker.ocr import TESSERACT_CODES
 
 _HOCR_PAR_RE = re.compile(r"<p class=['\"]ocr_par['\"].*?</p>", re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -21,25 +23,26 @@ _BLANK_LINE_RE = re.compile(r"(\n\s*\n)")
 _NON_LATIN_SCRIPT = {"grc", "ell"}
 
 
-def restore_hocr(hocr: str, default: bool) -> str:
-    """Restore macrons in the hOCR paragraphs that read as Latin. Ties (a heading, a
-    name) follow the whole page, and the page follows ``default``."""
-    page_default = reads_as_latin(_hocr_text(hocr), default)
+def restore_hocr(hocr: str, default: bool, rivals: Collection[str] | None = None) -> str:
+    """Restore macrons in the hOCR paragraphs that read as Latin rather than one of the
+    ``rivals`` (ISO 639-1 codes). Ties (a heading, a name) follow the whole page, and
+    the page follows ``default``."""
+    page_default = reads_as_latin(_hocr_text(hocr), default, rivals)
     return _HOCR_PAR_RE.sub(
         lambda par: (
             restore_macrons(par.group(0))
-            if reads_as_latin(_hocr_text(par.group(0)), page_default)
+            if reads_as_latin(_hocr_text(par.group(0)), page_default, rivals)
             else par.group(0)
         ),
         hocr,
     )
 
 
-def restore_text(text: str, default: bool) -> str:
+def restore_text(text: str, default: bool, rivals: Collection[str] | None = None) -> str:
     """Like :func:`restore_hocr` for plain text, whose paragraphs end at a blank line."""
-    page_default = reads_as_latin(text, default)
+    page_default = reads_as_latin(text, default, rivals)
     return "".join(
-        restore_macrons_if_latin(part, page_default) for part in _BLANK_LINE_RE.split(text)
+        restore_macrons_if_latin(part, page_default, rivals) for part in _BLANK_LINE_RE.split(text)
     )
 
 
@@ -53,10 +56,13 @@ class LatinTesseractOcrEngine(TesseractOcrEngine):
         TesseractOcrEngine.generate_hocr(input_file, output_hocr, output_text, options)
         # Undecided pages count as Latin unless another Latin-script language was asked for.
         default = not set(options.languages) - {"lat"} - _NON_LATIN_SCRIPT
+        # Only the languages being OCR'd compete with Latin ("in" is English too).
+        rivals = {iso for iso, code in TESSERACT_CODES.items() if code in options.languages}
+        rivals.discard("la")
         for path, restore in ((Path(output_hocr), restore_hocr), (Path(output_text), restore_text)):
             if path.is_file():
                 text = path.read_text(encoding="utf-8")
-                path.write_text(restore(text, default), encoding="utf-8")
+                path.write_text(restore(text, default, rivals), encoding="utf-8")
 
 
 @hookimpl

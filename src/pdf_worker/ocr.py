@@ -34,7 +34,7 @@ INSTALL_HINT = "install it with: brew install tesseract tesseract-lang"
 LATIN_PLUGIN = "pdf_worker.ocr_latin_plugin"
 
 # ISO 639-1 (what guess_language returns) -> Tesseract language code.
-_TESSERACT_CODES = {
+TESSERACT_CODES = {
     "en": "eng",
     "es": "spa",
     "fr": "fra",
@@ -118,7 +118,7 @@ def guess_ocr_languages(pdf_path: str | Path) -> list[str]:
         sample = _sample_text_layer(doc)
         if len(sample) < _MIN_SAMPLE_CHARS:
             sample += _probe_ocr(doc)
-    languages = [_TESSERACT_CODES.get(guess_language(sample), DEFAULT_LANGUAGE)]
+    languages = [TESSERACT_CODES.get(guess_language(sample), DEFAULT_LANGUAGE)]
     if len(_GREEK_RE.findall(sample)) >= _MIN_GREEK_LETTERS:
         languages.append(GREEK_LANGUAGE)
     return languages

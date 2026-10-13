@@ -3,11 +3,38 @@ from pathlib import Path
 import pytest
 
 from pdf_worker.errors import PdfOpenError
+from pdf_worker.layout import _with_text
 from pdf_worker.text_extraction import (
     default_output_path,
     extract_text_to_file,
     iter_page_texts,
 )
+
+
+def test_word_gaps_without_a_space_character_become_spaces():
+    # As in the Greek sample PDF: "καὶ" and "ἦλθεν" 4.25 pt apart, no space glyph.
+    def char(c, x0, x1):
+        return {"c": c, "bbox": (x0, 0, x1, 12)}
+
+    first = {
+        "size": 12.0,
+        "chars": [
+            char("κ", 142.38, 148.21),
+            char("α", 148.21, 153.88),
+            char("ὶ", 153.88, 156.95),
+            char("ἦ", 161.20, 166.98),
+            char("λ", 166.98, 172.5),  # kerned slightly: still one word
+            char(" ", 172.5, 176.75),
+            char("τ", 176.75, 182.0),
+        ],
+    }
+    # The next word in another span (another subset of the same font).
+    second = {"size": 12.0, "chars": [char("Ἰ", 186.3, 191.9), char("ο", 191.9, 196.8)]}
+
+    spans = _with_text([first, second])
+
+    assert [span["text"] for span in spans] == ["καὶ ἦλ τ", " Ἰο"]
+    assert "chars" not in first
 
 
 def test_iter_page_texts_yields_each_page_in_order(make_pdf):

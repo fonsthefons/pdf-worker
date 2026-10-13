@@ -394,7 +394,7 @@
   done, the user hasn't asked for it.
 - Tests: 2 new in `tests/test_cli.py`.
 
-### Mixed-language books: Latin + Spanish, Greek passages (2026-10-13, uncommitted)
+### Mixed-language books: Latin + Spanish, Greek passages (2026-10-13, PR #20)
 - Macrons are restored only in paragraphs that read as Latin (`reads_as_latin` in
   `macrons.py`: Latin stopwords beat every other language's, from
   `convert.stopword_scores`). Before, `lat+spa` turned `canción` into `cancīōn`.
@@ -408,15 +408,33 @@
 - Sample `test_pdfs/sample-text-spanish-ancient-greek.pdf` (XeTeX, born-digital): text
   layer extracts Greek fine. As a 300 dpi scan: `spa` alone gets 0 Greek words, `spa+grc`
   ~70% (misses are mostly words with footnote letters glued on). Guess: `["spa", "grc"]`.
-- Not handled: the text layer drops some spaces between Greek words (`καὶἦλθεν`); the
-  EPUB has one `lang` for the whole book. Scratch scripts: `scratch/greek_scan_trial.py`,
-  `scratch/guess_full_scan.py`.
+- Not handled: the EPUB has one `lang` for the whole book. Scratch scripts:
+  `scratch/greek_scan_trial.py`, `scratch/guess_full_scan.py`.
 - Tests: `tests/test_ocr_latin_plugin.py` (2), new tests in `test_macrons.py`,
   `test_ocr.py` (2), integration `test_ocr_scanned_spanish_book_with_greek`.
 
+### Greek word spaces, short Latin lines in mixed books (2026-10-13, stacked on PR #20)
+- Greek spaces: in the sample PDF, MuPDF glued words after accented Greek vowels
+  (`καὶἦλθεν`, `τοῦἸορδάνου`): the PDF has a word-sized gap but no space glyph.
+  `layout.page_lines` now reads `rawdict` and inserts a space where the gap between two
+  letters exceeds 0.15 em, within and across spans (`_with_text`). The `--no-footnotes`
+  path uses `page_lines` too. 278 words un-glued in the sample; the Kant, encyclical,
+  CASA, 9-11, Familia Romana and Gibbon PDFs are unchanged (one stray OCR `™` in Gibbon).
+  Check script: `scratch/greek_spaces_check.py`.
+- Short Latin lines: Tesseract's own hOCR `lang` tags proved useless (Spanish
+  paragraphs tagged `lat`). Instead, `reads_as_latin` now (1) compares Latin only with the
+  languages being OCR'd (`rivals`; "in" no longer counts as English in a `lat+spa`
+  run), and (2) on a tie, a Latin-only ending (-um, -ae, -orum, -arum, -ibus) means
+  Latin. Paddle's rivals are the languages with ≥5 stopword hits in the book.
+  Known limit: Spanish words like `álbum`/`referéndum` alone on a line would read as Latin.
+- Tests: `_with_text` unit test, `test_greek_words_are_not_glued_together` (integration),
+  rival/ending tests in `test_macrons.py` and `test_ocr_latin_plugin.py`.
+
 ## Blocked
-- None. (Claude couldn't edit `.claude/settings.local.json` itself, so the user copied in the
-  version from `scratch/settings.local.json` on 2026-10-11.)
+- 2026-10-13: `gh pr merge 20` was denied by the permission classifier; the user has to
+  merge PR #20 (and the stacked PR) themselves or allow `gh pr merge`.
+- (Earlier: Claude couldn't edit `.claude/settings.local.json` itself, so the user copied
+  in the version from `scratch/settings.local.json` on 2026-10-11.)
 
 ## Resume here (keep this current; a new session should start from this)
 - **The overnight list is complete: items 1–10 (PRs #9–#16).** Kindle check done

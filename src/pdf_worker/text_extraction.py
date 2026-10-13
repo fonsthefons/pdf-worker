@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pdf_worker.document import open_pdf
 from pdf_worker.footnotes import render_page
-from pdf_worker.layout import analyze_document
+from pdf_worker.layout import analyze_document, page_lines
 
 # Form feed is the conventional page break in plain text (also used by pdftotext).
 DEFAULT_PAGE_SEPARATOR = "\f"
@@ -53,8 +53,8 @@ def iter_page_texts(pdf_path: str | Path, footnotes: bool = True) -> Iterator[Pa
     with open_pdf(pdf_path) as doc:
         if not footnotes:
             for index in range(doc.page_count):
-                page = doc.load_page(index)
-                yield PageText(number=index + 1, text=page.get_text("text"))
+                lines = page_lines(doc.load_page(index))
+                yield PageText(number=index + 1, text="".join(f"{line.text}\n" for line in lines))
             return
         profile = analyze_document(doc)
         previous_label = None
