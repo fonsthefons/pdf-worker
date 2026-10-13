@@ -34,6 +34,7 @@ def test_help_lists_every_command(capsys):
     out = capsys.readouterr().out
     for command in ("kindle", "convert", "extract-text", "ocr", "help"):
         assert f"pdf-worker {command}" in out
+    assert "Output goes next to the PDF" in out
 
 
 def test_no_command_shows_help(capsys):

@@ -389,6 +389,8 @@
   commands with a one-line description each (`CHEAT_SHEET` in `cli.py`; keep it current
   when adding commands or options).
 - The `convert` and `ocr` help texts now list all formats and both engines.
+- (PR #19) The help ends with a "Files" section (`FILE_NOTES`): what the PDF path is,
+  where output goes, quoting names with spaces, `-o`, two-dash options.
 - Kindle check: cover and links work. Page numbers show as "Loc": Send to Kindle seems
   to drop the EPUB page-list. Likely fix is Calibre's KFX Output plugin plus USB; not
   done, the user hasn't asked for it.

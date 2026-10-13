@@ -386,6 +386,20 @@ CHEAT_SHEET = [
     ),
 ]
 
+# Printed after the cheat sheet: where files come from and where results go.
+FILE_NOTES = """\
+Files
+  book.pdf is the path to your PDF: relative to the folder you are in, or a full path
+  such as ~/Downloads/book.pdf. Tip: type the command, then drag the PDF from Finder
+  into the terminal to fill in its path.
+  Names with spaces need quotes, but keep ~ outside them: ~/Downloads/"My Book.pdf".
+  Output goes next to the PDF, with the same name: ~/Downloads/book.pdf gives
+  ~/Downloads/book.epub, or book.md (plus book_images/ for pictures) with --to md.
+  An existing file is replaced.
+  -o sets another place; the format then comes from its extension:
+    pdf-worker convert ~/Downloads/book.pdf -o ~/Documents/Books/book.md
+  Options start with two dashes (--to, --ocr); only -o and -j have one."""
+
 
 def _add_help_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
@@ -398,11 +412,12 @@ def _add_help_command(subparsers: argparse._SubParsersAction) -> None:
 
 def _run_help(args: argparse.Namespace) -> int:
     width = max(len(command) for _, rows in CHEAT_SHEET for command, _ in rows)
-    print("Run from the repo folder as .venv/bin/pdf-worker. -o FILE sets the output path.")
+    print(f"pdf-worker is installed at {Path(sys.executable).parent / 'pdf-worker'}")
     for section, rows in CHEAT_SHEET:
         print(f"\n{section}")
         for command, description in rows:
             print(f"  {command:<{width}}  {description}")
+    print(f"\n{FILE_NOTES}")
     return 0
 
 
