@@ -25,6 +25,8 @@ ENDNOTES_PDF = TEST_PDFS_DIR / "Magnifica Humanitas Encíclica May 15 2026.pdf"
 COURT_PDF = TEST_PDFS_DIR / "Trump v CASA (US Supreme Court 2025).pdf"
 REPORT_PDF = TEST_PDFS_DIR / "9-11 Commission Report.pdf"
 SCAN_PDF = TEST_PDFS_DIR / "Gibbon Decline and Fall vol 1 (1872 scan).pdf"
+# Born-digital Spanish reader of the Greek New Testament: polytonic Greek + Spanish.
+GREEK_PDF = TEST_PDFS_DIR / "sample-text-spanish-ancient-greek.pdf"
 
 
 def _require(path):
@@ -135,6 +137,30 @@ def test_ocr_redo_on_scanned_book(tmp_path):
     # Tesseract reads long vowels as accents; they are turned back into macrons.
     assert report.macrons_restored
     assert "Iūlia" in body and "Iülia" not in body
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")
+def test_ocr_scanned_spanish_book_with_greek(tmp_path):
+    _require(GREEK_PDF)
+    pytest.importorskip("ocrmypdf")
+    from pdf_worker.ocr import ocr_pdf
+
+    # Page 8 (Spanish introduction) and page 20 (Greek text, Spanish glosses), as images.
+    scan = tmp_path / "scan.pdf"
+    with pymupdf.open(GREEK_PDF) as doc, pymupdf.open() as out:
+        for index in (7, 19):
+            page = doc.load_page(index)
+            target = out.new_page(width=page.rect.width, height=page.rect.height)
+            target.insert_image(target.rect, pixmap=page.get_pixmap(dpi=300))
+        out.save(scan)
+
+    report = ocr_pdf(scan, tmp_path / "out.pdf")
+
+    assert report.languages == ["spa", "grc"] and report.languages_guessed
+    with pymupdf.open(tmp_path / "out.pdf") as doc:
+        intro, gospel = (page.get_text("text") for page in doc)
+    assert "Los dos primeros capítulos están escritos" in intro
+    assert "τὴν ὁδὸν κυρίου" in gospel and "vecino, cercano" in gospel
 
 
 @pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract not installed")

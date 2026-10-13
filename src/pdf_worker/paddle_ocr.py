@@ -35,7 +35,7 @@ import pymupdf
 from pdf_worker.convert import guess_language
 from pdf_worker.document import open_pdf
 from pdf_worker.errors import PdfOpenError
-from pdf_worker.macrons import restore_macrons
+from pdf_worker.macrons import reads_as_latin, restore_macrons_if_latin
 from pdf_worker.ocr import MODES, OcrEngineMissingError, OcrError, OcrReport
 
 MODEL = "PaddlePaddle/PaddleOCR-VL-1.6"
@@ -212,8 +212,14 @@ def _write_text_layer(
     if results.is_file():
         with results.open(encoding="utf-8") as lines:
             rows = [json.loads(line) for line in lines if line.strip()]
-    sample = " ".join(b["text"] for row in rows for b in row["blocks"])[:20_000]
-    macrons = guess_language(sample) == "la" if latin_macrons is None else latin_macrons
+    texts = [clean_text(b.get("text", "")) for row in rows for b in row["blocks"]]
+    # Undecided blocks (headings, names) count as Latin only in a Latin book.
+    latin_default = latin_macrons or guess_language(" ".join(texts)[:20_000]) == "la"
+    macrons = (
+        any(reads_as_latin(text, False) for text in texts)
+        if latin_macrons is None
+        else latin_macrons
+    )
     try:
         doc = pymupdf.open(pdf_path)
     except (pymupdf.FileDataError, RuntimeError) as exc:
@@ -225,13 +231,18 @@ def _write_text_layer(
             if mode != "skip":
                 _remove_text(page)
             page.insert_font(fontname=_FONT, fontbuffer=font.buffer)
-            write_blocks(page, row, macrons)
+            write_blocks(page, row, macrons, latin_default)
         doc.save(out, garbage=3, deflate=True)
     return macrons
 
 
-def write_blocks(page: pymupdf.Page, row: dict, macrons: bool = False) -> int:
-    """Write a page's Paddle blocks as invisible text; returns the blocks written."""
+def write_blocks(
+    page: pymupdf.Page, row: dict, macrons: bool = False, latin_default: bool = True
+) -> int:
+    """Write a page's Paddle blocks as invisible text; returns the blocks written.
+
+    With ``macrons``, blocks that read as Latin get their macrons restored; blocks too
+    short to tell follow ``latin_default``."""
     sx = page.rect.width / (row.get("width") or page.rect.width)
     sy = page.rect.height / (row.get("height") or page.rect.height)
     font = _font()
@@ -250,7 +261,7 @@ def write_blocks(page: pymupdf.Page, row: dict, macrons: bool = False) -> int:
         if not text or block.get("label") in _SKIP_LABELS or len(block.get("bbox", [])) != 4:
             continue
         if macrons:
-            text = restore_macrons(text)
+            text = restore_macrons_if_latin(text, latin_default)
         text = _printable(text, font)
         x0, y0, x1, y1 = block["bbox"]
         rect = pymupdf.Rect(x0 * sx, y0 * sy, x1 * sx, y1 * sy)
