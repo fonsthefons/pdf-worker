@@ -850,6 +850,13 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
    glosses and line numbers (PR #7), PaddleOCR-VL evaluation (PR #8). Done.
 
 ## TODO (user, 2026-10-15: later, low priority)
+- Book profile for notes (user asked 2026-10-15 to keep this for later): after Paddle
+  reads a sample of 10-20 pages (they are cached anyway), detect the book's note style
+  once: number format (superscript / "17." / "1)"), restart per chapter or part,
+  page-foot notes or endnotes, margin references present or not, printer's signatures
+  at the foot, outer-margin side, reader's marks. Pass it to the book build like
+  `text_settings` does for the language, as a default; keep the per-page fallbacks
+  (books mix styles, e.g. Platón's introductions vs dialogues).
 - Greek in Paddle books: Paddle reads polytonic Greek as Latin look-alikes
   ("τὰ δέοντα" -> "tà šèovta"); see test_platon_bad_4 p16, the "Nota al texto" variants
   table (Paddle label "algorithm"). Plan: re-read such blocks with Tesseract `spa+grc`
