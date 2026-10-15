@@ -64,6 +64,20 @@ def test_paddle_text_loses_the_marks_it_read_and_each_mark_finds_its_line():
     assert marks == [(0, 0, "22"), (0, 3, "c")]  # "honores" and "sacerdotes"
 
 
+def test_a_word_past_a_column_measured_too_narrow_stays():
+    # Indented lines (a list of variants) set the column's edge; prose sticks out.
+    words = [
+        *(ScanWord(w, 0, False) for w in ["texto", "de", "Platonis"]),
+        ScanWord("Opera,", 0, True),
+        ScanWord("Oxford", 1, False),
+    ]
+    scan = PageScan(words, [ScanMark("b", 1)])
+
+    cleaned, _ = mark_paddle_blocks(["texto de Platonis Opera, Oxford"], scan)
+
+    assert cleaned == ["texto de Platonis Opera, Oxford"]
+
+
 def test_running_heads_leave_the_text_and_the_title_opens_the_book(make_layout_pdf, tmp_path):
     body = [(72, 120 + 14 * i, t, BODY) for i, t in enumerate(FULL * 2)]
     last = (72, 120 + 14 * len(body), "relatada, se refiere, a", BODY)

@@ -145,7 +145,8 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
         for x0, y0, x1, y1, text in line:
             margin = not left - _GAP * height < (x0 + x1) / 2 < right + _GAP * height
             words.append(ScanWord(text, index, margin))
-            if not margin:
+            # A real word past the column's edge is body text, not a mark to read.
+            if not margin or sum(c.isalpha() for c in text) >= 3:
                 body_boxes.append((x0, y0, x1, y1))
     top = min(w[1] for ln in long_lines for w in ln) - height
     bottom = max(w[3] for ln in long_lines for w in ln) + height
@@ -306,8 +307,11 @@ def mark_paddle_blocks(
             if op == "equal" or (op == "replace" and i2 - i1 == j2 - j1):
                 to_theirs[i1 + k] = j1 + k
                 margin = scan.words[i1 + k].margin
-                if margin and (op == "equal" or len(theirs[j1 + k]) <= 3):
-                    drop.add(j1 + k)  # Paddle read the mark into the text
+                # Paddle read the mark into the text; a word both read alike is a word
+                # sticking out of a column measured too narrow ("Opera,").
+                word = theirs[j1 + k]
+                if margin and (is_mark(word) or op == "replace" and len(word) <= 3):
+                    drop.add(j1 + k)
             elif op in ("replace", "delete"):
                 to_theirs[i1 + k] = min(j1 + k, j2 - 1) if j2 > j1 else j1
     marks = []
