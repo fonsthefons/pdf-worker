@@ -2,6 +2,7 @@
 
 import json
 import sys
+from collections import Counter
 
 import pymupdf
 import pytest
@@ -9,7 +10,7 @@ import pytest
 from pdf_worker import paddle_ocr
 from pdf_worker.convert import convert_pdf
 from pdf_worker.inline import plain
-from pdf_worker.paddle_book import iter_paddle_blocks
+from pdf_worker.paddle_book import iter_paddle_blocks, restore_question_marks
 from pdf_worker.structure import Heading, Note, Paragraph
 
 pytest.importorskip("pymupdf_fonts")
@@ -107,6 +108,18 @@ def test_worker_progress_reaches_the_caller_and_errors_keep_their_tail(tmp_path,
             sys.executable, "x.pdf", [0, 1], tmp_path / "o", tmp_path, "s", False, seen.append
         )
     assert seen == [1, 2]
+
+
+def test_a_question_mark_read_as_a_letter_is_put_back():
+    counts = Counter({"por": 40, "idea": 5, "dea": 0, "qué": 30})
+    assert restore_question_marks("PRO. — iY bien? lPor qué no? 2El qué?", counts) == (
+        "PRO. — ¿Y bien? ¿Por qué no? ¿El qué?"
+    )
+    assert restore_question_marks("Y ipor qué?", counts) == "Y ¿por qué?"
+    # A real word stays, and so does anything outside a question.
+    assert restore_question_marks("¿Tienes idea? Isla grande. iY bien!", counts) == (
+        "¿Tienes idea? Isla grande. iY bien!"
+    )
 
 
 def test_book_pages_are_counted(scan_pdf):

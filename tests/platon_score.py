@@ -1,6 +1,6 @@
 """Score a reflowed Platón book (.txt from convert) against the good ePub-made PDF.
 
-Usage: python tests/platon_score.py <ours.txt> [--pages 6-175] [--verbose]
+Usage: python tests/platon_score.py <ours.txt> [--pages 6-175] [--verbose | --show refs,mref]
 (also used by ``test_paddle_book_platon.py``). The default pages, 6-23, are what
 test_platon_bad_3 covers; 6-175 is the whole book.
 
@@ -175,8 +175,13 @@ def our_side(path: str):
 
 
 # -- scoring -----------------------------------------------------------------------------
-def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float]:
-    """Print the scores (and with ``verbose`` every difference); return the main ones."""
+def score(ours_path: str, verbose=False, pages=PAGES) -> dict[str, float]:
+    """Print the scores (and with ``verbose`` every difference, or only those of the
+    sections named in it: words, para, refs, notes, mref); return the main ones."""
+
+    def shows(section: str) -> bool:
+        return verbose is True or (bool(verbose) and section in verbose)
+
     gw, gev, gnotes = good_truth(pages)
     ow, oev, onotes = our_side(ours_path)
     sm = difflib.SequenceMatcher(None, gw, ow, autojunk=False)
@@ -200,7 +205,7 @@ def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float
     )
     for _, i1, i2, _, _ in gaps:
         print(f"   not in the scan: {' '.join(gw[i1 : i1 + 8])} ... {' '.join(gw[i2 - 5 : i2])}")
-    if verbose:
+    if shows("words"):
         for op, i1, i2, j1, j2 in ops[:400]:
             print(f"   {op:7} good={' '.join(gw[i1:i2])!r} ours={' '.join(ow[j1:j2])!r}")
 
@@ -220,7 +225,7 @@ def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float
     good_set = {near(i) for i in gpara}
     extra = [o for o in opara if not any(g is not None and abs(g - o) <= 1 for g in good_set)]
     print(f"PARAGRAPHS good={len(gpara)} found={len(hit)} missed={len(missed)} extra={len(extra)}")
-    if verbose:
+    if shows("para"):
         for i in missed:
             print("   missed start:", " ".join(gw[max(0, i - 4) : i]), "|", " ".join(gw[i : i + 6]))
         for o in sorted(extra):
@@ -234,7 +239,7 @@ def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float
         part, n = key
         if key not in oref:
             missing += 1
-            if verbose:
+            if shows("refs"):
                 print(f"   ref missing {part} {n}: ...{' '.join(gw[max(0, i - 5) : i])}")
             continue
         target = near(i)
@@ -242,7 +247,7 @@ def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float
             ok += 1
         else:
             wrong_place += 1
-            if verbose:
+            if shows("refs"):
                 at = oref[key]
                 print(
                     f"   ref misplaced {part} {n}: good ...{' '.join(gw[max(0, i - 4) : i])}"
@@ -264,7 +269,7 @@ def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float
         ours = onotes.get(key, "")
         ratio = difflib.SequenceMatcher(None, words_of(text), words_of(ours)).ratio()
         sims.append(ratio)
-        if verbose and ratio < 0.9:
+        if shows("notes") and ratio < 0.9:
             print(f"   note {part} {n} sim={ratio:.2f}")
             print(f"      good: {text[:160]}\n      ours: {ours[:160]}")
     good_notes = sum(1 for s in sims if s >= 0.9)
@@ -283,7 +288,7 @@ def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float
     for label, start, end in gm:
         if label not in omref:
             m_missing += 1
-            if verbose:
+            if shows("mref"):
                 print(f"   mref missing {label}: line {' '.join(gw[start:end])[:60]}")
             continue
         lo, hi = near(start), near(end)
@@ -292,7 +297,7 @@ def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float
             m_ok += 1
         else:
             m_wrong += 1
-            if verbose:
+            if shows("mref"):
                 print(
                     f"   mref {label} wrong line: ours before {' '.join(ow[at : at + 6])!r}"
                     f" | good lines {' '.join(gw[start:end])!r}"
@@ -316,4 +321,7 @@ if __name__ == "__main__":
     if "--pages" in sys.argv:
         first, last = sys.argv[sys.argv.index("--pages") + 1].split("-")
         pages = range(int(first), int(last) + 1)
-    score(sys.argv[1], "--verbose" in sys.argv, pages)
+    verbose = "--verbose" in sys.argv
+    if "--show" in sys.argv:  # --show refs,mref
+        verbose = set(sys.argv[sys.argv.index("--show") + 1].split(","))
+    score(sys.argv[1], verbose, pages)

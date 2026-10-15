@@ -14,6 +14,7 @@ introduction's notes, then the dialogue's) is a new part, as in the printed book
 
 import contextlib
 import re
+from collections import Counter
 from collections.abc import Callable, Iterator
 
 import pymupdf
@@ -44,6 +45,28 @@ _HEAD_ZONE = 0.15  # a "header" lower on the page is a centred line (dramatis pe
 _PICTURE_LABELS = {"image", "figure", "chart"}
 _MIN_PICTURE_SHARE = 0.02  # of the page area: smaller ones are ornaments or specks
 _DROP = {"header", "number", "footer", "formula_number"}
+# Spanish "¿" misread as a letter or digit glued to the question's first word ("iY
+# bien?", "lPor qué?", "2El qué?", "ipodrías ...?"): group 1 is that word.
+_LOST_QUESTION_RE = re.compile(r"(?<![\w¿¡])[iIlℓ12|!ủé](?=(\w+)[^.!?¿]*\?)")
+_COMMON = 3  # a word seen this often in the book is a real one
+
+
+def restore_question_marks(text: str, counts: Counter) -> str:
+    """Put back the "¿" that Paddle read as "i", "l", "2" ... before a question's
+    first word. Before a capital it can't be anything else; before a lowercase word
+    only when the book (``counts``: its words, lowercase) knows the word without it
+    and hardly with it ("ipor" -> "¿por", but "idea" stays)."""
+
+    def fix(match: re.Match) -> str:
+        word = match.group(1)
+        if word[0].isupper():
+            return "¿"
+        glued = (match.group(0) + word).lower()
+        if counts[glued] <= 1 and counts[word.lower()] >= _COMMON:
+            return "¿"
+        return match.group(0)
+
+    return _LOST_QUESTION_RE.sub(fix, text)
 
 
 def text_sample(rows: list[dict]) -> str:
@@ -122,13 +145,19 @@ def iter_paddle_blocks(
     for _ in build(dry, False):
         pass
     labels = iter(assign_labels(readings))
-    yield from build(_Book(lambda reading: next(labels)), images)
+    book = _Book(lambda reading: next(labels))
+    if language == "es":
+        book.counts = Counter(
+            w.lower() for row in rows for b in row["blocks"] for w in re.findall(r"\w+", b["text"])
+        )
+    yield from build(book, images)
 
 
 class _Book:
     def __init__(self, label_of: Callable[[str], str | None]) -> None:
         self.label_of = label_of  # a margin mark's reading -> its label (None: no mark)
         self.page = 0  # the page being added (0-based)
+        self.counts: Counter | None = None  # a Spanish book's words: "¿" is put back
         self.para: str | None = None  # the paragraph in progress (may run on a page)
         self.pending: list[Block] = []  # notes, glosses and pictures after it
         self.marks: list[str] = []  # page starts not yet placed in the text
@@ -198,8 +227,13 @@ class _Book:
         for k, reading in sorted(marks):
             label = self.label_of(reading)
             if label and k < len(words):
+                if words[k] in (label[-1], label[:-1]) and k + 1 < len(words):
+                    # The mark itself read as the line's first word: "[26b] b SÓC."
+                    words[k], k = "", k + 1
                 words[k] = margin_ref(label) + words[k]
-        text = _BROKEN_WORD_RE.sub(r"\1", " ".join(words))
+        text = _BROKEN_WORD_RE.sub(r"\1", " ".join(w for w in words if w))
+        if self.counts is not None:
+            text = restore_question_marks(text, self.counts)
         text = _SPEAKER_RE.sub(
             lambda m: m.group(1) + m.group(3).upper().replace("Ố", "Ó") + ". — ", text
         )
