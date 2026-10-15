@@ -787,6 +787,10 @@ Be token-efficient: summaries only, at most 3-4 page images (step 2), nothing be
 steps. Reports go in `scratch/NIGHT_REPORT.md`, one short section per step, numbers only
 (counts, time and token estimates); a short entry here too. Commit locally on
 `feature/platon-full`, never push. Order: 1 -> 2 -> 5 -> 6 -> 3.
+Checkpoints: after each step, mark it "[done]" here with its result line and commit, so a
+session cut off by the token limit resumes at the first step not marked done (the user
+restarts it with "continue from PROGRESS.md" after the limit resets). Long builds: start
+them in the background and note the command here first.
 1. Philosophy whole book (`scratch/philo/book_1-462.{md,txt}` already built): run
    `scratch/link_check.py` on the .md, `scratch/garble_scan.py` on the .txt, and check no
    `[NNa]` margin labels. Do NOT fix: report each error kind, how often it happens, and
