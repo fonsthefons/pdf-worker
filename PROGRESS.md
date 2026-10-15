@@ -791,6 +791,12 @@ Checkpoints: after each step, mark it "[done]" here with its result line and com
 session cut off by the token limit resumes at the first step not marked done (the user
 restarts it with "continue from PROGRESS.md" after the limit resets). Long builds: start
 them in the background and note the command here first.
+FIRST ACTION of the session: CronList; if no such job exists, CronCreate a recurring
+hourly job (off the :00/:30 marks, e.g. "17 * * * *") with the prompt "Night plan: if
+any step in PROGRESS.md NIGHT PLAN is not marked [done] and no step is in progress in
+this session, continue it from PROGRESS.md; otherwise do nothing." This resumes the work
+after the 5-hour token window resets (the session must stay open). When all steps are
+done: CronDelete the job and say so in the report.
 1. Philosophy whole book (`scratch/philo/book_1-462.{md,txt}` already built): run
    `scratch/link_check.py` on the .md, `scratch/garble_scan.py` on the .txt, and check no
    `[NNa]` margin labels. Do NOT fix: report each error kind, how often it happens, and
