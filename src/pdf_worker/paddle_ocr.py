@@ -100,8 +100,8 @@ _FOREIGN_RE = re.compile(r"[Ạ-ỹăơưđĂƠƯĐ؀-ۿ぀-ヿ一-鿿]")
 _MIN_FOREIGN, _FOREIGN_SHARE = 3, 0.05
 _MIXED_LABEL = "algorithm"  # what Paddle calls a table of Greek variants
 _NOTE_START_RE = re.compile(r"^\d{1,3}\.?$")  # a scan line opening a note: "45."
-# "11D Cf. Leyes", "16. De l'esprit"
-_FOOTER_NOTE_RE = re.compile(r"^\d[\dA-Za-z]{0,3}\.?\s+\S*[^\W\d_]{2}")
+# "11D Cf. Leyes", "16. De l'esprit", "15. C.S., III" (not "160. - S", a signature)
+_FOOTER_NOTE_RE = re.compile(r"^\d[\dA-Za-z]{0,3}\.?\s+[^\W\d_]")
 _WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
 
 
@@ -348,14 +348,27 @@ def clean_text(text: str) -> str:
 
 
 def _recover_notes(
-    scan: PageScan, refs: list[int], numbers: list[int | None], notes_top: float
+    scan: PageScan,
+    refs: list[int],
+    numbers: list[int | None],
+    notes_top: float,
+    last: int | None = None,
 ) -> list[tuple[int, str]]:
-    """Notes the model skipped ("44. Ibid." between 43 and 45, its ⁴⁴ in the text), from
-    Tesseract's lines at the foot of the page: (number, text)."""
+    """Notes the model skipped ("44." between 43 and 45, or the page's first or last),
+    for references in the text, from Tesseract's lines at the foot of the page: (number,
+    text). ``last`` is the previous page's last note: earlier numbers are not looked for."""
     have = {n for n in numbers if n is not None}
-    if not have:
+    if have:
+        lo, hi = min(have) - 2, max(have) + 2
+    elif last is not None:  # the model saw no note at all on the page
+        lo, hi = last + 1, last + 3
+    else:
         return []
-    wanted = [n for n in sorted(set(refs)) if min(have) < n < max(have) and n not in have]
+    wanted = [
+        n
+        for n in sorted(set(refs))
+        if n not in have and (last is None or n > last) and lo <= n <= hi
+    ]
     lines: dict[int, list[ScanWord]] = {}
     for word in scan.words:
         if not word.margin and word.box and word.box[3] > notes_top:
@@ -626,15 +639,23 @@ def prepare_blocks(
     texts, numbers = number_notes([b[2] for b in notes], refs, last_note, last_open)
     for note, text in zip(notes, texts, strict=True):
         note[2] = text
-    if scan and notes:
-        top = min(b[1].y0 for b in notes)
-        for n, text in _recover_notes(scan, refs, numbers, top):
-            # After the note numbered just below it.
-            before = max((k for k, m in enumerate(numbers) if m is not None and m < n), default=-1)
-            at = blocks.index(notes[before]) + 1 if before >= 0 else blocks.index(notes[0])
-            blocks.insert(
-                at, ["footnote", pymupdf.Rect(notes[max(before, 0)][1]), f"{sup(n)} {text}"]
+    if scan and refs and body_blocks:
+        top = min((b[1].y0 for b in notes), default=page.rect.y1)
+        # From the end of the body text: a skipped first note is above the others.
+        top = max((b[1].y1 for b in body_blocks if b[1].y1 <= top), default=top)
+        for n, text in _recover_notes(scan, refs, numbers, top, last_note):
+            # After the note numbered just below it (or at the end, with no notes).
+            before = max(
+                (k for k, m in enumerate(numbers[: len(notes)]) if m is not None and m < n),
+                default=-1,
             )
+            if not notes:
+                at, rect = len(blocks), pymupdf.Rect(page.rect.x0, top, page.rect.x1, top)
+            elif before >= 0:
+                at, rect = blocks.index(notes[before]) + 1, pymupdf.Rect(notes[before][1])
+            else:
+                at, rect = blocks.index(notes[0]), pymupdf.Rect(notes[0][1])
+            blocks.insert(at, ["footnote", rect, f"{sup(n)} {text}"])
             numbers.append(n)
     fixed = fix_refs([b[2] for b in body_blocks], numbers, scan.words if scan else [])
     if scan:

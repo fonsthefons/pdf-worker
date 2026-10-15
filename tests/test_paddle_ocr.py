@@ -173,6 +173,13 @@ def test_a_note_the_model_skipped_comes_from_tesseracts_lines():
     ]
     found = paddle_ocr._recover_notes(PageScan(words, []), [43, 44, 45], [43, 45], 495)
     assert found == [(44, "Ibid. y")]
+    # The page's first note skipped; nothing before the previous page's last note.
+    found = paddle_ocr._recover_notes(PageScan(words, []), [43, 44, 45], [44, 45], 495, 42)
+    assert found == [(43, "Ibid.,")]
+    assert paddle_ocr._recover_notes(PageScan(words, []), [43, 44, 45], [44, 45], 495, 43) == []
+    # No note seen on the page at all: the ones due after the last one.
+    found = paddle_ocr._recover_notes(PageScan(words, []), [44], [], 495, 43)
+    assert found == [(44, "Ibid. y")]
 
 
 def test_a_printers_signature_is_no_note_but_a_short_note_is():
@@ -192,6 +199,8 @@ def test_running_heads_and_notes_paddle_mislabels():
     assert paddle_ocr._relabel(title, "FILEBO", number) == "paragraph_title"
     assert paddle_ocr._relabel(note, "11D Cf. Leyes 863a-c.", number) == "footnote"
     assert paddle_ocr._relabel(note, "16. De l'esprit des lois, XI, 6.", number) == "footnote"
+    assert paddle_ocr._relabel(note, "15. C.S., III, 15, 83.", number) == "footnote"
+    assert paddle_ocr._relabel(sign, "160. - S", number) == "footer"
     assert paddle_ocr._relabel(sign, "160. — 18", number) == "footer"
 
 

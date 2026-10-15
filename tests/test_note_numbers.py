@@ -80,6 +80,11 @@ def test_a_due_number_in_plain_digits_is_a_reference():
     assert fix_refs(texts, [27, 28], []) == [
         "sino también su número²⁷. Y no ... dialéctica o eristicamente²⁸. PRO. — 3 veces"
     ]
+    # Glued after the closing quote (Copleston p. 64); "S1" or "art.12" are left alone.
+    texts = ["consolidado.”⁴ Así ... bajo perpetua constrición”.5 Todos ... S1 y art.12 aquí⁷"]
+    assert fix_refs(texts, [4, 5, 6, 7], []) == [
+        "consolidado.”⁴ Así ... bajo perpetua constrición”.⁵ Todos ... S1 y art.12 aquí⁷"
+    ]
 
 
 def test_a_stray_question_mark_counts_only_when_it_fills_the_gap():

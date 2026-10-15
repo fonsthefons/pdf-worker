@@ -31,6 +31,8 @@ _STRAY_RE = re.compile(r"^[\d!¡*'’°]{1,3}[.,;:?!»)]*$")
 _STRONG, _WEAK = 1, 0  # a stray digit or "!" against a stray "?"
 # A reference Paddle wrote in plain digits, as a word of its own: "su número 27."
 _BARE_REF_RE = re.compile(r"(\d{1,3})([.,;:?!»)]*)")
+# ... or glued after the closing punctuation: "constricción”.5"
+_GLUED_REF_RE = re.compile(r"(.*[^\W\d_][^\w\s]{1,2})(\d{1,3})([.,;:?!»)]*)")
 _PADDLE = 2  # Paddle saw a reference there, with another number
 
 
@@ -140,20 +142,25 @@ def fix_refs(
     words = [(b, m) for b, text in enumerate(texts) for m in re.finditer(r"\S+", text)]
     found = []  # (word, number read)
     bare = set()  # words that are a due note's number in plain digits: "número 27."
+    glued = set()  # words with a due note's number glued on: "constricción”.5"
     for g, (_, m) in enumerate(words):
         ref = SUPERSCRIPT_RE.search(m.group())
         plain = _BARE_REF_RE.fullmatch(m.group())
+        stuck = _GLUED_REF_RE.fullmatch(m.group())
         if ref:
             found.append((g, from_sup(ref.group())))
         elif g and plain and int(plain.group(1)) in wanted:
             found.append((g, int(plain.group(1))))
             bare.add(g)
+        elif stuck and int(stuck.group(2)) in wanted:
+            found.append((g, int(stuck.group(2))))
+            glued.add(g)
     anchors = []  # (word, number): references whose number fits
     places: dict[int, int] = {}  # word -> strength of the evidence for a reference
     for g, n in found:
         if n in wanted and (not anchors or n > anchors[-1][1]):
             anchors.append((g, n))
-        elif g not in bare:  # a plain number out of order is just a number
+        elif g not in bare | glued:  # a plain number out of order is just a number
             places[g] = _PADDLE
     for g, strength in _stray_marks([m.group() for _, m in words], scan_words):
         if g not in places and g not in {a[0] for a in anchors}:
@@ -170,7 +177,7 @@ def fix_refs(
                 assigned.update(zip(gap, missing, strict=True))
                 break
     for g, n in anchors:
-        if g in bare:
+        if g in bare | glued:
             assigned[g] = n
     out = list(texts)
     for g in sorted(assigned, reverse=True):  # back to front: spans stay valid
@@ -182,6 +189,11 @@ def fix_refs(
             if words[g - 1][0] == b:
                 before = before.rstrip()
             out[b] = before + sup(assigned[g]) + tail + out[b][m.end() :]
+            continue
+        if g in glued:  # "constricción”.5" -> "constricción”.⁵"
+            parts = _GLUED_REF_RE.fullmatch(word)
+            word = parts.group(1) + sup(assigned[g]) + parts.group(3)
+            out[b] = out[b][: m.start()] + word + out[b][m.end() :]
             continue
         if SUPERSCRIPT_RE.search(word):
             word = SUPERSCRIPT_RE.sub(sup(assigned[g]), word, count=1)
