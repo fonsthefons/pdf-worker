@@ -9,6 +9,7 @@ from conftest import REPO_ROOT
 
 from pdf_worker import paddle_ocr
 from pdf_worker.layout import SUPERSCRIPT, page_lines
+from pdf_worker.margin_refs import PageScan, ScanWord
 from pdf_worker.ocr import OcrEngineMissingError, OcrError, ocr_pdf
 
 pytest.importorskip("pymupdf_fonts")
@@ -124,10 +125,29 @@ def test_clean_text_turns_latex_superscripts_into_references():
     assert paddle_ocr.clean_text("Tome 2<sup>e</sup>, M.$^{A}$") == "Tome 2e, M.A"
     # Note 28 misread as "2k": the digits stay a reference, renumbered later.
     assert paddle_ocr.clean_text("o eristicamente^{2k}.") == "o eristicamente²."
+    # "¹²⁶?" read as one number: the "?" became a 7.
+    assert paddle_ocr.clean_text("los que son filósofos^{1267}") == "los que son filósofos¹²⁶?"
+
+
+def test_made_up_vietnamese_is_replaced_by_tesseracts_words():
+    words = [
+        ScanWord("iōn", 0, False, (10, 10, 30, 20)),
+        ScanWord("de", 0, False, (32, 10, 40, 20)),
+        ScanWord("autōn", 0, False, (42, 10, 70, 20)),
+        ScanWord("Otra", 1, False, (10, 50, 30, 60)),
+    ]
+    scan = PageScan(words, [])
+    assert paddle_ocr._foreign_script("R1 (lỗi) đến (để) đến, sức gắn (số) los códices.")
+    assert not paddle_ocr._foreign_script("SốC. — Pues bien, Protarco, dime qué opinas.")
+    assert paddle_ocr._scan_text(scan, pymupdf.Rect(0, 0, 100, 30)) == "iōn de autōn"
 
 
 def test_clean_text_removes_latex_wrappers():
     assert paddle_ocr.clean_text("in $ \\text{Āfricā} $ est") == "in Āfricā est"
+    assert paddle_ocr.clean_text("1. \\underline{\\text{Creación de los seres}} (30c)") == (
+        "1. Creación de los seres (30c)"
+    )
+    assert paddle_ocr.clean_text("T_{M\\cdot} - x") == "TM - x"
 
 
 def test_clean_text_flattens_tables():

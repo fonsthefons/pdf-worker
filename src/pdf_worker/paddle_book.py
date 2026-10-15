@@ -14,6 +14,7 @@ introduction's notes, then the dialogue's) is a new part, as in the printed book
 
 import contextlib
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterator
 
@@ -46,12 +47,25 @@ _PICTURE_LABELS = {"image", "figure", "chart"}
 _MIN_PICTURE_SHARE = 0.02  # of the page area: smaller ones are ornaments or specks
 _DROP = {"header", "number", "footer", "formula_number"}
 # Spanish "¿" misread as a letter or digit glued to the question's first word ("iY
-# bien?", "lPor qué?", "2El qué?", "ipodrías ...?"): group 1 is that word.
-_LOST_QUESTION_RE = re.compile(r"(?<![\w¿¡])[iIlℓ12|!ủé](?=(\w+)[^.!?¿]*\?)")
+# bien?", "lPor qué?", "2El qué?", "ipodrías ...?"), or apart ("L Cómo no?"): group 1
+# is the misread mark, group 2 that word.
+_LOST_QUESTION_RE = re.compile(r"(?<![\w¿¡])([iIlℓ12|!ủé]|[iIlLℓ12] )(?=(\w+)[^.!?¿]*\?)")
+# Vietnamese letters in a Spanish book are misreads of Spanish ones ("Sốc." "Sị"):
+# only an acute, a tilde or a diaeresis are kept.
+_VIETNAMESE_RE = re.compile(r"[Ạ-ỹ]")
+_SPANISH_MARKS = {"́", "̃", "̈"}
 _COMMON = 3  # a word seen this often in the book is a real one
+# shortcut: Spanish's one-letter words are vowels and "y"; set per language if a
+# book in another language uses margin references.
+_LONE_CONSONANT_RE = re.compile(r"[b-df-hj-np-tv-xzB-DF-HJ-NP-TV-XZ]")
 # Printed page numbers further apart than this: pages are missing from the scan (a
 # misread page number rarely jumps forward by little).
 _PAGE_JUMP = 1
+
+
+def _is_mark_word(word: str, label: str) -> bool:
+    """A margin mark read into the text: its letter or number, or a lone consonant."""
+    return word in (label[-1], label[:-1]) or bool(_LONE_CONSONANT_RE.fullmatch(word))
 
 
 def restore_question_marks(text: str, counts: Counter) -> str:
@@ -61,15 +75,26 @@ def restore_question_marks(text: str, counts: Counter) -> str:
     and hardly with it ("ipor" -> "¿por", but "idea" stays)."""
 
     def fix(match: re.Match) -> str:
-        word = match.group(1)
+        mark, word = match.groups()
         if word[0].isupper():
             return "¿"
-        glued = (match.group(0) + word).lower()
-        if counts[glued] <= 1 and counts[word.lower()] >= _COMMON:
+        glued = (mark + word).lower()
+        if " " not in mark and counts[glued] <= 1 and counts[word.lower()] >= _COMMON:
             return "¿"
-        return match.group(0)
+        return mark
 
     return _LOST_QUESTION_RE.sub(fix, text)
+
+
+def spanish_letters(text: str) -> str:
+    """ "Sốc." -> "Sóc.", "Sị" -> "Sí": a Vietnamese letter keeps its Spanish accent."""
+
+    def fix(match: re.Match) -> str:
+        parts = unicodedata.normalize("NFD", match.group())
+        kept = parts[0] + "".join(c for c in parts[1:] if c in _SPANISH_MARKS)
+        return unicodedata.normalize("NFC", kept)
+
+    return _VIETNAMESE_RE.sub(fix, text)
 
 
 def text_sample(rows: list[dict]) -> str:
@@ -244,19 +269,24 @@ class _Book:
         for k, reading in sorted(marks):
             label = self.label_of(reading)
             if label and k < len(words):
-                if words[k] in (label[-1], label[:-1]) and k + 1 < len(words):
-                    # The mark itself read as the line's first word: "[26b] b SÓC."
+                # The mark itself read as a word beside its line's first: "[26b] b SÓC.",
+                # "niño. b [17b] PRO.", "26 [26a]" (a lone consonant is no word).
+                if k > 0 and _is_mark_word(words[k - 1], label):
+                    words[k - 1] = ""
+                if _is_mark_word(words[k], label) and k + 1 < len(words):
                     words[k], k = "", k + 1
                 words[k] = margin_ref(label) + words[k]
         text = _BROKEN_WORD_RE.sub(r"\1", " ".join(w for w in words if w))
         if self.counts is not None:
-            text = restore_question_marks(text, self.counts)
+            text = spanish_letters(restore_question_marks(text, self.counts))
         text = _SPEAKER_RE.sub(
             lambda m: m.group(1) + m.group(3).upper().replace("Ố", "Ó") + ". — ", text
         )
         return SUPERSCRIPT_RE.sub(lambda m: f"[^c{self.part}-{from_sup(m.group())}]", text)
 
     def _add_note(self, text: str) -> None:
+        if self.counts is not None:
+            text = spanish_letters(text)
         match = SUPERSCRIPT_RE.match(text)
         if match:
             self.last_note = f"c{self.part}-{from_sup(match.group())}"

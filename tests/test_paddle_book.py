@@ -9,8 +9,13 @@ import pytest
 
 from pdf_worker import paddle_ocr
 from pdf_worker.convert import convert_pdf
-from pdf_worker.inline import plain
-from pdf_worker.paddle_book import iter_paddle_blocks, restore_question_marks
+from pdf_worker.inline import margin_ref, plain
+from pdf_worker.paddle_book import (
+    _Book,
+    iter_paddle_blocks,
+    restore_question_marks,
+    spanish_letters,
+)
 from pdf_worker.structure import Heading, Note, Paragraph
 
 pytest.importorskip("pymupdf_fonts")
@@ -136,12 +141,28 @@ def test_pages_missing_from_the_scan_take_their_notes_with_them(tmp_path):
     assert [n.label for n in notes] == ["c0-6", "c0-13"]
 
 
+def test_a_margin_mark_read_into_the_text_goes():
+    book = _Book(lambda reading: "17b")
+    assert plain(book._body_text("de niño. b PRO.— ¡Cómo?", [(3, "b")])) == (
+        "de niño. PRO.— ¡Cómo?"
+    )
+    book = _Book(lambda reading: "26a")
+    text = book._body_text("26 PRO.— Totalmente.", [(0, "26")])
+    assert text.startswith(margin_ref("26a")) and plain(text) == "PRO. — Totalmente."
+    # A vowel is a word: "e" stays.
+    book = _Book(lambda reading: "40b")
+    assert plain(book._body_text("e iba", [(1, "?")])) == "e iba"
+
+
 def test_a_question_mark_read_as_a_letter_is_put_back():
     counts = Counter({"por": 40, "idea": 5, "dea": 0, "qué": 30})
     assert restore_question_marks("PRO. — iY bien? lPor qué no? 2El qué?", counts) == (
         "PRO. — ¿Y bien? ¿Por qué no? ¿El qué?"
     )
     assert restore_question_marks("Y ipor qué?", counts) == "Y ¿por qué?"
+    assert restore_question_marks("PRO. — L Cómo no?", counts) == "PRO. — ¿Cómo no?"
+    assert restore_question_marks("de l por qué?", counts) == "de l por qué?"
+    assert spanish_letters("Sốc. — Sị; aún así, ñandú") == "Sóc. — Si; aún así, ñandú"
     # A real word stays, and so does anything outside a question.
     assert restore_question_marks("¿Tienes idea? Isla grande. iY bien!", counts) == (
         "¿Tienes idea? Isla grande. iY bien!"

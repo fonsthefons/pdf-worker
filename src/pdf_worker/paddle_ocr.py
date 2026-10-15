@@ -78,7 +78,10 @@ _SKIP_LABELS = {"image", "chart", "seal", "figure", "formula_number"}
 # LaTeX that the model sometimes wraps around words: "$ \text{Āfricā} $".
 _LATEX_TEXT_RE = re.compile(r"\$\s*\\text\{([^}]*)\}\s*\$")
 # Note references come as LaTeX: "interlocutor $ ^{1} $." -> "interlocutor¹."
-_LATEX_SUP_RE = re.compile(r"\s*\$?\s*\^\{([^}]{1,3})\}\s*\$?")  # "^{A}" -> plain "A"
+_LATEX_WRAP_RE = re.compile(r"\\[a-zA-Z]+\s*\{([^{}]*)\}")
+_LATEX_SUB_RE = re.compile(r"_\{([^{}]*)\}")
+_LATEX_COMMAND_RE = re.compile(r"\\[a-zA-Z]+")
+_LATEX_SUP_RE = re.compile(r"\s*\$?\s*\^\{([^}]{1,3}|\d{4})\}\s*\$?")  # "^{A}" -> plain "A"
 _TO_SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _NOTE_RATIO = 0.8  # footnote size against the body (structure reads < 0.92 as notes)
 # A table of at least this many words with fewer distinct words than this share is
@@ -89,6 +92,9 @@ _PARAGRAPH_WIDTH = 0.4  # blocks wider than this share of the page are rewrapped
 _UNHYPHEN_RE = re.compile(r"(\w)-\n(?=[a-zà-ÿā-ž])")
 _DIGIT_IN_WORD_RE = re.compile(r"[^\W\d_][0-9]|[0-9][^\W\d_]")  # "FILE0", "S1"
 _WORD_RE = re.compile(r"[^\W\d_]{2}")  # two letters in a row: some word
+# Vietnamese-only letters (Latin Extended Additional vowels, ă ơ ư đ), Arabic, CJK.
+_FOREIGN_RE = re.compile(r"[Ạ-ỹăơưđĂƠƯĐ؀-ۿ぀-ヿ一-鿿]")
+_MIN_FOREIGN, _FOREIGN_SHARE = 3, 0.05
 _WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
 
 
@@ -315,6 +321,11 @@ def clean_text(text: str) -> str:
     dotted pictures such as mosaics as tables) and becomes empty."""
     text = _LATEX_TEXT_RE.sub(r"\1", text)
     text = _LATEX_SUP_RE.sub(_latex_sup, text)
+    # "\underline{\text{Creación}}" -> "Creación" (innermost first), "T_{M}" -> "TM",
+    # then any command left ("\cdot") goes.
+    while (unwrapped := _LATEX_WRAP_RE.sub(r"\1", text)) != text:
+        text = unwrapped
+    text = _LATEX_COMMAND_RE.sub("", _LATEX_SUB_RE.sub(r"\1", text))
     text = re.sub(r"</?su[bp]>", "", text.replace("$", ""))
     if "<table" not in text:
         return text
@@ -325,6 +336,25 @@ def clean_text(text: str) -> str:
     if len(words) >= _MIN_TABLE_WORDS and len(set(words)) < len(words) * _MIN_TABLE_VARIETY:
         return ""
     return text
+
+
+def _foreign_script(text: str) -> bool:
+    """Letters of a script the book can't be in: the model making up Vietnamese
+    ("R1 (lỗi) đến") for transliterated Greek ("iōn de autōn"). One odd letter ("Sốc.")
+    is a slip, not a made-up block."""
+    foreign = len(_FOREIGN_RE.findall(text))
+    letters = sum(c.isalpha() for c in text)
+    return foreign >= _MIN_FOREIGN and foreign >= letters * _FOREIGN_SHARE
+
+
+def _scan_text(scan: PageScan, rect: pymupdf.Rect) -> str:
+    """Tesseract's words inside ``rect`` (page units), in reading order."""
+    return " ".join(
+        w.text
+        for w in scan.words
+        if w.box
+        and rect.contains(pymupdf.Point((w.box[0] + w.box[2]) / 2, (w.box[1] + w.box[3]) / 2))
+    )
 
 
 def text_settings(
@@ -365,6 +395,10 @@ def _latex_sup(match: re.Match) -> str:
     ``fix_refs`` to renumber) or plain letters ("M.^{A}")."""
     inner = match.group(1)
     digits = re.sub(r"\D", "", inner)
+    if len(digits) == 4 and digits.endswith("7"):
+        # No note has four digits: a question mark after the reference read as a
+        # 7 ("filósofos¹²⁶?" -> "^{1267}").
+        return digits[:3].translate(_TO_SUPERSCRIPT) + "?"
     return (digits or inner).translate(_TO_SUPERSCRIPT)
 
 
@@ -480,6 +514,8 @@ def prepare_blocks(
         text = _printable(text, font)
         x0, y0, x1, y1 = block["bbox"]
         rect = pymupdf.Rect(x0 * sx, y0 * sy, x1 * sx, y1 * sy)
+        if scan and _foreign_script(text):
+            text = _scan_text(scan, rect) or text
         in_column = (
             block.get("label") == "text"
             and column_left is not None

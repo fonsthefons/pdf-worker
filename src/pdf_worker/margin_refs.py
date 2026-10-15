@@ -250,6 +250,7 @@ class ScanWord:
     text: str
     line: int  # index of its printed line, top to bottom
     margin: bool  # beside the text column: a mark as Tesseract read it
+    box: tuple[float, float, float, float] | None = None  # in page units
 
 
 @dataclass(frozen=True)
@@ -283,7 +284,9 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
     for index, line in enumerate(lines):
         for x0, y0, x1, y1, text in line:
             margin = not left - _GAP * height < (x0 + x1) / 2 < right + _GAP * height
-            words.append(ScanWord(text, index, margin))
+            to_page = 72 / _DPI
+            box = (x0 * to_page, y0 * to_page, x1 * to_page, y1 * to_page)
+            words.append(ScanWord(text, index, margin, box))
             # A real word past the column's edge is body text, not a mark to read.
             if not margin or sum(c.isalpha() for c in text) >= 3:
                 body_boxes.append((x0, y0, x1, y1))
