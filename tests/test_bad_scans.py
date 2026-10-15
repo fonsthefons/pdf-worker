@@ -5,6 +5,7 @@ import pymupdf
 import pytest
 
 from pdf_worker.footnotes import BodyLine
+from pdf_worker.inline import margin_ref
 from pdf_worker.layout import Line, ink_bbox
 from pdf_worker.margins import _trim_edge_marks
 from pdf_worker.ocr_check import assess_text_layer
@@ -105,16 +106,21 @@ def test_space_sizes_do_not_move_the_line():
     assert line.top == 274
 
 
-def test_margin_marks_glued_onto_a_line_are_dropped():
+def test_margin_marks_glued_onto_a_line_become_margin_references():
     tail = _line(_span("una y otra.", 36, 260), _span(" ", 260, 293), _span("b", 294, 298))
     head = _line(_span("d", 20, 24), _span(" ", 24, 50), _span("Pro. — En efecto.", 50, 200))
+    misread = _line(_span("Niobe y", 36, 260), _span(" ", 260, 293), _span("h", 294, 298))
     reference = _line(_span("cuantos son capaces de ellos,³", 36, 291))
 
     trimmed_tail = _trim_edge_marks(BodyLine("una y otra. b", tail), 36, 290, 10)
     trimmed_head = _trim_edge_marks(BodyLine("d Pro. — En efecto.", head), 36, 290, 10)
+    trimmed_misread = _trim_edge_marks(BodyLine("Niobe y h", misread), 36, 290, 10)
 
-    assert trimmed_tail.text.strip() == "una y otra." and trimmed_tail.line.x1 == 260
-    assert trimmed_head.text == "Pro. — En efecto." and trimmed_head.line.x0 == 50
+    # Out of the text, kept as a reference that opens the line.
+    assert trimmed_tail.text.strip() == margin_ref("b") + "una y otra."
+    assert trimmed_tail.line.x1 == 260
+    assert trimmed_head.text == margin_ref("d") + "Pro. — En efecto." and trimmed_head.line.x0 == 50
+    assert trimmed_misread.text.strip() == margin_ref("?") + "Niobe y"  # named by the sequence
     assert _trim_edge_marks(BodyLine(reference.text, reference), 36, 290, 10).text == reference.text
 
 

@@ -477,7 +477,146 @@
 - Candidate next step: link footnote references in OCR layers that set them as plain
   digits glued to words, by matching against the note numbers found on the page.
 
+### Word vote for scans (2026-10-13)
+- User: "I as a human can read that text, so there must be something we can improve."
+- Tried and measured (bag-of-words recall vs the good edition):
+  - Apple Vision alone on pp. 19–20: 0.84 (worse than ABBYY 0.92, Tesseract 0.89).
+  - Lexicon correction with Tesseract's own Spanish word list (dumped with
+    `combine_tessdata` + `dawg2wordlist`): useless, the list contains `parce`, `jo`,
+    `asi`, `cl` and lacks many verb forms.
+  - Book-internal bigram noisy-channel model (`scratch/platon_spell2.py`): fixes
+    `parce`, `Jo`, but also breaks real words; +0.1–1.5 pts depending on tuning. Dropped.
+  - Two readings + language model (`scratch/platon_rover.py`): too weak to settle ties.
+  - **Three-way word vote** (`scratch/platon_vote.py`): best and simplest. Kept.
+- New `consensus.py`: each scanned page is re-read by Tesseract (CLI, 300 dpi,
+  underlines erased) and Apple Vision (`ocrmac`); readings are aligned with the page's
+  letter-run tokens (difflib); a word changes when both other readings agree on another
+  word that is more common in the book (leave-one-out), and accents are only added.
+  Pages that Tesseract already wrote (redone underlined pages) use the original
+  (ABBYY) layer as the second voter instead.
+- Fixes are stored per page as `/PdfWorkerFixes` (JSON: box, old, new) and applied in
+  `layout.page_lines`, so sizes, fonts and positions (footnotes, headings) are kept.
+- `kindle` runs it on scanned books after any OCR step and reports the count.
+  `ocrmac` added to the `ocr` extra (macOS only); without it the step is skipped.
+- Results on the Platón book: ~600 words fixed, 4 min for 293 pages (kindle total
+  ~7 min). pp. 19–20: recall 0.924 → 0.936, precision 0.951 → 0.964. Underlined
+  pp. 9–15: 0.945 → 0.952. Spot checks: the large majority of fixes are right; wrong
+  ones cluster in foreign-language bibliography lines and one-letter words.
+- Tests: `tests/test_consensus.py` (4).
+- Next ideas: a fourth reader (PaddleOCR-VL, slow) would allow 3-of-4 votes; footnote
+  reference linking is still open.
+
+### Paddle fixes on test_familia (2026-10-14)
+- `convert ... --ocr redo --ocr-engine paddle` failed now and then with MLX server 500
+  "[broadcast_shapes] Shapes (8) and (2) cannot be broadcast": paddlex sends up to 200
+  concurrent block requests and mlx_vlm.server's batching breaks on mixed crop sizes.
+  Fix: `vl_rec_max_concurrency=1` in `paddle_worker.py`.
+- Table blocks came back as raw HTML and went into the text layer; sometimes the cover's
+  dog mosaic was read as a looping table ("Nīlus fluvius est..." ×15). `clean_text` now
+  flattens tables and drops ones with <30% distinct words. Tests: 2 in
+  `tests/test_paddle_ocr.py`.
+
+### Paddle footnotes on test_platon_bad (2026-10-14)
+- User: in `test_platon_bad.reflowed.pdf` a short paragraph came out smaller, showed a
+  literal `^{1}`, and footnote 1 sat mid-text (between "redac-" and "ción").
+- Cause (raw blocks for pp. 8–9 in `scratch/platon_paddle/pages.jsonl`): Paddle writes
+  references as `$ ^{1} $`, labels notes `footnote` but drops most of their numbers, and
+  every block was fitted at its own largest size, so tight short blocks went note-sized
+  and notes were body-sized.
+- Fix: `clean_text` turns `^{n}` into Unicode superscripts (and drops `<sup>`/`<sub>`);
+  `layout._with_text` makes Unicode superscript digits their own SUPERSCRIPT spans (all
+  books); `write_blocks` uses one body size per page (longest text block), writes
+  footnotes at 0.8 of it and numbers unnumbered notes from the page's references;
+  `_fit_text` shrinks in 4% steps and allows a line's leading below the box.
+- Paragraphs also split at page breaks ("definitivamente | resuelto", "redac- | ción"):
+  every text block got the paragraph indent. Now a block opening in lowercase doesn't.
+- Full re-run (`convert --ocr redo --ocr-engine paddle`, output in
+  `scratch/platon_paddle/`): 9 notes, all linked; both page-break joins right.
+- Tests: `test_footnotes_are_numbered_small_and_referenced`,
+  `test_clean_text_turns_latex_superscripts_into_references`. All tests pass.
+
+### Footnotes at the foot of the page in reflowed PDFs (2026-10-14)
+- User asked for each note under the page that refers to it, not at the end.
+- `pdf_export.py`: notes leave the end section (`_split_notes`; refs lose their `href`,
+  else Story raises on the missing target). The book is laid out repeatedly
+  (`_typeset`, Story positions give each `r<n>` ref's page/rect) with room kept at each
+  page's foot (`_room_needed`) until every page's notes fit; notes are drawn with
+  `insert_htmlbox` under a short rule, links both ways added by hand (`_place_notes`).
+- Oscillation seen on Platon p. 3 (ref 4 slipping back and forth): a ref too low for its
+  note to fit under it now pushes its line to the next page. After 3 exact passes room
+  only grows (guaranteed to settle); max 12 passes.
+- Stay at the end: notes taller than 40% of the text frame, and notes no text refers to
+  (Platon's `*` note). EPUB/HTML/MD unchanged.
+- Tests: `test_reflowed_pdf_puts_footnotes_at_the_foot_of_their_page`,
+  `test_a_reference_too_low_for_its_note_moves_to_the_next_page`. All 147 pass.
+- Output: `scratch/platon_paddle/test_platon_bad.reflowed.pdf` (from `ocr.pdf`, a Paddle
+  OCR of the scan, reusable to skip the slow OCR).
+
+### Margin references (Stephanus) and running heads (2026-10-14)
+- User tested `test_pdfs/test_platon_bad_2.pdf` (2 pages, Timeo 22a–23a). Asked: running
+  heads "TIMEO"/"DIÁLOGOS" ended up as text; the margin "22", "b" ... "e", "23" should be
+  kept as paragraph references, never mixed up with footnotes. User's choices: running
+  title once as the opening heading, repeats dropped; labels in full ("22a", "22b");
+  all formats (PDF margin; EPUB/HTML green bold inline; txt `[22b]`; md/docx bold `[22b]`).
+- Running heads: `structure._running_heads` — small lines in the top 10% on one row with
+  the page number (or "TIMEO 163" on one line), found per page so they work on 2-page
+  books (the repeated-text rule needs 3+ pages). The right-hand page's head becomes a
+  level-1 heading once, only if the book has no heading yet.
+- Margin refs: new inline marker (`inline.margin_ref`, U+E009/U+E00A; `plain` strips it),
+  placed at the start of the printed line. New `margin_refs.py`:
+  - `next_label`: labels follow the sequence (a..e, then number+1); misread or
+    unreadable marks take the next label; bare numbers on pages without letters (line
+    numbers) are dropped (`structure._State._label_margin_refs`).
+  - Layers that keep printed lines (ABBYY, Tesseract): `margins._trim_edge_marks` and the
+    merged gutter numbers now keep the marks as markers instead of dropping them.
+  - Paddle rewraps paragraphs and drops/garbles marks ("por c fuego" -> "por el juego"),
+    so at OCR time `scan_page` finds ink blobs beside the column (Tesseract TSV gives the
+    column and lines), reads each crop (x2, psm 7, whitelist `0-9a-e`), aligns the
+    Tesseract words with Paddle's (difflib), removes what Paddle read of the mark, and
+    stores the marks on the page (`/PdfWorkerMarginRefs`, box of the line's first word);
+    `layout.page_lines` puts them into the text. Needs Tesseract; silently skipped
+    without it.
+  - PDF: the word after each ref carries its id; the label is drawn in the right margin
+    (green Helvetica bold 7.5 pt). Story reports a span twice; the first can be on the
+    line before, so the box with width is used.
+- Result on test_platon_bad_2: 22a, 22b, 22c, 22d, 22e, 23a all on the right lines; Filebo
+  (ABBYY, pp. 19-20) gives 11a–11d. Output:
+  `scratch/platon2/test_platon_bad_2.reflowed.pdf`.
+- Not done: standalone margin lines in Tesseract/ABBYY layers (a mark OCR'd as its own
+  line, not glued onto a body line) are still dropped; margin refs inside footnotes.
+- Tests: new `tests/test_margin_refs.py` (6); the glued-marks unit test and the Filebo
+  integration test now expect the refs. All 153 pass, ruff clean.
+
+## Paddle footnote numbering, margin-ref fixes (test_platon_bad_5, 2026-10-15)
+- From the user's red highlights on `test_platon_bad_5.reflowed.pdf` (Paddle re-OCR).
+- New `note_numbers.py`: `number_notes` numbers footnotes in sequence after the previous
+  page's last note (a printed number wins only if 1 or expected..expected+2; a first note
+  starting lowercase continues the previous page's note); `fix_refs` puts missing
+  superscript refs into the text, from misread superscripts or from stray marks after a
+  word in Tesseract's reading (filled only when places found == notes missing).
+- `paddle_ocr.py`: `write_blocks` returns `(written, last_note)`, threaded page to page;
+  margin-mark `aside_text` blocks skipped; narrow in-column text blocks (one-line
+  speeches) written as body paragraphs at body size; `_fix_digit_words` takes Tesseract's
+  all-letter reading for words like "FILE0", "S1.".
+- `margin_refs.py`: unreadable crop falls back to Tesseract's own margin word (fixed 11);
+  Paddle's inserted mark letters dropped ("y b pongo"); marks matched by first-char x0
+  and y-centre (no mark on two overlapping lines).
+- `images.py`: `_EDGE_SHARE` 0.6 → 0.3, so a partial book-edge shadow is blanked (fake
+  picture at the bottom of p. 3 gone).
+- Rejected: word vote (`consensus.vote_pdf`) on the Paddle layer (5 fixes, one wrong).
+- Links ref ↔ note are valid; Preview doesn't move because the note is already visible.
+- Scripts: `scratch/platon5_raw.py`, `platon5_replay.py`, `platon5_render.py`. Output:
+  `scratch/platon5/test_platon_bad_5.reflowed.{txt,pdf,epub}`.
+- Still Paddle misreads: "cuesta", "il El qué", "ol?ro", "declas", "Sốc.", "Pro- tarco".
+- Tests: new `tests/test_note_numbers.py` (5), two new in `test_paddle_ocr.py`. 160 pass,
+  ruff clean.
+
 ## Blocked
+- 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
+  Review); PRs #23 and #19 still open.
+- 2026-10-15: committed 9e86cbf (footnote/margin-ref fixes). Denied: committing the
+  code-review-graph tooling files and `git push origin feature/bad-scans-2`; nothing
+  pushed or merged.
 - 2026-10-13: `gh pr merge 20` was denied by the permission classifier; the user has to
   merge PR #20 (and the stacked PR) themselves or allow `gh pr merge`.
 - (Earlier: Claude couldn't edit `.claude/settings.local.json` itself, so the user copied

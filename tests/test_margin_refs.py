@@ -1,0 +1,121 @@
+"""Margin references (Stephanus "22", "b", "c" ...) and running heads ("TIMEO 163")."""
+
+import pymupdf
+
+from pdf_worker import pdf_export
+from pdf_worker.convert import convert_pdf
+from pdf_worker.epub import write_epub
+from pdf_worker.footnotes import BodyLine
+from pdf_worker.inline import margin_ref, plain
+from pdf_worker.layout import DocumentProfile, Line
+from pdf_worker.margin_refs import PageScan, ScanMark, ScanWord, mark_paddle_blocks, next_label
+from pdf_worker.output import Metadata
+from pdf_worker.structure import Heading, Note, Paragraph, _State
+from pdf_worker.text_export import write_text
+
+BODY = 11
+FULL = [
+    "The quick brown fox jumps over the lazy dog and keeps running far",
+    "away across the green fields until the evening light finally fades",
+    "into a calm and quiet night where every sound seems to have gone.",
+]
+
+
+def test_labels_follow_the_section_order_whatever_was_read():
+    labels = []
+    previous = None
+    # As read on the sample page: "22", "b", "c", unreadable, "e", and "2" for "23".
+    for reading in ["22", "b", "c", "?", "e", "2", "c", "c"]:
+        previous = next_label(previous, reading)
+        labels.append(previous)
+
+    # "c" after 23a is one missed mark ("b"): believed; another "c" is a misread "d".
+    assert labels == ["22a", "22b", "22c", "22d", "22e", "23a", "23c", "23d"]
+    assert next_label(None, "b") == "b"  # no number yet: as printed
+    assert next_label(None, "?") is None
+
+
+def test_line_numbers_are_not_section_references():
+    state = _State(DocumentProfile(body_size=BODY))
+    line = Line(spans=(), size=BODY, bbox=(72, 100, 400, 111))
+
+    numbers = state._label_margin_refs([BodyLine(margin_ref("5") + "Puer qui ridet", line)])
+    sections = state._label_margin_refs([BodyLine(margin_ref("b") + "una y otra", line)])
+
+    assert numbers[0].text == "Puer qui ridet"
+    assert sections[0].text == margin_ref("b") + "una y otra"
+
+
+def test_paddle_text_loses_the_marks_it_read_and_each_mark_finds_its_line():
+    words = [
+        *(ScanWord(w, 0, False) for w in ["honores", "y", "que,"]),
+        ScanWord("22", 0, True),
+        *(ScanWord(w, 1, False) for w in ["sacerdotes", "que", "muchas", "por"]),
+        ScanWord("mn", 2, True),  # "c" in the margin, misread
+        ScanWord("fuego", 3, False),
+    ]
+    scan = PageScan(words, [ScanMark("22", 0), ScanMark("c", 1)])
+    # Paddle reads the "22" into the text and "c fuego" as "el fuego".
+    texts = ["  honores y que, 22 sacerdotes que muchas por el fuego"]
+
+    cleaned, marks = mark_paddle_blocks(texts, scan)
+
+    assert cleaned == ["  honores y que, sacerdotes que muchas por fuego"]
+    assert marks == [(0, 0, "22"), (0, 3, "c")]  # "honores" and "sacerdotes"
+
+
+def test_running_heads_leave_the_text_and_the_title_opens_the_book(make_layout_pdf, tmp_path):
+    body = [(72, 120 + 14 * i, t, BODY) for i, t in enumerate(FULL * 2)]
+    last = (72, 120 + 14 * len(body), "relatada, se refiere, a", BODY)
+    first = (72, 120, "una desviación de los cuerpos.", BODY)
+    pages = [
+        [(290, 50, "TIMEO", 8), (530, 50, "163", 8), *body, last],
+        [(72, 50, "164", 8), (280, 50, "DIALOGOS", 8), first, *body[1:]],
+    ]
+    out = tmp_path / "book.txt"
+
+    convert_pdf(make_layout_pdf(pages), out, "txt")
+
+    text = out.read_text(encoding="utf-8")
+    assert text.count("TIMEO") == 1 and "\nTIMEO\n" in text
+    assert "DIALOGOS" not in text
+    assert "se refiere, a una desviación" in text  # the sentence runs on over the page
+
+
+def _blocks():
+    text = (
+        "Solón contaba que cuando llegó allí recibió de ellos muchos "
+        + margin_ref("22a")
+        + "honores y que, al consultar sobre las antigüedades[^1] a los sacerdotes, "
+        + " ".join(FULL * 3)
+    )
+    return [Heading("TIMEO", 1), Paragraph(text), Note("1", "Una nota.")]
+
+
+def test_text_and_epub_show_margin_references_apart_from_footnotes(tmp_path):
+    write_text(_blocks(), tmp_path / "book.txt", Metadata("Timeo"))
+    stats = write_epub(_blocks(), tmp_path / "book.epub", Metadata("Timeo"))
+
+    text = (tmp_path / "book.txt").read_text(encoding="utf-8")
+    assert "muchos [22a] honores" in text and "antigüedades[1] a los" in text
+    with pymupdf.open(tmp_path / "book.epub") as doc:
+        html = "".join(page.get_text("html") for page in doc)
+    assert stats.margin_refs == 1 and "22a" in html
+
+
+def test_reflowed_pdf_sets_margin_references_in_the_margin(tmp_path):
+    out = tmp_path / "book.pdf"
+
+    pdf_export.write_pdf(_blocks(), out, Metadata("Timeo"))
+
+    with pymupdf.open(out) as doc:
+        page = next(p for p in doc if "honores" in p.get_text())
+        label = page.search_for("22a")
+        word = page.search_for("honores")[0]
+        lines = [plain(line) for line in page.get_text().splitlines()]
+        foot = page.search_for("Una nota.")
+    text_right = pdf_export.FRAME.x1 - pdf_export.FRAME.width * 0.05
+    assert len(label) == 1 and label[0].x0 > text_right  # in the margin, not the text
+    assert abs(label[0].y1 - word.y1) < 3  # level with its word's line
+    assert not any("22a" in line and "honores" in line for line in lines)
+    assert foot  # the footnote is still at the foot of the page

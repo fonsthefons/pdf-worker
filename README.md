@@ -28,6 +28,13 @@ This checks the PDF's text layer first:
 - **A scan with hand-drawn underlines** (pencil or pen, which the scan's own OCR reads
   as stray letters): only the underlined pages are OCR'd again, with the underlines
   erased first. The other pages keep their layer.
+- **Any scan (macOS):** each scanned page is read again by Tesseract and Apple Vision,
+  and where both agree on a different word than the page's text layer, that word is
+  used (`parce` → `parte`, `asi` → `así`, `Cálleles` → `Calicles`). The new word must
+  be more common in the book than the old one, and accents are only ever added. On the
+  Platón sample (293 pages) it fixed about 600 words; word recall on two clean pages
+  rose from 92.4% to 93.6%. It adds about 4 minutes for 300 pages. Without Apple
+  Vision (not on macOS) this step is skipped.
 - **Born-digital PDF:** used as it is.
 
 Then it builds the EPUB, with footnotes, pictures, cover, links and page numbers. It

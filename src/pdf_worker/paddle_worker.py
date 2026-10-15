@@ -34,6 +34,9 @@ def main() -> int:
         vl_rec_backend="mlx-vlm-server",
         vl_rec_server_url=args.server,
         vl_rec_api_model_name=args.model,
+        # mlx_vlm.server fails on concurrent requests with differently sized crops
+        # ("[broadcast_shapes] Shapes (8) and (2) cannot be broadcast").
+        vl_rec_max_concurrency=1,
     )
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)

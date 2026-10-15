@@ -323,6 +323,14 @@ def _run_kindle(args: argparse.Namespace) -> int:
         print(f"Text layer: {assessment.reason}; OCR skipped (--no-ocr).")
     else:
         print(f"Text layer: {assessment.reason}; no OCR needed.")
+    vote = report.vote_report
+    if vote and vote.pages:
+        print(
+            f"Second readings (Tesseract, Apple Vision): {vote.fixes} word(s) fixed "
+            f"on {vote.pages} scanned page(s)."
+        )
+    elif vote and vote.skipped:
+        print(f"Second readings skipped: {vote.skipped}.")
     stats, meta = report.conversion.stats, report.conversion.metadata
     size_mb = report.size_bytes / (1024 * 1024)
     print(

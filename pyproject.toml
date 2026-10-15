@@ -23,6 +23,8 @@ ocr = [
     # Erasing hand-drawn underlines from scans before OCR (pdf_worker.underlines).
     "numpy>=1.26",
     "opencv-python-headless>=4.8",
+    # Apple Vision: the third reader in the word vote (pdf_worker.consensus).
+    "ocrmac>=1.0; sys_platform == 'darwin'",
 ]
 # `--engine paddle`: a Unicode font for the text layer. PaddleOCR-VL itself runs in a
 # separate environment (see README / docs/ocr-plan.md).

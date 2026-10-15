@@ -8,6 +8,7 @@ import pytest
 from conftest import REPO_ROOT
 
 from pdf_worker import paddle_ocr
+from pdf_worker.layout import SUPERSCRIPT, page_lines
 from pdf_worker.ocr import OcrEngineMissingError, OcrError, ocr_pdf
 
 pytest.importorskip("pymupdf_fonts")
@@ -34,10 +35,11 @@ def test_blocks_become_an_invisible_text_layer():
     page = doc.new_page()
     page.insert_font(fontname="notos", fontbuffer=pymupdf.Font("notos").buffer)
 
-    written = paddle_ocr.write_blocks(page, ROW, macrons=True)
+    written, last_note = paddle_ocr.write_blocks(page, ROW, macrons=True)
 
     text = page.get_text()
     assert written == 3  # the image block has no text
+    assert last_note == 1
     assert text.index("TEMPESTAS") < text.index("Urbs") < text.index("A small note")
     assert "Rōma nōn" in text and "Āfricā" in text and "$" not in text
     lines = page.get_text("dict")["blocks"]
@@ -52,8 +54,89 @@ def test_blocks_become_an_invisible_text_layer():
     assert title_size > note_size  # box heights carry the typography over
 
 
+def test_footnotes_are_numbered_small_and_referenced():
+    # From test_platon_bad p. 8: the reference comes as LaTeX, the note without its number.
+    long = "El diálogo va a concluir positivamente dejando establecida la jerarquía. " * 12
+    row = {
+        "width": 1190,
+        "height": 1684,
+        "blocks": [
+            {
+                "label": "text",
+                "bbox": [144, 144, 1046, 210],
+                "text": "el cambio de interlocutor $ ^{1} $.",
+            },
+            {"label": "text", "bbox": [144, 212, 1046, 900], "text": long},
+            {
+                "label": "footnote",
+                "bbox": [144, 1400, 1046, 1440],
+                "text": "Estos cambios ocurren.",
+            },
+        ],
+    }
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="notos", fontbuffer=pymupdf.Font("notos").buffer)
+
+    paddle_ocr.write_blocks(page, row)
+
+    lines = page_lines(page)
+    ref = next(ln for ln in lines if "interlocutor" in ln.text)
+    note = next(ln for ln in lines if "Estos" in ln.text)
+    body = next(ln for ln in lines if "jerarquía" in ln.text)
+    assert [s["text"] for s in ref.spans if s["flags"] & SUPERSCRIPT] == ["1"]
+    assert note.spans[0]["text"] == "1" and note.spans[0]["flags"] & SUPERSCRIPT
+    assert ref.size == body.size and note.size < body.size * 0.92
+
+
+def test_words_with_a_digit_take_tesseracts_letters():
+    from pdf_worker.margin_refs import ScanWord
+
+    words = ["FILEBO", "PRO.", "—", "SÍ.", "en", "13b.", "Cf.", "1)d6."]
+    scan = [ScanWord(w, 0, False) for w in words]
+    texts = paddle_ocr._fix_digit_words(["FILE0", "PRO. — S1. en 13b. Cf. 11d6."], scan)
+    assert texts == ["FILEBO", "PRO. — Sí. en 13b. Cf. 11d6."]
+
+
+def test_short_speeches_are_body_paragraphs():
+    long = "Que ahora cada uno de nosotros intentará poner de manifiesto un estado. " * 6
+    row = {
+        "width": 1190,
+        "height": 1684,
+        "blocks": [
+            {"label": "text", "bbox": [144, 144, 1046, 400], "text": long},
+            {"label": "text", "bbox": [200, 404, 450, 434], "text": "PRO. — Así es."},
+        ],
+    }
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="notos", fontbuffer=pymupdf.Font("notos").buffer)
+
+    paddle_ocr.write_blocks(page, row)
+
+    lines = page_lines(page)
+    short = next(ln for ln in lines if "Así" in ln.text)
+    assert short.size == lines[0].size and short.text.startswith("  PRO.")
+
+
+def test_clean_text_turns_latex_superscripts_into_references():
+    assert paddle_ocr.clean_text("interlocutor $ ^{1} $.") == "interlocutor¹."
+    assert paddle_ocr.clean_text("Tome 2<sup>e</sup>, M.$^{A}$") == "Tome 2e, M.A"
+
+
 def test_clean_text_removes_latex_wrappers():
     assert paddle_ocr.clean_text("in $ \\text{Āfricā} $ est") == "in Āfricā est"
+
+
+def test_clean_text_flattens_tables():
+    table = "<table><tr><td>Rōma</td><td>Rōmam</td></tr><tr><td>A &amp; B</td></tr></table>"
+    assert paddle_ocr.clean_text(table) == "Rōma Rōmam\nA & B"
+
+
+def test_clean_text_drops_looping_tables():
+    # From a real run: the model read the cover's dog mosaic as this table.
+    rows = "<tr><td>Nīlus fluvius est.</td><td>Corsica insula est.</td></tr>" * 10
+    assert paddle_ocr.clean_text(f"<table>{rows}</table>") == ""
 
 
 def test_missing_environment_is_a_clean_error(tmp_path, monkeypatch, make_pdf):

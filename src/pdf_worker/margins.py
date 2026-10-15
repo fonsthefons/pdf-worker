@@ -12,8 +12,9 @@ from collections import Counter
 from dataclasses import dataclass
 
 from pdf_worker.footnotes import BodyLine
-from pdf_worker.inline import CELL
+from pdf_worker.inline import CELL, LEADING_PAGE_MARKS_RE, margin_ref
 from pdf_worker.layout import Line, ink_bbox
+from pdf_worker.margin_refs import UNREADABLE, is_mark
 
 # Lines at least this share of the page width are candidates for the body column.
 _LONG_LINE_SHARE = 0.35
@@ -63,13 +64,17 @@ def split_columns(lines: list[BodyLine], page_width: float, body_size: float) ->
         elif _NUMBER_RE.match(text) and (line.x0 > right - size or line.x1 < left + size):
             margin.append(body_line)  # a line number at the edge of the column
         else:
-            # Gutter line numbers that OCR merged into a body line: "70 Puer qui ridet",
-            # "quia māter eum 55".
+            # Gutter numbers that OCR merged into a body line: "70 Puer qui ridet", "quia
+            # māter eum 55". Kept as margin references (structure drops line numbers).
+            numbers = []
             if line.x0 < left - 1.2 * size:
+                numbers += _LEADING_NUMBER_RE.findall(text)
                 text = _LEADING_NUMBER_RE.sub("", text)
             if line.x1 > right + tolerance:
+                numbers += _TRAILING_NUMBER_RE.findall(text)
                 text = _TRAILING_NUMBER_RE.sub("", text)
-            body.append(BodyLine(text, line, body_line.endnote_label))
+            refs = "".join(margin_ref(n.strip()) for n in numbers)
+            body.append(BodyLine(_with_refs(refs, text), line, body_line.endnote_label))
 
     if not _is_margin_column(margin, body, left, right):
         return _no_margins(lines, body_size)
@@ -98,6 +103,7 @@ def _trim_edge_marks(body_line: BodyLine, left: float, right: float, body_size: 
     gap = 0.3 * (line.size or body_size)
     first, second, last, before_last = inked[0], inked[1], inked[-1], inked[-2]
     cut_head = cut_tail = None
+    marks = []
     mark = spans[last]["text"].strip()
     if (
         spans[last]["bbox"][0] > right
@@ -107,6 +113,7 @@ def _trim_edge_marks(body_line: BodyLine, left: float, right: float, body_size: 
     ):
         cut_tail = last
         text = text.rstrip()[: -len(mark)].rstrip() + " "
+        marks.append(mark)
     mark = spans[first]["text"].strip()
     if (
         spans[first]["bbox"][2] < left
@@ -117,12 +124,25 @@ def _trim_edge_marks(body_line: BodyLine, left: float, right: float, body_size: 
     ):
         cut_head = first
         text = text.lstrip()[len(mark) :].lstrip()
+        marks.append(mark)
     if cut_head is None and cut_tail is None:
         return body_line
     start = cut_head + 1 if cut_head is not None else 0
     kept = tuple(spans[start : cut_tail if cut_tail is not None else len(spans)])
     trimmed = Line(spans=kept, size=line.size, bbox=ink_bbox(kept, line.bbox))
-    return BodyLine(text, trimmed, body_line.endnote_label)
+    # Misread marks ("h" for "b") are kept unreadable: their place in the sequence names them.
+    refs = "".join(margin_ref(m if is_mark(m) else UNREADABLE) for m in marks)
+    return BodyLine(_with_refs(refs, text), trimmed, body_line.endnote_label)
+
+
+def _with_refs(refs: str, text: str) -> str:
+    """Margin references open their line, after any page-start marker."""
+    if not refs:
+        return text
+    lead = LEADING_PAGE_MARKS_RE.match(text)
+    if lead:
+        return lead.group(1) + refs + lead.group(2)
+    return refs + text.lstrip()
 
 
 def _no_margins(lines: list[BodyLine], body_size: float) -> PageColumns:

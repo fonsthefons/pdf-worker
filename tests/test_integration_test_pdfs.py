@@ -275,11 +275,15 @@ def test_abbyy_scan_layer_converts_to_clean_dialogue(tmp_path):
     convert_pdf(sample, tmp_path / "out.md", "md")
 
     text = (tmp_path / "out.md").read_text(encoding="utf-8")
-    assert "qué tesis vas a asumir ahora" in text  # margin "11" dropped
-    assert "Resumamos ¿quieres? una y otra.\n" in text  # margin "b" dropped
+    # The Stephanus marks leave the text and open their lines, labelled in full; the
+    # "c" misread as "<■" is named by its place in the sequence.
+    assert "**\\[11a\\]** SÓCRATES. — Considera" in text
+    assert "qué tesis vas a asumir ahora" in text
+    assert "**\\[11b\\]** conforme a razón. Resumamos ¿quieres? una y otra.\n" in text
+    assert "**\\[11c\\]** para todos cuantos son capaces" in text
     assert "La refutación por" in text  # soft hyphen joined, no paragraph break
     assert "verdaderos— resultan" in text
-    assert "\n\nPro. — En efecto, es necesario.\n" in text  # margin "d" dropped
+    assert "\n\n**\\[11d\\]** Pro. — En efecto, es necesario.\n" in text
     assert "\n\nFilebo. — Exactísimamente, Sócrates.\n" in text  # speaker turn
 
 
@@ -298,7 +302,9 @@ def test_underlined_scan_pages_are_read_without_the_underlines(tmp_path):
     with pymupdf.open(tmp_path / "ocr.pdf") as doc:
         underlined, spread = doc[0].get_text(), doc[1].get_text()
     assert "simultáneamente" in underlined  # ABBYY: "iinujltáiieanjentee"
-    assert "Lo que produce placer es el hecho" in underlined  # ABBYY: "produce,placer_.es el ,hecho"
+    assert (
+        "Lo que produce placer es el hecho" in underlined
+    )  # ABBYY: "produce,placer_.es el ,hecho"
     assert "Considera, pues, Protarco" in spread
 
 

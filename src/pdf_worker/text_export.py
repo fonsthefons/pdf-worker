@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from pdf_worker.footnotes import display_marker
-from pdf_worker.inline import plain
+from pdf_worker.inline import MARGIN_REF_RE, plain
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph, Table
 
@@ -73,7 +73,9 @@ def write_text(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wr
 
 
 def _text(text: str) -> str:
-    """Block text with markers removed and references as ``[n]``."""
+    """Block text with markers removed, note references as ``[n]`` and margin references
+    as ``[22b]``."""
+    text = MARGIN_REF_RE.sub(lambda m: f"[{m.group(1)}] ", text)
     return REF_RE.sub(lambda m: f"[{display_marker(m.group(1))}]", plain(text)).strip()
 
 
