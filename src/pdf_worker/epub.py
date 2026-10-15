@@ -375,9 +375,10 @@ class _EpubBuilder:
         marker = _esc(display_marker(label))
         back = self.first_ref.get(label)
         link = f'<a href="{_attr(back)}" role="doc-backlink">{marker}</a>' if back else marker
+        arrow = f' <a class="back" href="{_attr(back)}" role="doc-backlink">↩</a>' if back else ""
         self.notes.write(
             f'<aside class="note" id="{note_id}" epub:type="footnote" role="doc-footnote">'
-            f"<p>{link}. {body}</p></aside>\n"
+            f"<p>{link}. {body}{arrow}</p></aside>\n"
         )
 
     def finish(self) -> None:

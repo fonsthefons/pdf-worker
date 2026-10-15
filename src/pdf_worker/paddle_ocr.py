@@ -17,10 +17,12 @@ project. Override with ``PDF_WORKER_PADDLE_PYTHON``. Model files are cached in
 
 import difflib
 import functools
+import hashlib
 import html
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -106,7 +108,7 @@ def ocr_pdf_paddle(
     if mode not in MODES:
         raise OcrError(f"Unknown OCR mode {mode!r}; choose from {', '.join(MODES)}")
     pdf_path, output_path = Path(pdf_path), Path(output_path)
-    python = paddle_python()
+    paddle_python()  # a clear error before any work when the environment is missing
     report = OcrReport(output_path=output_path, mode=mode, languages=["paddle"])
     with open_pdf(pdf_path) as doc:
         report.page_count = doc.page_count
@@ -118,25 +120,71 @@ def ocr_pdf_paddle(
         if mode == "skip"
         else list(range(report.page_count))
     )
+    rows = paddle_pages(pdf_path, pages, progress) if pages else []
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.paddle."))
+    fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.")
+    os.close(fd)
+    tmp = Path(tmp_name)
     try:
-        results = work / "pages.jsonl"
-        if pages:
-            with _mlx_server(python, progress) as server:
-                _run_worker(python, pdf_path, pages, results, work, server, progress)
-        tmp = work / "out.pdf"
-        report.macrons_restored = _write_text_layer(pdf_path, results, tmp, mode, latin_macrons)
+        report.macrons_restored = _write_text_layer(pdf_path, rows, tmp, mode, latin_macrons)
         with open_pdf(tmp) as doc:
             report.empty_pages_after = [
                 i + 1 for i in range(doc.page_count) if not doc.load_page(i).get_text().strip()
             ]
         os.replace(tmp, output_path)
-    finally:
-        for path in sorted(work.rglob("*"), reverse=True):
-            path.unlink() if path.is_file() else path.rmdir()
-        work.rmdir()
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return report
+
+
+def paddle_pages(pdf_path: str | Path, pages: list[int], progress: bool = False) -> list[dict]:
+    """Paddle's blocks for ``pages`` (0-based), one row per page as the worker writes it.
+
+    Pages are read once per file and kept in ``cache_dir()/pages``: a rerun is fast and
+    gives the same result (the model's reading varies from run to run), and a run that
+    stops halfway goes on where it stopped."""
+    pdf_path = Path(pdf_path)
+    cache = _pages_cache(pdf_path)
+    rows = _read_rows(cache)
+    missing = [p for p in pages if p not in rows]
+    if missing:
+        python = paddle_python()
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(dir=cache.parent, prefix=".paddle."))
+        try:
+            with _mlx_server(python, progress) as server:
+                _run_worker(python, pdf_path, missing, work / "pages.jsonl", work, server, progress)
+        finally:
+            # Keep the pages finished before a failure too.
+            done = _read_rows(work / "pages.jsonl")
+            if done:
+                with cache.open("a", encoding="utf-8") as out:
+                    for row in done.values():
+                        out.write(json.dumps(row, ensure_ascii=False) + "\n")
+            shutil.rmtree(work, ignore_errors=True)
+        rows = _read_rows(cache)
+    return [rows[p] for p in pages if p in rows]
+
+
+def _pages_cache(pdf_path: Path) -> Path:
+    digest = hashlib.sha256(MODEL.encode())
+    with pdf_path.open("rb") as data:
+        for chunk in iter(lambda: data.read(1 << 20), b""):
+            digest.update(chunk)
+    return cache_dir() / "pages" / f"{digest.hexdigest()[:32]}.jsonl"
+
+
+def _read_rows(path: Path) -> dict[int, dict]:
+    rows = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a line cut short when a run stopped
+            rows[row["page"]] = row
+    return rows
 
 
 def _free_port() -> int:
@@ -198,7 +246,7 @@ def _paddle_env() -> dict[str, str]:
     return env
 
 
-def _run_worker(python, pdf_path, pages, results, work, server, progress) -> None:
+def _run_worker(python, pdf_path, pages, results, work, server, progress, dpi=None) -> None:
     command = [
         str(python),
         str(_WORKER),
@@ -214,6 +262,7 @@ def _run_worker(python, pdf_path, pages, results, work, server, progress) -> Non
         server,
         "--model",
         MODEL,
+        *(["--dpi", str(dpi)] if dpi else []),
     ]
     result = subprocess.run(
         command,
@@ -234,7 +283,7 @@ def clean_text(text: str) -> str:
     A table that just repeats a few phrases is a hallucination (the model reads
     dotted pictures such as mosaics as tables) and becomes empty."""
     text = _LATEX_TEXT_RE.sub(r"\1", text)
-    text = _LATEX_SUP_RE.sub(lambda m: m.group(1).translate(_TO_SUPERSCRIPT), text)
+    text = _LATEX_SUP_RE.sub(_latex_sup, text)
     text = re.sub(r"</?su[bp]>", "", text.replace("$", ""))
     if "<table" not in text:
         return text
@@ -247,17 +296,16 @@ def clean_text(text: str) -> str:
     return text
 
 
-def _write_text_layer(
-    pdf_path: Path, results: Path, out: Path, mode: str, latin_macrons: bool | None
-) -> bool:
-    rows = []
-    if results.is_file():
-        with results.open(encoding="utf-8") as lines:
-            rows = [json.loads(line) for line in lines if line.strip()]
+def text_settings(
+    rows: list[dict], latin_macrons: bool | None = None
+) -> tuple[str, bool, bool, set[str]]:
+    """What the book's Paddle text says about itself: its language code, and the macron
+    settings for ``prepare_blocks`` (restore them, Latin by default, rival languages)."""
     texts = [clean_text(b.get("text", "")) for row in rows for b in row["blocks"]]
     sample = " ".join(texts)[:20_000]
+    language = guess_language(sample)
     # Undecided blocks (headings, names) count as Latin only in a Latin book.
-    latin_default = latin_macrons or guess_language(sample) == "la"
+    latin_default = bool(latin_macrons) or language == "la"
     # Paddle reports no languages: Latin competes with those the book clearly uses.
     rivals = {lang for lang, score in stopword_scores(sample).items() if score >= 5}
     rivals.discard("la")
@@ -267,21 +315,43 @@ def _write_text_layer(
         if latin_macrons is None
         else latin_macrons
     )
+    return language, macrons, latin_default, rivals
+
+
+def page_scanner(language: str):
+    """``scan(page)``: Tesseract's look at the page for margin references and dropped
+    note numbers, or None without Tesseract."""
+    try:
+        tesseract = tesseract_path()
+    except OcrEngineMissingError:
+        return lambda page: None
+    code = TESSERACT_CODES.get(language, DEFAULT_LANGUAGE)
+    return lambda page: scan_page(page, tesseract, code)
+
+
+def _latex_sup(match: re.Match) -> str:
+    """A superscript: a note reference ("^{12}"; a misread "^{2k}" keeps its digits for
+    ``fix_refs`` to renumber) or plain letters ("M.^{A}")."""
+    inner = match.group(1)
+    digits = re.sub(r"\D", "", inner)
+    return (digits or inner).translate(_TO_SUPERSCRIPT)
+
+
+def _write_text_layer(
+    pdf_path: Path, rows: list[dict], out: Path, mode: str, latin_macrons: bool | None
+) -> bool:
+    language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
+    scan_of = page_scanner(language)
     try:
         doc = pymupdf.open(pdf_path)
     except (pymupdf.FileDataError, RuntimeError) as exc:
         raise PdfOpenError(f"Could not open {pdf_path}: {exc}") from exc
-    try:
-        tesseract = tesseract_path()  # finds the margin references Paddle drops
-    except OcrEngineMissingError:
-        tesseract = None
-    language = TESSERACT_CODES.get(guess_language(sample), DEFAULT_LANGUAGE)
     with doc:
         font = _font()
         last_note = None
         for row in rows:
             page = doc.load_page(row["page"])
-            scan = scan_page(page, tesseract, language) if tesseract else None
+            scan = scan_of(page)  # finds the margin references Paddle drops
             if mode != "skip":
                 _remove_text(page)
             page.insert_font(fontname=_FONT, fontbuffer=font.buffer)
@@ -307,10 +377,48 @@ def write_blocks(
     ``latin_default``. The margin references found in the ``scan`` are stored on the
     page (see ``pdf_worker.margin_refs``); its words help put back dropped footnote
     references (``pdf_worker.note_numbers``)."""
+    blocks, anchors, last_note = prepare_blocks(
+        page, row, macrons, latin_default, rivals, scan, last_note
+    )
+    written = 0
+    # One body size per page: the model's boxes are tight, so a short paragraph would
+    # fit only at a smaller size and read as a different (note-sized) font.
+    body = _body_size(page, [b for b in blocks if b[0] == "text"])
+    caps = {"text": body, "footnote": body * _NOTE_RATIO}  # titles keep their own size
+    stored = []
+    for i, (label, rect, text) in enumerate(blocks):
+        if label == "text":  # a one-line box is too low to start at the body size
+            rect.y1 = max(rect.y1, rect.y0 + body * 1.6)
+        before = {tuple(w[:5]) for w in page.get_text("words")} if i in anchors else set()
+        _fit_text(page, rect, text, caps.get(label, _MAX_FONT))
+        written += 1
+        if i in anchors:
+            # The block's words as written, to store each mark at its word's box.
+            new = [w for w in page.get_text("words") if tuple(w[:5]) not in before]
+            if len(new) == len(text.split()):
+                stored += [[*new[k][:4], reading] for k, reading in anchors[i] if k < len(new)]
+    if scan is not None:
+        page.parent.xref_set_key(
+            page.xref, MARKS_KEY, pymupdf.get_pdf_str(json.dumps(stored)) if stored else "null"
+        )
+    return written, last_note
+
+
+def prepare_blocks(
+    page: pymupdf.Page,
+    row: dict,
+    macrons: bool = False,
+    latin_default: bool = True,
+    rivals: Collection[str] | None = None,
+    scan: PageScan | None = None,
+    last_note: int | None = None,
+) -> tuple[list[list], dict[int, list[tuple[int, str]]], int | None]:
+    """A page's Paddle blocks, cleaned: ``[label, rect (page units), text]`` in reading
+    order (footnotes numbered, references fixed, margin marks taken out), the margin
+    references per block (``{block: [(word index, reading)]}``) and the last note."""
     sx = page.rect.width / (row.get("width") or page.rect.width)
     sy = page.rect.height / (row.get("height") or page.rect.height)
     font = _font()
-    written = 0
     # Wide blocks (body paragraphs) share one left edge: the model's boxes wobble by
     # several points, which would read as indentation on every line.
     wide = [
@@ -363,8 +471,6 @@ def write_blocks(
     for block, text in zip(body_blocks, fixed, strict=True):
         block[2] = text
     last_note = max((n for n in numbers if n is not None), default=last_note)
-    # One body size per page: the model's boxes are tight, so a short paragraph would
-    # fit only at a smaller size and read as a different (note-sized) font.
     anchors: dict[int, list[tuple[int, str]]] = {}  # block -> [(word index, reading)]
     if scan and scan.marks:
         main = [i for i, b in enumerate(blocks) if b[0] != "footnote"]
@@ -373,25 +479,7 @@ def write_blocks(
             blocks[i][2] = text
         for b, index, reading in marks:
             anchors.setdefault(main[b], []).append((index, reading))
-    body = _body_size(page, [b for b in blocks if b[0] == "text"])
-    caps = {"text": body, "footnote": body * _NOTE_RATIO}  # titles keep their own size
-    stored = []
-    for i, (label, rect, text) in enumerate(blocks):
-        if label == "text":  # a one-line box is too low to start at the body size
-            rect.y1 = max(rect.y1, rect.y0 + body * 1.6)
-        before = {tuple(w[:5]) for w in page.get_text("words")} if i in anchors else set()
-        _fit_text(page, rect, text, caps.get(label, _MAX_FONT))
-        written += 1
-        if i in anchors:
-            # The block's words as written, to store each mark at its word's box.
-            new = [w for w in page.get_text("words") if tuple(w[:5]) not in before]
-            if len(new) == len(text.split()):
-                stored += [[*new[k][:4], reading] for k, reading in anchors[i] if k < len(new)]
-    if scan is not None:
-        page.parent.xref_set_key(
-            page.xref, MARKS_KEY, pymupdf.get_pdf_str(json.dumps(stored)) if stored else "null"
-        )
-    return written, last_note
+    return blocks, anchors, last_note
 
 
 def _fix_digit_words(texts: list[str], scan_words: list[ScanWord]) -> list[str]:

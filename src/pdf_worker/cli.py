@@ -248,6 +248,13 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         action="store_false",
         help="Don't use the first page as the EPUB cover.",
     )
+    parser.add_argument(
+        "--notes",
+        choices=conversion.NOTE_PLACES,
+        default="page",
+        help="Reflowed PDF: footnotes at the foot of their page (default) or all at the "
+        "end of the book.",
+    )
     _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
 
@@ -255,19 +262,35 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
 def _run_convert(args: argparse.Namespace) -> int:
     fmt = args.to or (args.output and conversion.format_for_path(args.output)) or "epub"
     output = args.output or conversion.default_output_path(args.pdf, fmt)
+    options = dict(
+        author=args.author,
+        language=args.language,
+        images=args.images,
+        cover=args.cover,
+        notes_at=args.notes,
+    )
+    if args.ocr in ("redo", "force") and args.engine == "paddle":
+        # The book is built from Paddle's blocks themselves, not from a text layer.
+        _apply_engine_options(args)
+        from pdf_worker.document import open_pdf
+        from pdf_worker.paddle_ocr import paddle_pages
+
+        with open_pdf(args.pdf) as doc:
+            count = doc.page_count
+        rows = paddle_pages(args.pdf, list(range(count)), progress=sys.stderr.isatty())
+        print(f"OCR ({args.ocr}, paddle): {len(rows)} of {count} page(s) read")
+        report = conversion.convert_pdf(
+            args.pdf, output, fmt, title=args.title, paddle_rows=rows, **options
+        )
+        return _print_convert_summary(report, output, fmt)
     # The OCR'd copy has no useful metadata of its own; keep the original's title.
     title = args.title or (args.ocr and conversion.pdf_title(args.pdf))
     with _maybe_ocr(args, output) as pdf:
-        report = conversion.convert_pdf(
-            pdf,
-            output,
-            fmt,
-            title=title,
-            author=args.author,
-            language=args.language,
-            images=args.images,
-            cover=args.cover,
-        )
+        report = conversion.convert_pdf(pdf, output, fmt, title=title, **options)
+    return _print_convert_summary(report, output, fmt)
+
+
+def _print_convert_summary(report: conversion.ConvertReport, output: Path, fmt: str) -> int:
     stats, meta = report.stats, report.metadata
     print(f"Wrote {output} ({fmt}): {meta.title!r}, language {meta.language}")
     print(
@@ -275,6 +298,8 @@ def _run_convert(args: argparse.Namespace) -> int:
         f"{stats.paragraphs} paragraph(s), {stats.notes} note(s), "
         f"{stats.glosses} margin gloss block(s), {stats.images} picture(s)"
     )
+    for line in report.restored_refs:
+        print(line)
     return 0
 
 

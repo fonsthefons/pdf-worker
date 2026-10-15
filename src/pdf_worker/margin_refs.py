@@ -165,8 +165,19 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
                         reading,
                     )
                 marks.append((line, reading))
-    marks.sort()
-    return PageScan(words, [ScanMark(reading, line) for line, reading in marks])
+    # A mark split into pieces ("1" + "16", "?" + "?") is still one mark: keep the
+    # line's best reading. shortcut: two real marks on one line become one; none seen.
+    best: dict[int, str] = {}
+    for line, reading in marks:
+        old = best.get(line)
+        if old is None or _rank(reading) > _rank(old):
+            best[line] = reading
+    return PageScan(words, [ScanMark(best[line], line) for line in sorted(best)])
+
+
+def _rank(reading: str) -> tuple[bool, int]:
+    """Readable marks first, then the longer reading ("16" over "1")."""
+    return is_mark(reading), len(reading)
 
 
 def _tesseract_lines(gray, tesseract: str, language: str) -> list[list[tuple]]:

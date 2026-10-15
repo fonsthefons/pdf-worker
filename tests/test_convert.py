@@ -158,6 +158,7 @@ def test_epub_layout_metadata_and_linked_notes(make_layout_pdf, tmp_path):
     assert 'epub:type="footnote"' in notes
     assert 'href="c001.xhtml#r1" role="doc-backlink"' in notes
     assert "The footnote text." in notes
+    assert 'text. <a class="back" href="c001.xhtml#r1" role="doc-backlink">↩</a></p>' in notes
     assert "Chapter One" in nav and "Chapter Two" in nav
     assert report.stats.notes == 1
 

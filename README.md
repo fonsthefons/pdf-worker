@@ -205,6 +205,15 @@ pdf-worker convert scan.pdf --ocr redo --ocr-lang spa
   ```
   The models go to `~/.cache/pdf-worker/paddle` (`--paddle-cache DIR` or
   `PDF_WORKER_PADDLE_CACHE` to change; `PDF_WORKER_PADDLE_PYTHON` for another venv).
+  Paddle's reading of each page is kept there too (`pages/`), so running a file again
+  is fast and gives the same text, and an interrupted run goes on where it stopped.
+  `convert --ocr redo|force --ocr-engine paddle` builds the book from Paddle's blocks
+  themselves (titles, paragraphs, footnotes, running heads), not from a text layer:
+  paragraphs, notes and headings come out much cleaner. Add `--notes end` to keep a
+  reflowed PDF's notes together at the end of the book (each ends with a ↩ link back to
+  the text). A note whose reference the OCR lost is looked for again on its page: in
+  the PDF's old text layer, then with Tesseract and Paddle on just those lines. Each
+  reference found this way is listed after the summary.
 - **Latin macrons:** Tesseract has no macrons and reads Latin long vowels as accented ones
   (`Màrcus`, `Iülia`). When Latin is an OCR language, those accents are turned back into
   macrons (`Mārcus`, `Iūlia`) before the text layer is written. `--no-latin-macrons`

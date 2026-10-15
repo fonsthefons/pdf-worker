@@ -613,6 +613,81 @@
 - Tests: new `tests/test_note_numbers.py` (5), two new in `test_paddle_ocr.py`. 160 pass,
   ruff clean.
 
+## Good-ePub comparison and direct-from-Paddle prototype (test_platon_bad_3, 2026-10-15)
+- Full report: `scratch/platon3/REPORT.md`.
+- `platon_dialogos_vi_good.pdf` = Titivillus ePub printed by calibre (notes at the end,
+  numbered per part, transliterated Greek in italics). bad_3 pp. 6–36 = good pp. 6–23;
+  printed p. 18 is missing from the test file.
+- Scripts: `scratch/platon3_raw.py` (Paddle raw blocks + current pipeline),
+  `platon3_score.py` (scores a .txt against the good PDF: words, paragraphs, refs,
+  notes, margin refs), `platon3_direct.py` (prototype: book built from Paddle's labels,
+  no text layer), `good_*.py` probes.
+- Library: `paddle_ocr.prepare_blocks` split out of `write_blocks` (same behaviour);
+  `number_notes`: a read "1" alone no longer restarts the count, an unnumbered first
+  note continues the previous page's when the next note has the number due;
+  `scan_page`: one margin mark per line (split marks gave double labels). New tests.
+- Scores (current → prototype): word errors 2.3% → 1.8%, extra paragraph breaks 23 → 3,
+  refs 53 → 52/57, notes mean similarity 0.83 → 0.87, margin refs 53/54 both.
+- Not done: front matter/heading levels, italics, small caps, endnotes option in the
+  real PDF writer; proposal in the report awaits approval. 160 tests pass, ruff clean.
+
+## Paddle books built from Paddle's blocks (2026-10-15)
+- User approved the proposal. New `paddle_book.py` (`iter_paddle_blocks`): Paddle's
+  labels decide the structure; front matter (leading pages < 60 words) dropped; running
+  heads/page numbers/footers dropped, a "header" low on the page kept as a small line
+  (dramatis personae); paragraphs joined across pages; notes labelled per part
+  (`c<part>-<n>`); margin refs, page marks (printed page numbers), pictures from
+  Paddle's image boxes; speaker names normalised ("SÓC. — "); "Pro- tarco" joined.
+- `paddle_ocr`: `paddle_pages` caches Paddle's rows per file (sha256 + model) in
+  `cache_dir()/pages/*.jsonl`, resumes interrupted runs; `ocr_pdf_paddle` uses it;
+  `text_settings` / `page_scanner` shared by the text-layer and book paths;
+  `clean_text` keeps only the digits of a superscript like "^{2k}".
+- `note_numbers.fix_refs`: a plain number equal to a due note ("número 27.") is that
+  reference.
+- `convert_pdf(..., notes_at="page"|"end", paddle_rows=...)`; CLI `convert --notes
+  end|page`; `convert --ocr redo|force --ocr-engine paddle` takes the new path (`skip`
+  keeps the text-layer path). README updated.
+- Tests: `tests/test_paddle_book.py` (3), new cases in `test_note_numbers.py` and
+  `test_paddle_ocr.py`; scorer moved to `tests/platon_score.py`; integration test
+  `tests/test_paddle_book_platon.py` (needs the cached Paddle pages in
+  scratch/paddle-home; seeded with `scratch/seed_cache.py`). 165 pass, ruff clean.
+- Scores via the CLI (`scratch/platon3_cli.py`, output `scratch/platon3/book.*`): word
+  errors 1.7%, extra paragraph breaks 4, refs 55/57, notes mean 0.87, margin 53/54.
+- Still open: italics, small caps, centred dramatis personae, heading levels
+  (Filebo > Introducción), Greek-alphabet font, Paddle misreads.
+
+## Endnote back-arrow (2026-10-15)
+- User asked for a back-link from endnotes to the text, like the good PDF's "<<"; chose
+  "↩" for PDF and EPUB. The note number already linked back but didn't look like a link.
+- `epub._write_note`: each note with a reference ends with
+  `<a class="back" role="doc-backlink">↩</a>`. The PDF gets it via the HTML; MuPDF
+  draws it with its NotoSansMath fallback (U+FE0E would show a box, so it isn't used).
+  `pdf_export._split_notes` drops it from notes set at the page foot.
+- Tests: `test_convert` (EPUB markup), `test_formats` (no arrow at the page foot; with
+  `notes_at="end"` the arrow links to the reference's page). 166 pass, ruff clean.
+- Platón book: 55 arrows for 56 notes, all linked (intro 8 has no reference).
+
+## Search for missing note references (2026-10-15)
+- User noticed the bad PDF's own (ABBYY) layer has intro note 8's "causa⁸" (size 8.8
+  after 10.7) and asked for a bounded search for references whose note is on the page.
+- New `missing_refs.py`: `missing_numbers` (page notes minus page refs); `restore`
+  narrows to the words between the neighbouring refs and runs three tries, stopping
+  at the first: `text_layer` (a smaller number after a word in the PDF's layer),
+  `tesseract_try` (Tesseract on the stretch at 600 dpi: "causa8."/"causa 8."),
+  `PaddleClips` (Paddle on a crop at 400 dpi; the MLX server starts at the first crop
+  and stops at the end). A try counts only with exactly one candidate that matches
+  exactly one ref-less Paddle word in the stretch.
+- Wired into `paddle_book.iter_paddle_blocks(restored=...)`; `ConvertReport.restored_refs`;
+  the CLI prints "note 8 reference restored from text layer, page 13".
+- `note_numbers.add_ref` split out of `fix_refs`; `paddle_ocr._run_worker(dpi=)`.
+- Platón: refs 56/57 (only intro 10 left; its page is missing), 56 arrows for 56 notes.
+  Checked by hand: Tesseract and the Paddle crop both miss this "8" (faint, against a
+  pen underline); the Paddle crop does read "placer⁹" on page 11.
+- Tests: `tests/test_missing_refs.py` (6); integration refs threshold 54 -> 55. 172
+  pass, ruff clean.
+- Shortcut: Paddle crops are not cached (a rerun can differ); only the Paddle path
+  searches, not `--ocr skip`'s text-layer path.
+
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.

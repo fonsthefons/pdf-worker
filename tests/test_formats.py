@@ -93,6 +93,20 @@ def test_reflowed_pdf_puts_footnotes_at_the_foot_of_their_page(make_layout_pdf, 
     to_note = [link for link in goto if link["from"].y0 < note.y0 <= link["to"].y + 1]
     back = [link for link in goto if link["from"].y0 >= note.y0 - 1]
     assert to_note and back  # reference -> note and back
+    assert "↩" not in "".join(texts)  # a note under its reference needs no arrow
+
+
+def test_reflowed_pdf_notes_at_the_end_link_back_with_an_arrow(make_layout_pdf, tmp_path):
+    out = tmp_path / "out.pdf"
+
+    convert_pdf(_book(make_layout_pdf), out, "pdf", notes_at="end")
+
+    with pymupdf.open(out) as doc:
+        ref_page = next(p.number for p in doc if "A claim" in p.get_text())
+        page = next(p for p in doc if "The footnote text." in p.get_text())
+        arrow = page.search_for("↩")
+        back = [link["page"] for link in page.get_links() if link["from"].intersects(arrow[0])]
+    assert back == [ref_page]
 
 
 def test_a_reference_too_low_for_its_note_moves_to_the_next_page():
