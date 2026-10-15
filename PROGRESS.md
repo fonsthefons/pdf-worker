@@ -782,6 +782,36 @@
   were philosophy's and overwrote Platón pages). `scratch/book_build.py` still merges
   them with setdefault (fine when the running job is the same PDF).
 
+## NIGHT PLAN (user, 2026-10-16) — START HERE, supersedes "Next steps" below
+Be token-efficient: summaries only, at most 3-4 page images (step 2), nothing beyond these
+steps. Reports go in `scratch/NIGHT_REPORT.md`, one short section per step, numbers only
+(counts, time and token estimates); a short entry here too. Commit locally on
+`feature/platon-full`, never push. Order: 1 -> 2 -> 5 -> 6 -> 3.
+1. Philosophy whole book (`scratch/philo/book_1-462.{md,txt}` already built): run
+   `scratch/link_check.py` on the .md, `scratch/garble_scan.py` on the .txt, and check no
+   `[NNa]` margin labels. Do NOT fix: report each error kind, how often it happens, and
+   estimated time/tokens to fix.
+2. Build philosophy pdf + epub (`scratch/book_build.py test_pdfs/philosophy.pdf 1-462
+   scratch/philo pdf epub`), epubcheck, `scratch/check_book_pdf.py`, look at 2-3 rendered
+   pages. Report.
+3. (run last) Re-score Platón: `scratch/platon_full.py 1-293`, then
+   `tests/platon_score.py scratch/platon_full/book_1-293.txt --pages 6-175`. Baseline:
+   words 1.9%, refs 350/367, notes 358, margin ok 645 / wrong 38 / missing 31 / extra 5.
+   Report differences.
+4. Book note-style profile: do NOT build; it stays in the TODO list below.
+5. Margin refs estimated for missing marks (user's design): for labels missing between
+   two found labels, count the words between those two found labels, split them evenly
+   over the sections in between, place each estimate there (snapped to a line/word
+   start). Skip labels missing at a dialogue's start/end (no second anchor). Optional,
+   off by default (e.g. `convert --estimate-margin-refs`); estimated labels drawn PINK
+   in every format that colours them (found ones stay green; txt/md need a marker, e.g.
+   `[~23d]` — choose and document). First a dry run on Platón: how many of the 31
+   missing get an estimate, and how many land within ±1 line of the good edition (the
+   scorer). Build it unless fewer than half land within ~3 lines; then report only.
+6. `convert --notes none`: drop notes (incl. an endnotes chapter) and strip reference
+   markers ([12], ¹², [^c1-12]) in all formats; keep margin refs (11a...). Unit test.
+   Uses the cached Paddle pages (no OCR rerun).
+
 ## Resume point (2026-10-15, session paused by the user)
 - Branch `feature/platon-full` (on top of `feature/familia-better`), all committed,
   nothing pushed (user pushes). 174 unit tests pass, ruff clean.
