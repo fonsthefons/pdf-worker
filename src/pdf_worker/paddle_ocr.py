@@ -15,6 +15,7 @@ project. Override with ``PDF_WORKER_PADDLE_PYTHON``. Model files are cached in
 ``PDF_WORKER_PADDLE_CACHE`` (default ``~/.cache/pdf-worker/paddle``).
 """
 
+import collections
 import difflib
 import functools
 import hashlib
@@ -25,12 +26,13 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import unicodedata
 import urllib.error
 import urllib.request
-from collections.abc import Collection, Iterator
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -80,6 +82,7 @@ _MIN_FONT, _MAX_FONT = 3.0, 40.0
 _PARAGRAPH_WIDTH = 0.4  # blocks wider than this share of the page are rewrapped
 _UNHYPHEN_RE = re.compile(r"(\w)-\n(?=[a-zà-ÿā-ž])")
 _DIGIT_IN_WORD_RE = re.compile(r"[^\W\d_][0-9]|[0-9][^\W\d_]")  # "FILE0", "S1"
+_WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
 
 
 def paddle_python() -> Path:
@@ -138,12 +141,18 @@ def ocr_pdf_paddle(
     return report
 
 
-def paddle_pages(pdf_path: str | Path, pages: list[int], progress: bool = False) -> list[dict]:
+def paddle_pages(
+    pdf_path: str | Path,
+    pages: list[int],
+    progress: bool = False,
+    on_page: Callable[[int, int], None] | None = None,
+) -> list[dict]:
     """Paddle's blocks for ``pages`` (0-based), one row per page as the worker writes it.
 
     Pages are read once per file and kept in ``cache_dir()/pages``: a rerun is fast and
     gives the same result (the model's reading varies from run to run), and a run that
-    stops halfway goes on where it stopped."""
+    stops halfway goes on where it stopped. ``on_page(done, total)`` is called as pages
+    are read; ``done`` counts the cached pages too."""
     pdf_path = Path(pdf_path)
     cache = _pages_cache(pdf_path)
     rows = _read_rows(cache)
@@ -152,9 +161,13 @@ def paddle_pages(pdf_path: str | Path, pages: list[int], progress: bool = False)
         python = paddle_python()
         cache.parent.mkdir(parents=True, exist_ok=True)
         work = Path(tempfile.mkdtemp(dir=cache.parent, prefix=".paddle."))
+        cached = len(pages) - len(missing)
+        report = on_page and (lambda done: on_page(cached + done, len(pages)))
         try:
             with _mlx_server(python, progress) as server:
-                _run_worker(python, pdf_path, missing, work / "pages.jsonl", work, server, progress)
+                _run_worker(
+                    python, pdf_path, missing, work / "pages.jsonl", work, server, progress, report
+                )
         finally:
             # Keep the pages finished before a failure too.
             done = _read_rows(work / "pages.jsonl")
@@ -246,7 +259,10 @@ def _paddle_env() -> dict[str, str]:
     return env
 
 
-def _run_worker(python, pdf_path, pages, results, work, server, progress, dpi=None) -> None:
+def _run_worker(
+    python, pdf_path, pages, results, work, server, progress, on_page=None, dpi=None
+) -> None:
+    """Run ``paddle_worker.py``; ``on_page(done)`` hears of each page it finishes."""
     command = [
         str(python),
         str(_WORKER),
@@ -264,16 +280,24 @@ def _run_worker(python, pdf_path, pages, results, work, server, progress, dpi=No
         MODEL,
         *(["--dpi", str(dpi)] if dpi else []),
     ]
-    result = subprocess.run(
+    process = subprocess.Popen(
         command,
         env=_paddle_env(),
         stdout=subprocess.DEVNULL,
-        stderr=None if progress else subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
     )
-    if result.returncode != 0:
-        tail = (result.stderr or "").strip().splitlines()[-5:]
+    tail: collections.deque[str] = collections.deque(maxlen=5)
+    for line in process.stderr:
+        if done := _WORKER_PAGE_RE.match(line):
+            if on_page:
+                on_page(int(done.group(1)))
+            continue
+        if progress:
+            sys.stderr.write(line)
+        if line.strip():
+            tail.append(line.strip())
+    if process.wait() != 0:
         raise OcrError("PaddleOCR-VL failed: " + " | ".join(tail))
 
 

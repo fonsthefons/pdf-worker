@@ -4,6 +4,7 @@ import argparse
 import codecs
 import os
 import sys
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -56,6 +57,42 @@ def _add_engine_options(parser: argparse.ArgumentParser, flag: str = "--engine")
 def _apply_engine_options(args: argparse.Namespace) -> None:
     if getattr(args, "paddle_cache", None):
         os.environ["PDF_WORKER_PADDLE_CACHE"] = str(args.paddle_cache)
+
+
+def _progress(stage: str):
+    """An ``on_page(done, total)`` that shows ``stage``'s share done and the time left.
+
+    On a terminal one line is rewritten; in a log a line is written every 5%."""
+    tty = sys.stderr.isatty()
+    first = start = None  # the first count seen (cached pages are not timed) and when
+    step = -1  # the last 5% step written
+
+    def on_page(done: int, total: int) -> None:
+        nonlocal first, start, step
+        if first is None:
+            first, start = done, time.monotonic()
+        pct = 100 * done // max(total, 1)
+        if not tty and pct // 5 == step and done < total:
+            return
+        step = pct // 5
+        line = f"{stage}: {pct}% ({done}/{total} pages)"
+        if first < done < total:
+            left = (time.monotonic() - start) / (done - first) * (total - done)
+            line += f", about {_duration(left)} left"
+        if tty:
+            sys.stderr.write(f"\r\033[K{line}" + ("\n" if done >= total else ""))
+        else:
+            sys.stderr.write(line + "\n")
+        sys.stderr.flush()
+
+    return on_page
+
+
+def _duration(seconds: float) -> str:
+    minutes = round(seconds / 60)
+    if minutes < 1:
+        return "under a minute"
+    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d} min"
 
 
 @contextmanager
@@ -277,10 +314,21 @@ def _run_convert(args: argparse.Namespace) -> int:
 
         with open_pdf(args.pdf) as doc:
             count = doc.page_count
-        rows = paddle_pages(args.pdf, list(range(count)), progress=sys.stderr.isatty())
+        rows = paddle_pages(
+            args.pdf,
+            list(range(count)),
+            progress=sys.stderr.isatty(),
+            on_page=_progress("Step 1/2, OCR"),
+        )
         print(f"OCR ({args.ocr}, paddle): {len(rows)} of {count} page(s) read")
         report = conversion.convert_pdf(
-            args.pdf, output, fmt, title=args.title, paddle_rows=rows, **options
+            args.pdf,
+            output,
+            fmt,
+            title=args.title,
+            paddle_rows=rows,
+            on_page=_progress("Step 2/2, building the book"),
+            **options,
         )
         return _print_convert_summary(report, output, fmt)
     # The OCR'd copy has no useful metadata of its own; keep the original's title.

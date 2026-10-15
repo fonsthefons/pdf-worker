@@ -1,6 +1,7 @@
 """Books built straight from PaddleOCR-VL blocks (no Paddle needed: rows are given)."""
 
 import json
+import sys
 
 import pymupdf
 import pytest
@@ -88,6 +89,31 @@ def test_convert_from_paddle_rows_with_notes_at_the_end(scan_pdf, tmp_path):
         text = "".join(page.get_text() for page in doc)
     # All notes in the notes section after the text, not at the foot of their pages.
     assert text.index("De acuerdo") < text.index("Estos cambios") < text.index("El objeto")
+
+
+def test_worker_progress_reaches_the_caller_and_errors_keep_their_tail(tmp_path, monkeypatch):
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import sys\n"
+        "for n in (1, 2):\n"
+        "    print(f'paddle: page {n}/2', file=sys.stderr)\n"
+        "print('boom', file=sys.stderr)\n"
+        "sys.exit(1)\n"
+    )
+    monkeypatch.setattr(paddle_ocr, "_WORKER", worker)
+    seen = []
+    with pytest.raises(paddle_ocr.OcrError, match="boom"):
+        paddle_ocr._run_worker(
+            sys.executable, "x.pdf", [0, 1], tmp_path / "o", tmp_path, "s", False, seen.append
+        )
+    assert seen == [1, 2]
+
+
+def test_book_pages_are_counted(scan_pdf):
+    seen = []
+    with pymupdf.open(scan_pdf) as doc:
+        list(iter_paddle_blocks(doc, ROWS, images=False, on_page=lambda d, t: seen.append((d, t))))
+    assert seen[0] == (0, len(ROWS)) and seen[-1] == (len(ROWS), len(ROWS))
 
 
 def test_cached_pages_need_no_paddle(tmp_path, monkeypatch, make_pdf):

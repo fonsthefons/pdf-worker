@@ -7,6 +7,7 @@ notes) -> writer. Every stage works page by page.
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -105,13 +106,15 @@ def convert_pdf(
     cover: bool = True,
     notes_at: str = "page",
     paddle_rows: list[dict] | None = None,
+    on_page: Callable[[int, int], None] | None = None,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
     ``images`` keeps the pictures; ``cover`` makes page 1 the EPUB cover; ``notes_at``
     ("page" or "end") places a PDF's footnotes. With ``paddle_rows`` (PaddleOCR-VL's
     blocks, see ``paddle_ocr.paddle_pages``) the book is built from them instead of the
-    PDF's text layer (``pdf_worker.paddle_book``).
+    PDF's text layer (``pdf_worker.paddle_book``); ``on_page(done, total)`` then
+    follows the pages.
     """
     if fmt not in FORMATS:
         raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
@@ -128,7 +131,9 @@ def convert_pdf(
             from pdf_worker.paddle_book import iter_paddle_blocks, text_sample
 
             sample = text_sample(paddle_rows)
-            blocks = iter_paddle_blocks(doc, paddle_rows, images=keep_images, restored=restored)
+            blocks = iter_paddle_blocks(
+                doc, paddle_rows, images=keep_images, restored=restored, on_page=on_page
+            )
         else:
             profile = analyze_document(doc)
             sample = profile.text_sample

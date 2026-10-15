@@ -14,7 +14,7 @@ introduction's notes, then the dialogue's) is a new part, as in the printed book
 
 import contextlib
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pymupdf
 
@@ -56,10 +56,12 @@ def iter_paddle_blocks(
     images: bool = True,
     latin_macrons: bool | None = None,
     restored: list[str] | None = None,
+    on_page: Callable[[int, int], None] | None = None,
 ) -> Iterator[Block]:
     """The book's blocks from Paddle's ``rows`` (one per page, as ``paddle_pages``
     returns them) for the scanned ``doc``. References put back by
-    ``pdf_worker.missing_refs`` are told in ``restored``, one line each."""
+    ``pdf_worker.missing_refs`` are told in ``restored``, one line each.
+    ``on_page(done, total)`` is called after each page."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
     scan_of = page_scanner(language)
     clips = missing_refs.PaddleClips()
@@ -72,7 +74,9 @@ def iter_paddle_blocks(
     last_note = None
     front = True
     try:
-        for row in sorted(rows, key=lambda r: r["page"]):
+        for done, row in enumerate(sorted(rows, key=lambda r: r["page"])):
+            if on_page:
+                on_page(done, len(rows))
             page = doc.load_page(row["page"])
             number = next(
                 (b["text"].strip() for b in row["blocks"] if b.get("label") == "number"), ""
@@ -95,6 +99,8 @@ def iter_paddle_blocks(
                 if restored is not None:
                     restored.append(f"note {n} reference restored from {source}, page {label}")
             yield from book.add_page(page, row, blocks, anchors, images)
+        if on_page:
+            on_page(len(rows), len(rows))
         yield from book.flush()
     finally:
         clips.close()
