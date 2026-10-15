@@ -808,8 +808,8 @@ done: CronDelete the job and say so in the report.
    bibliography ones); pp. 120, 500 look right. Build philosophy pdf + epub (`scratch/book_build.py test_pdfs/philosophy.pdf 1-462
    scratch/philo pdf epub`), epubcheck, `scratch/check_book_pdf.py`, look at 2-3 rendered
    pages. Report.
-3. [running 2026-10-16 in background: `scratch/platon_full.py 1-293`; rerun if
-   `scratch/platon_full/book_1-293.txt` is older than this] (run last) Re-score Platón: `scratch/platon_full.py 1-293`, then
+3. [done] Identical to the baseline below. All night steps done; cron job deleted.
+   (run last) Re-score Platón: `scratch/platon_full.py 1-293`, then
    `tests/platon_score.py scratch/platon_full/book_1-293.txt --pages 6-175`. Baseline:
    words 1.9%, refs 350/367, notes 358, margin ok 645 / wrong 38 / missing 31 / extra 5.
    Report differences.
