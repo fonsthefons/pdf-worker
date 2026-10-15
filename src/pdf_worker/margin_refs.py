@@ -177,7 +177,8 @@ def _label(value: int) -> str:
 
 def _junk_cost(reading: str) -> float:
     match = _MARK_RE.match(reading)
-    if not match or not reading or reading == UNREADABLE:
+    # Section "a" is printed as the page number, so a lone "a" is a pencil stroke.
+    if not match or not reading or reading in (UNREADABLE, "a"):
         return _JUNK["unread"]
     return _JUNK["number"] if match.group(1) else _JUNK["letter"]
 
@@ -257,6 +258,7 @@ class ScanWord:
 class ScanMark:
     reading: str  # "22", "b" ..., or UNREADABLE
     line: int
+    side: str = ""  # "left" or "right" of the text column
 
 
 @dataclass
@@ -294,11 +296,11 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
     bottom = max(w[3] for ln in long_lines for w in ln) + height
     _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
     marks = []
-    for side in (
-        (right + _GAP * height, right + _REACH * height),
-        (left - _REACH * height, left - _GAP * height),
+    for side, xs in (
+        ("right", (right + _GAP * height, right + _REACH * height)),
+        ("left", (left - _REACH * height, left - _GAP * height)),
     ):
-        for box in _blobs(ink, side, (top, bottom), height, body_boxes):
+        for box in _blobs(ink, xs, (top, bottom), height, body_boxes):
             line = _line_of(box, lines, words, height)
             if line is not None:
                 reading = _read(gray, box, height, tesseract)
@@ -307,15 +309,24 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
                         (w[4] for w in lines[line] if _overlaps(w[:4], box) and is_mark(w[4])),
                         reading,
                     )
-                marks.append((line, reading))
+                marks.append((line, reading, side))
     # A mark split into pieces ("1" + "16", "?" + "?") is still one mark: keep the
     # line's best reading. shortcut: two real marks on one line become one; none seen.
-    best: dict[int, str] = {}
-    for line, reading in marks:
+    best: dict[int, tuple[str, str]] = {}
+    for line, reading, side in marks:
         old = best.get(line)
-        if old is None or _rank(reading) > _rank(old):
-            best[line] = reading
-    return PageScan(words, [ScanMark(best[line], line) for line in sorted(best)])
+        if old is None or _rank(reading) > _rank(old[0]):
+            best[line] = (reading, side)
+    return PageScan(words, [ScanMark(best[line][0], line, best[line][1]) for line in sorted(best)])
+
+
+def outer_marks(scan: PageScan, outer: str) -> PageScan:
+    """Only the marks in the outer margin (``outer``: the side the page number is on),
+    when it has a readable one: ink on the spine side is the scanner's gutter shadow."""
+    kept = [m for m in scan.marks if m.side == outer]
+    if any(is_mark(m.reading) for m in kept):
+        return PageScan(scan.words, kept)
+    return scan
 
 
 def _rank(reading: str) -> tuple[bool, int]:

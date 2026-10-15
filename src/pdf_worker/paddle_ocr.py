@@ -49,6 +49,7 @@ from pdf_worker.margin_refs import (
     is_mark,
     mark_paddle_blocks,
     norm,
+    outer_marks,
     scan_page,
 )
 from pdf_worker.note_numbers import (
@@ -96,6 +97,7 @@ _WORD_RE = re.compile(r"[^\W\d_]{2}")  # two letters in a row: some word
 _FOREIGN_RE = re.compile(r"[Ạ-ỹăơưđĂƠƯĐ؀-ۿ぀-ヿ一-鿿]")
 _MIN_FOREIGN, _FOREIGN_SHARE = 3, 0.05
 _MIXED_LABEL = "algorithm"  # what Paddle calls a table of Greek variants
+_FOOTER_NOTE_RE = re.compile(r"^\d[\dA-Za-z]{0,3}\s+\S*[^\W\d_]{2}")  # "11D Cf. Leyes"
 _WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
 
 
@@ -339,6 +341,19 @@ def clean_text(text: str) -> str:
     return text
 
 
+def _relabel(block: dict, text: str, number: list | None) -> str:
+    """Paddle's label, corrected: a title on the page number's row is the running head
+    ("FILEBO" beside "91"); a footer that opens with a number and words is a footnote
+    ("11D Cf. Leyes 863a-c." for note 110)."""
+    label = block.get("label", "")
+    y0, y1 = block["bbox"][1], block["bbox"][3]
+    if label in ("paragraph_title", "doc_title") and number and y0 < number[3] and number[1] < y1:
+        return "header"
+    if label == "footer" and _FOOTER_NOTE_RE.match(text):
+        return "footnote"
+    return label
+
+
 def _foreign_script(text: str) -> bool:
     """Letters of a script the book can't be in: the model making up Vietnamese
     ("R1 (lỗi) đến") for transliterated Greek ("iōn de autōn"). One odd letter ("Sốc.")
@@ -510,6 +525,14 @@ def prepare_blocks(
     sx = page.rect.width / (row.get("width") or page.rect.width)
     sy = page.rect.height / (row.get("height") or page.rect.height)
     font = _font()
+    number = next(
+        (b["bbox"] for b in row["blocks"] if b.get("label") == "number" and len(b["bbox"]) == 4),
+        None,
+    )
+    if scan and number and row.get("width"):
+        # Margin references sit in the outer margin, on the page number's side.
+        outer = "left" if number[0] + number[2] < row["width"] else "right"
+        scan = outer_marks(scan, outer)
     # Wide blocks (body paragraphs) share one left edge: the model's boxes wobble by
     # several points, which would read as indentation on every line.
     wide = [
@@ -525,6 +548,7 @@ def prepare_blocks(
         text = clean_text(block.get("text", "")).strip()
         if not text or block.get("label") in _SKIP_LABELS or len(block.get("bbox", [])) != 4:
             continue
+        block = {**block, "label": _relabel(block, text, number)}
         if block.get("label") == "aside_text" and is_mark(text):
             continue  # a margin reference ("12", "e"): found in the scan instead
         if block.get("label") == "footnote" and not _WORD_RE.search(text):

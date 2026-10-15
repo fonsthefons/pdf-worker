@@ -15,6 +15,7 @@ from pdf_worker.margin_refs import (
     assign_labels,
     mark_paddle_blocks,
     next_label,
+    outer_marks,
 )
 from pdf_worker.output import Metadata
 from pdf_worker.structure import Heading, Note, Paragraph, _State
@@ -62,6 +63,17 @@ def test_a_whole_run_of_marks_is_labelled_together():
     timeo_start = [(20, r) for r in ("17", "b", "c", "d", "e", "18", "b")]
     labels = assign_labels(filebo_end + timeo_start)
     assert labels[5:9] == ["67a", "67b", "17a", "17b"]
+
+
+def test_marks_on_the_spine_side_are_the_scanners_shadow():
+    scan = PageScan(
+        [], [ScanMark("c", 1, "left"), ScanMark("d", 5, "right"), ScanMark("a", 9, "left")]
+    )
+    assert [m.reading for m in outer_marks(scan, "right").marks] == ["d"]
+    # No readable mark outside: nothing to go by, all stay.
+    assert outer_marks(PageScan([], [ScanMark("?", 2, "right")]), "right").marks == [
+        ScanMark("?", 2, "right")
+    ]
 
 
 def test_line_numbers_are_not_section_references():

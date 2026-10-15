@@ -722,6 +722,35 @@
   annotations (`ocr.MARKUP_ANNOTS`; links stay). Test:
   `test_a_readers_marks_are_dropped_before_ocr`.
 
+## Whole Platón book (Step 2 of 2026-10-15 list), branch feature/platon-full
+- Progress for whole-book runs: `paddle_pages(on_page=)`, `convert_pdf(on_page=)`; the CLI
+  prints "Step 1/2, OCR: 41% (120/293 pages), about 35 min left" (one rewritten line on
+  a terminal, a line per 5% in a log), then "Step 2/2, building the book".
+- Full Paddle OCR of the 293 pages is cached (`scratch/platon_full_ocr.py`, ~1 h with
+  other work running). Builds from the cache: `scratch/platon_full.py FIRST-LAST [fmt..]`
+  (output `scratch/platon_full/book_*.{txt,pdf,epub}`); scoring:
+  `tests/platon_score.py book.txt --pages 6-175 [--show refs,mref,notes,para,words]`
+  (any good-PDF page range now; parts/dialogues counted from restarts).
+- Fixes found by cutting the book into 1-80, 81-160, then the whole:
+  - Margin refs: `margin_refs.assign_labels` labels a dialogue's marks at once (dynamic
+    programming: pencil blobs are junk, letters misread, labels skipped). The greedy
+    `next_label` ran one ahead after a stray mark (99 wrong lines on pp. 1-80). Runs
+    break at headings and at 4+ pages without marks; a run needs two page numbers read
+    exactly (introductions' pencil and outline numbers label nothing).
+  - Notes: a note broken off mid-sentence goes on at the next page's unnumbered first
+    note when nothing there refers to the note due (`left_open`); "π" for "78"; a lost
+    first reference still restarts the count (text and note both read "2" where 54 was
+    due); printer's signatures ("160. — 18") are not notes; pages missing from the scan
+    (printed 279 -> 282) reset the count from the page's first reference.
+  - Garbling: "¿" read as i/l/ℓ/2 ("iY bien?") restored with the book's own vocabulary;
+    margin marks read as words beside their label dropped; LaTeX commands unwrapped;
+    "^{1267}" = ref 126 + "?"; made-up Vietnamese replaced by Tesseract's words of that
+    box (`ScanWord.box`); Vietnamese letters in Spanish mapped back ("Sốc." -> "Sóc.");
+    the Greek variants table (Paddle label "algorithm") re-read by `mixed_script`
+    (Tesseract spa and grc, more confident word wins), one small line per table row.
+- Whole book scores (good pp. 6-175): word errors 2.0%, refs 348/367 (6 are on the two
+  pages missing from the scan), notes 355/367, margin refs 620/714 on the right line.
+
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.

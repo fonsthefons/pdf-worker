@@ -161,6 +161,18 @@ def test_mixed_script_keeps_the_more_confident_reading_of_each_word():
     assert merge_readings(spanish, greek) == ["21b1 τὰ δέοντα Badham"]
 
 
+def test_running_heads_and_notes_paddle_mislabels():
+    number = [799, 126, 832, 153]
+    head = {"label": "paragraph_title", "bbox": [435, 131, 517, 156]}
+    title = {"label": "paragraph_title", "bbox": [400, 500, 800, 560]}
+    note = {"label": "footer", "bbox": [149, 1351, 356, 1379]}
+    sign = {"label": "footer", "bbox": [149, 1351, 356, 1379]}
+    assert paddle_ocr._relabel(head, "FILEBO", number) == "header"
+    assert paddle_ocr._relabel(title, "FILEBO", number) == "paragraph_title"
+    assert paddle_ocr._relabel(note, "11D Cf. Leyes 863a-c.", number) == "footnote"
+    assert paddle_ocr._relabel(sign, "160. — 18", number) == "footer"
+
+
 def test_clean_text_removes_latex_wrappers():
     assert paddle_ocr.clean_text("in $ \\text{Āfricā} $ est") == "in Āfricā est"
     assert paddle_ocr.clean_text("1. \\underline{\\text{Creación de los seres}} (30c)") == (
