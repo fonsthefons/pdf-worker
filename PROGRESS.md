@@ -688,6 +688,25 @@
 - Shortcut: Paddle crops are not cached (a rerun can differ); only the Paddle path
   searches, not `--ocr skip`'s text-layer path.
 
+## Greek variants table, words lost as margin marks (test_platon_bad_4, 2026-10-15)
+- bad_4: 25 pages, copyright page + Filebo intro (with note 10, "Nota al texto" and its
+  table of Greek variants) + start of the dialogue. Run: `scratch/platon4_cli.py`,
+  output `scratch/platon4/book.*`; check `scratch/platon4_check.py`.
+- Notes: intro 1–10 and dialogue 1–16, every reference in place (note 10 included).
+- Greek: Paddle labels the table "algorithm" and reads the polytonic Greek as Latin
+  look-alikes ("τὰ δέοντα" -> "tà šèovta"). It stays inside that one block: the text
+  around it is intact. Tesseract `spa+grc` on the crop (`scratch/platon4_tess.py`) reads
+  the Greek well but garbles the Latin in it ("corchetes" -> "οογέπειες"). Not fixed yet;
+  the table is also flattened to one paragraph (its line breaks are lost).
+- Bug fixed (`margin_refs`): the table's indented lines set the column's right edge, so
+  justified prose ending further right counted as margin. `mark_paddle_blocks` then
+  deleted those words ("Platonis Opera," "en los casos", "volumen han", "a cabo por")
+  and the ink became fake marks ([a], [b], [c], [2a], [1e]) that also threw off the
+  dialogue's numbering ([2b] for 11a). Now a margin word both OCRs read alike is dropped
+  only if it is mark-shaped, and a word with 3+ letters is body ink, not a mark.
+  Result: words back, dialogue starts at [11a].
+- Tests: `test_a_word_past_a_column_measured_too_narrow_stays`. 173 pass, ruff clean.
+
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.
@@ -762,3 +781,13 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
    (Feature 4).
 5. (2026-10-12) "Complete the next steps 1, 2 and 3": Latin macrons (PR #6), margin
    glosses and line numbers (PR #7), PaddleOCR-VL evaluation (PR #8). Done.
+
+## TODO (user, 2026-10-15: later, low priority)
+- Greek in Paddle books: Paddle reads polytonic Greek as Latin look-alikes
+  ("τὰ δέοντα" -> "tà šèovta"); see test_platon_bad_4 p16, the "Nota al texto" variants
+  table (Paddle label "algorithm"). Plan: re-read such blocks with Tesseract `spa+grc`
+  (`scratch/platon4_tess.py` reads the Greek well, garbles the Latin), take Tesseract's
+  words where they are Greek and Paddle's elsewhere, and keep the block's line breaks
+  (now flattened to one paragraph).
+- Same table in the EPUB (seen in iBooks): shows the garbled Latin-letter text. This is
+  the same Paddle misreading, not an EPUB/font problem; the fix above covers both.
