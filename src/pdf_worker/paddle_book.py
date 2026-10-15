@@ -26,7 +26,13 @@ from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
 from pdf_worker.margin_refs import assign_labels
 from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
-from pdf_worker.paddle_ocr import clean_text, page_scanner, prepare_blocks, text_settings
+from pdf_worker.paddle_ocr import (
+    clean_text,
+    mixed_reader,
+    page_scanner,
+    prepare_blocks,
+    text_settings,
+)
 from pdf_worker.structure import Block, Gloss, Heading, Image, Note, Paragraph
 
 _SENTENCE_END = tuple('.!?»"”’)]:;')
@@ -115,6 +121,7 @@ def iter_paddle_blocks(
     ``on_page(done, total)`` is called after each page."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
     scan_of = page_scanner(language)
+    read_mixed = mixed_reader(language)
     clips = missing_refs.PaddleClips()
     tries = [("text layer", missing_refs.text_layer)]
     with contextlib.suppress(OcrEngineMissingError):  # no Tesseract: skip that try
@@ -161,7 +168,15 @@ def iter_paddle_blocks(
                     last_note, last_open = min(refs) - 1, False
             printed = int(number) if number.isdigit() else None
             blocks, anchors, last_note = prepare_blocks(
-                page, row, macrons, latin_default, rivals, scan_of(page), last_note, last_open
+                page,
+                row,
+                macrons,
+                latin_default,
+                rivals,
+                scan_of(page),
+                last_note,
+                last_open,
+                read_mixed,
             )
             last_open = left_open(blocks)
             for n, source in missing_refs.restore(page, blocks, tries):
@@ -233,6 +248,11 @@ class _Book:
                 continue
             if label == "aside_text":
                 self.pending.append(Gloss(tuple(text.splitlines())))
+                continue
+            if label == "algorithm":  # a table of variants: one small line each
+                yield from self.flush()
+                for line in text.splitlines():
+                    yield Paragraph(line, small=True)
                 continue
             if label in ("doc_title", "paragraph_title"):
                 yield from self.flush()

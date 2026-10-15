@@ -142,6 +142,25 @@ def test_made_up_vietnamese_is_replaced_by_tesseracts_words():
     assert paddle_ocr._scan_text(scan, pymupdf.Rect(0, 0, 100, 30)) == "iōn de autōn"
 
 
+def test_mixed_script_keeps_the_more_confident_reading_of_each_word():
+    from pdf_worker.mixed_script import Word, merge_readings
+
+    line = ("1", "1", "1")
+    spanish = [
+        Word((0, 0, 40, 10), 90, "21b1", line),
+        Word((50, 0, 70, 10), 20, "tà", line),
+        Word((75, 0, 120, 10), 30, "šèovta", line),
+        Word((130, 0, 190, 10), 85, "Badham", line),
+    ]
+    greek = [
+        Word((0, 0, 40, 10), 40, "210]", line),
+        Word((50, 0, 70, 10), 88, "τὰ", line),
+        Word((76, 0, 121, 10), 80, "δέοντα", line),
+        Word((130, 0, 190, 10), 30, "Βδάδβιο", line),
+    ]
+    assert merge_readings(spanish, greek) == ["21b1 τὰ δέοντα Badham"]
+
+
 def test_clean_text_removes_latex_wrappers():
     assert paddle_ocr.clean_text("in $ \\text{Āfricā} $ est") == "in Āfricā est"
     assert paddle_ocr.clean_text("1. \\underline{\\text{Creación de los seres}} (30c)") == (

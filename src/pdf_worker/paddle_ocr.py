@@ -95,6 +95,7 @@ _WORD_RE = re.compile(r"[^\W\d_]{2}")  # two letters in a row: some word
 # Vietnamese-only letters (Latin Extended Additional vowels, ă ơ ư đ), Arabic, CJK.
 _FOREIGN_RE = re.compile(r"[Ạ-ỹăơưđĂƠƯĐ؀-ۿ぀-ヿ一-鿿]")
 _MIN_FOREIGN, _FOREIGN_SHARE = 3, 0.05
+_MIXED_LABEL = "algorithm"  # what Paddle calls a table of Greek variants
 _WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
 
 
@@ -390,6 +391,23 @@ def page_scanner(language: str):
     return lambda page: scan_page(page, tesseract, code)
 
 
+def mixed_reader(language: str):
+    """``read(page, rect)``: lines of Greek and ``language`` read word by word with
+    Tesseract's better model (``pdf_worker.mixed_script``), or None without Tesseract
+    or its Greek model."""
+    from pdf_worker import mixed_script
+    from pdf_worker.ocr import available_languages
+
+    try:
+        tesseract = tesseract_path()
+    except OcrEngineMissingError:
+        return None
+    if mixed_script.GREEK not in available_languages():
+        return None
+    code = TESSERACT_CODES.get(language, DEFAULT_LANGUAGE)
+    return lambda page, rect: mixed_script.read_mixed(page, rect, tesseract, code)
+
+
 def _latex_sup(match: re.Match) -> str:
     """A superscript: a note reference ("^{12}"; a misread "^{2k}" keeps its digits for
     ``fix_refs`` to renumber) or plain letters ("M.^{A}")."""
@@ -482,11 +500,13 @@ def prepare_blocks(
     scan: PageScan | None = None,
     last_note: int | None = None,
     last_open: bool = False,
+    read_mixed: Callable[[pymupdf.Page, pymupdf.Rect], list[str]] | None = None,
 ) -> tuple[list[list], dict[int, list[tuple[int, str]]], int | None]:
     """A page's Paddle blocks, cleaned: ``[label, rect (page units), text]`` in reading
     order (footnotes numbered, references fixed, margin marks taken out), the margin
     references per block (``{block: [(word index, reading)]}``) and the last note.
-    ``last_open``: the previous page's last note broke off (``note_numbers.left_open``)."""
+    ``last_open``: the previous page's last note broke off (``note_numbers.left_open``).
+    ``read_mixed`` (``mixed_reader``) re-reads tables of Greek variants, line by line."""
     sx = page.rect.width / (row.get("width") or page.rect.width)
     sy = page.rect.height / (row.get("height") or page.rect.height)
     font = _font()
@@ -516,6 +536,12 @@ def prepare_blocks(
         rect = pymupdf.Rect(x0 * sx, y0 * sy, x1 * sx, y1 * sy)
         if scan and _foreign_script(text):
             text = _scan_text(scan, rect) or text
+        if read_mixed and block.get("label") == _MIXED_LABEL:
+            # Paddle reads the Greek as Latin look-alikes ("tà šèovta"); keep the lines.
+            lines = read_mixed(page, rect + (-3, -3, 3, 3))
+            if lines:
+                blocks.append([_MIXED_LABEL, rect, _printable("\n".join(lines), font)])
+                continue
         in_column = (
             block.get("label") == "text"
             and column_left is not None
