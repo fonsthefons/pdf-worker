@@ -5,6 +5,7 @@ import zipfile
 import pymupdf
 import pytest
 
+from pdf_worker import pdf_export
 from pdf_worker.cli import main
 from pdf_worker.convert import convert_pdf, default_output_path
 
@@ -72,6 +73,39 @@ def test_reflowed_pdf_has_text_and_links(make_layout_pdf, tmp_path):
         assert doc.metadata["title"] == report.metadata.title
     assert "Chapter Two" in text and "The footnote text." in text
     assert internal  # contents and note links work in the PDF
+
+
+def test_reflowed_pdf_puts_footnotes_at_the_foot_of_their_page(make_layout_pdf, tmp_path):
+    out = tmp_path / "out.pdf"
+
+    convert_pdf(_book(make_layout_pdf), out, "pdf")
+
+    with pymupdf.open(out) as doc:
+        texts = [page.get_text() for page in doc]
+        page_no = next(i for i, t in enumerate(texts) if "A claim" in t)
+        page = doc[page_no]
+        note = page.search_for("The footnote text.")[0]
+        body = [b for b in page.get_text("blocks") if "footnote" not in b[4]]
+        goto = [link for link in page.get_links() if link["kind"] == pymupdf.LINK_GOTO]
+    assert max(b[3] for b in body) < note.y0  # under the text, on the page that refers to it
+    assert sum("The footnote text." in t for t in texts) == 1  # not repeated at the end
+    assert not any(t.strip().startswith("Notes") for t in texts)
+    to_note = [link for link in goto if link["from"].y0 < note.y0 <= link["to"].y + 1]
+    back = [link for link in goto if link["from"].y0 >= note.y0 - 1]
+    assert to_note and back  # reference -> note and back
+
+
+def test_a_reference_too_low_for_its_note_moves_to_the_next_page():
+    bottom = pdf_export.FRAME.y1
+    notes = {"n1": ("<p>a</p>", 30.0), "n2": ("<p>b</p>", 30.0)}
+    high = pymupdf.Rect(60, 100, 60, 112)
+    low = pymupdf.Rect(60, bottom - 40, 60, bottom - 28)  # its note would cover it
+
+    room = pdf_export._room_needed([(0, "n1", high), (0, "n2", low)], notes)
+
+    # Room for note 1, and the text ends above the line with reference 2.
+    assert room == {0: bottom - low.y0 + 0.5}
+    assert room[0] >= pdf_export._RULE + 30
 
 
 @pytest.mark.skipif(not HAS_PANDOC, reason="Pandoc not installed")

@@ -20,7 +20,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pdf_worker.footnotes import display_marker
-from pdf_worker.inline import LinkClose, LinkOpen, PageMark, parse_page_target, pieces, plain
+from pdf_worker.inline import (
+    LinkClose,
+    LinkOpen,
+    MarginRef,
+    PageMark,
+    parse_page_target,
+    pieces,
+    plain,
+)
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.structure import (
     REF_RE,
@@ -67,6 +75,7 @@ p { margin: 0; text-indent: 1.2em; text-align: justify; }
 h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p { text-indent: 0; }
 p.small { font-size: 0.85em; text-indent: 0; margin: 0.4em 0; }
 a.noteref { text-decoration: none; }
+span.mref { color: #2e7d32; font-weight: bold; font-size: 0.8em; padding: 0 0.2em; }
 sup { font-size: 0.75em; line-height: 0; }
 aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; }
 div.gloss { font-size: 0.8em; margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
@@ -272,6 +281,11 @@ class _EpubBuilder:
                 if open_links:
                     out.append("</a>")
                     open_links = 0
+            elif isinstance(piece, MarginRef):
+                self.stats.margin_refs += 1
+                out.append(
+                    f'<span class="mref" id="m{self.stats.margin_refs}">{_esc(piece.label)}</span>'
+                )
             else:
                 last = 0
                 for match in REF_RE.finditer(piece):

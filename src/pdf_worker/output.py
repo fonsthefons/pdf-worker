@@ -19,3 +19,4 @@ class WriteStats:
     images: int = 0
     tables: int = 0
     chapters: int = 0
+    margin_refs: int = 0  # section numbers from the margin ("22b")

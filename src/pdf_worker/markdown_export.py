@@ -10,7 +10,7 @@ import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
-from pdf_worker.inline import LinkClose, LinkOpen, pieces, plain
+from pdf_worker.inline import LinkClose, LinkOpen, MarginRef, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph, Table
 
@@ -59,6 +59,9 @@ def render_markdown(text: str, line_start: bool = True) -> str:
             uri = targets.pop() if targets else None
             if uri:
                 out.append(f"](<{uri}>)")
+        elif isinstance(piece, MarginRef):
+            out.append(f"**\\[{piece.label}\\]** ")  # bold in Word too (via Pandoc)
+            first = False
     return "".join(out)
 
 

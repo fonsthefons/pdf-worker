@@ -31,8 +31,9 @@ _INK_CONTRAST = 55  # grey levels below the paper that count as ink
 _MIN_INK_SHARE = 0.03  # share of a row's pixels that must be dark
 _MIN_BAND_SHARE = 0.12  # share of the page height
 _MIN_WIDTH_SHARE = 0.25  # share of the page width
-# A column (row) in the outer tenth of the page that is dark over 60% of it is a scan edge.
-_EDGE_SHARE = 0.6
+# A column (row) in the outer tenth of the page that is dark over 30% of it is a scan
+# edge (the book's edge, or the gutter's shadow, often covers only part of the page).
+_EDGE_SHARE = 0.3
 _EDGE_ZONE = 0.1
 _MAX_GAP_ROWS = 3
 # Text lines at least this long count as text; shorter ones may be labels in a picture.

@@ -6,7 +6,9 @@ with real text:
 
 * page starts: where a PDF page begins, with its printed page label (for EPUB page
   lists, which give Kindle real page numbers);
-* links: text that was a link in the PDF, to a web address or to a place in the book.
+* links: text that was a link in the PDF, to a web address or to a place in the book;
+* margin references: the section numbers printed beside the text of classical editions
+  (Stephanus "22", "b", "c" ...; see ``pdf_worker.margin_refs``). Not footnotes.
 """
 
 import re
@@ -19,6 +21,14 @@ _PAGE_OPEN, _PAGE_CLOSE = "", ""
 _LINK_OPEN, _LINK_MID, _LINK_CLOSE = "", "", ""
 _TOKEN_RE = re.compile("(\\d+)\\|([^]*)|([^]*)|")
 LEADING_PAGE_MARKS_RE = re.compile("^((?:[^]*)+)(.*)$", re.DOTALL)
+
+
+MARGIN_REF_RE = re.compile("([^]*)")
+
+
+@dataclass(frozen=True)
+class MarginRef:
+    label: str  # "22a", "22b" ... (raw OCR readings until structure labels them)
 
 
 @dataclass(frozen=True)
@@ -41,6 +51,10 @@ def page_mark(index: int, label: str) -> str:
     return f"{_PAGE_OPEN}{index}|{label.replace(_PAGE_CLOSE, '')}{_PAGE_CLOSE}"
 
 
+def margin_ref(label: str) -> str:
+    return f"{label}"
+
+
 def link(target: str, text: str) -> str:
     return f"{_LINK_OPEN}{target}{_LINK_MID}{text}{_LINK_CLOSE}"
 
@@ -61,8 +75,17 @@ def parse_page_target(target: str) -> tuple[int, float] | None:
     return int(page), float(y)
 
 
-def pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
+def pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose | MarginRef]:
     """Split block text into plain text and markers, in order (cells become spaces)."""
+    parts = MARGIN_REF_RE.split(text)  # text, label, text, label, ...
+    for i, part in enumerate(parts):
+        if i % 2:
+            yield MarginRef(part)
+        elif part:
+            yield from _pieces(part)
+
+
+def _pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
     text = text.replace(CELL, " ")
     last = 0
     for match in _TOKEN_RE.finditer(text):
@@ -80,5 +103,6 @@ def pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
 
 
 def plain(text: str) -> str:
-    """The text without page and link markers (table cells joined by spaces)."""
-    return _TOKEN_RE.sub("", text).replace(CELL, " ")
+    """The text without page, link and margin-reference markers (table cells joined by
+    spaces)."""
+    return MARGIN_REF_RE.sub("", _TOKEN_RE.sub("", text)).replace(CELL, " ")

@@ -12,6 +12,7 @@ import pymupdf
 
 from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
+from pdf_worker.margin_refs import apply_marks, page_marks
 
 # Text-only extraction flags: never decode images (scanned books would bloat memory).
 _TEXT_FLAGS = pymupdf.TEXTFLAGS_TEXT
@@ -20,6 +21,8 @@ BOLD = 16
 # A gap between two letters wider than this share of the font size is a word space
 # (a normal space is ~0.25 em; letters sit much closer, kerned or not).
 _WORD_GAP = 0.15
+_SUPERSCRIPT_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+_FROM_SUPERSCRIPT = str.maketrans(_SUPERSCRIPT_DIGITS, "0123456789")
 
 # Lines whose font is this much bigger than the body font are headings.
 HEADING_RATIO = 1.15
@@ -85,13 +88,17 @@ class Line:
 
 def page_lines(page: pymupdf.Page) -> list[Line]:
     """All text lines of a page in MuPDF reading order, with OCR fixes from
-    ``pdf_worker.consensus`` applied."""
+    ``pdf_worker.consensus`` and stored margin references (``pdf_worker.margin_refs``)
+    applied."""
     fixes = page_fixes(page)
+    marks = page_marks(page)
     lines = []
     for block in page.get_text("rawdict", flags=_TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", ()):
             if fixes:
                 apply_fixes([char for span in line["spans"] for char in span["chars"]], fixes)
+            if marks:  # after the fixes, which look for letters only
+                apply_marks([char for span in line["spans"] for char in span["chars"]], marks)
             spans = _with_text(line["spans"])
             sizes: Counter[float] = Counter()
             for span in spans:
@@ -118,22 +125,42 @@ def ink_bbox(spans: tuple[dict, ...], fallback) -> tuple[float, float, float, fl
 def _with_text(spans: list[dict]) -> tuple[dict, ...]:
     """A line's ``rawdict`` spans as ``dict`` spans: chars joined into ``text``, with a
     space wherever the PDF leaves a word gap but no space character. MuPDF misses some
-    of these, e.g. after accented Greek vowels in XeTeX books ("καὶἦλθεν")."""
+    of these, e.g. after accented Greek vowels in XeTeX books ("καὶἦλθεν").
+
+    Unicode superscript digits ("criados²", as OCR layers write note references)
+    become spans of their own with plain digits and the superscript flag."""
     prev = None
+    out_spans = []
     for span in spans:
-        out = []
+        pieces: list[tuple[bool, list[str], list]] = []  # (superscript, chars, boxes)
         for char in span.pop("chars"):
+            sup = char["c"] in _SUPERSCRIPT_DIGITS
             if (
                 prev is not None
                 and not prev["c"].isspace()
                 and not char["c"].isspace()
                 and char["bbox"][0] - prev["bbox"][2] > _WORD_GAP * span["size"]
             ):
-                out.append(" ")
-            out.append(char["c"])
+                if not pieces:
+                    pieces.append((False, [], []))
+                pieces[-1][1].append(" ")
+            if not pieces or pieces[-1][0] != sup:
+                pieces.append((sup, [], []))
+            pieces[-1][1].append(char["c"].translate(_FROM_SUPERSCRIPT))
+            pieces[-1][2].append(char["bbox"])
             prev = char
-        span["text"] = "".join(out)
-    return tuple(spans)
+        if len(pieces) <= 1 and not (pieces and pieces[0][0]):
+            span["text"] = "".join(pieces[0][1]) if pieces else ""
+            out_spans.append(span)
+            continue
+        for sup, chars, boxes in pieces:
+            bbox = span["bbox"]  # a piece that is only a word-gap space has no boxes
+            if boxes:
+                x0s, y0s, x1s, y1s = zip(*boxes, strict=True)
+                bbox = (min(x0s), min(y0s), max(x1s), max(y1s))
+            flags = span["flags"] | SUPERSCRIPT if sup else span["flags"]
+            out_spans.append(dict(span, text="".join(chars), bbox=bbox, flags=flags))
+    return tuple(out_spans)
 
 
 def is_superscript_number(span: dict, line: Line) -> bool:

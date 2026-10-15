@@ -24,13 +24,16 @@ from pdf_worker.images import PageImage, labels_inside, page_images
 from pdf_worker.inline import (
     CELL,
     LEADING_PAGE_MARKS_RE,
+    MARGIN_REF_RE,
     link,
+    margin_ref,
     page_mark,
     page_target,
     plain,
     uri_target,
 )
-from pdf_worker.layout import HEADING_RATIO, DocumentProfile, Line, page_lines
+from pdf_worker.layout import HEADING_RATIO, PAGE_NUMBER_RE, DocumentProfile, Line, page_lines
+from pdf_worker.margin_refs import has_letter, next_label
 from pdf_worker.margins import split_columns
 
 # Gap between line tops, relative to normal line spacing, that starts a new paragraph.
@@ -57,6 +60,11 @@ _NUMBERING_RE = re.compile(r"^\s*(?:\d{1,3}|[IVXLC]{1,6})\.?\s*$")
 # A footnote reference in block text: ``[^label]``.
 REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
 _REF_ONLY_RE = re.compile(r"^(?:\[\^[^\]\s]+\])+$")
+_LEADING_REFS_RE = re.compile(f"^((?:{MARGIN_REF_RE.pattern}\\s*)+)")
+# Running heads sit in this top share of the page; some share a line with the page
+# number: "TIMEO 163", "164 DIÁLOGOS".
+_HEAD_ZONE = 0.1
+_HEAD_WITH_NUMBER_RE = re.compile(r"^(?:(\d{1,4})\s+(\D.*)|(\D.*?)\s+(\d{1,4}))$")
 SOFT_HYPHEN = "­"
 # Marks a paragraph break inside a block's lines (multi-paragraph notes).
 PARAGRAPH_BREAK = " "
@@ -166,15 +174,29 @@ def join_lines(parts: list[str]) -> str:
         marks = LEADING_PAGE_MARKS_RE.match(part)
         if marks:
             lead, part = marks.group(1), marks.group(2).strip()
+        # Margin references open their line; one on a word broken across lines goes
+        # before the whole word ("des-" + "pués").
+        found = _LEADING_REFS_RE.match(part)
+        refs = (
+            "".join(margin_ref(label) for label in MARGIN_REF_RE.findall(found.group(1)))
+            if found
+            else ""
+        )
+        if found:
+            lead, part = lead + refs, part[found.end() :].strip()
         if not part:
             out += lead
             continue
         if not out or out.endswith("\n\n") or not plain(out):
             out += lead + part
-        elif len(out) > 1 and out[-1] == "-" and out[-2].isalpha() and part[0].islower():
+        elif (len(out) > 1 and out[-1] == "-" and out[-2].isalpha() and part[0].islower()) or (
+            out[-1] == SOFT_HYPHEN  # the layer marks the break as hyphenation
+        ):
+            if refs:
+                cut = max(out.rfind(" "), out.rfind("\n")) + 1
+                out = out[:cut] + refs + out[cut:]
+                lead = lead[: -len(refs)]
             out = out[:-1] + lead + part
-        elif out[-1] == SOFT_HYPHEN:
-            out = out[:-1] + lead + part  # the layer marks the break as hyphenation
         elif _REF_ONLY_RE.match(part):
             out += lead + part  # a reference that wrapped onto its own line
         else:
@@ -217,6 +239,42 @@ def _is_contents_page(lines: list[BodyLine]) -> bool:
     texts = [plain(bl.text).strip() for bl in lines if bl.text.strip()]
     entries = sum(1 for text in texts if _CONTENTS_ENTRY_RE.match(text))
     return entries >= _MIN_CONTENTS_ENTRIES and entries >= 0.5 * len(texts)
+
+
+def _running_heads(
+    lines: list[BodyLine], page_width: float, page_height: float, body_size: float
+) -> tuple[set[int], str]:
+    """Running heads: small lines at the top of the page on one row with the page number
+    ("TIMEO ... 163"). Found on every page, however short the book.
+
+    Returns their indexes and, on a right-hand page (number on the right), the head:
+    by convention there the work's title, on left-hand pages the book's.
+    """
+    heads, title = set(), ""
+    top = [
+        (i, bl)
+        for i, bl in enumerate(lines)
+        if plain(bl.text).strip() and bl.line.top < page_height * _HEAD_ZONE
+    ]
+    numbers = [bl.line for _, bl in top if PAGE_NUMBER_RE.match(plain(bl.text))]
+    for i, bl in top:
+        text = plain(bl.text).strip()
+        if PAGE_NUMBER_RE.match(text) or bl.line.size > body_size * 1.05:
+            continue
+        merged = _HEAD_WITH_NUMBER_RE.match(text)
+        if merged:
+            head = (merged.group(2) or merged.group(3)).strip()
+            right_hand = merged.group(4) is not None
+        else:
+            height = bl.line.bbox[3] - bl.line.top
+            row = [n for n in numbers if abs(n.top - bl.line.top) < height]
+            if not row:
+                continue
+            head, right_hand = text, row[0].x0 > page_width / 2
+        if any(c.isalpha() for c in head):
+            heads.add(i)
+            title = head if right_hand else title
+    return heads, title
 
 
 def _page_links(page: pymupdf.Page, page_count: int) -> list[tuple[pymupdf.Rect, str]]:
@@ -275,6 +333,8 @@ class _State:
         self.in_notes = False  # inside a chapter-endnotes area (see pdf_worker.endnotes)
         self.page_index = 0
         self.pending_marks: list[str] = []  # page starts not yet attached to a line
+        self.margin_label: str | None = None  # the last margin reference ("22b")
+        self.has_heading = False  # a heading was yielded (or a running head made one)
 
     # -- page handling ----------------------------------------------------------------
     def add_page(
@@ -294,11 +354,17 @@ class _State:
         pictures = sorted(images or [], key=lambda image: image.top)
         # Labels printed inside a picture ("insula", "fluvius") stay in the picture.
         labels = labels_inside([bl.line for bl in layout.lines], pictures)
+        heads, title = _running_heads(layout.lines, page_width, page_height, profile.body_size)
+        if title and not self.has_heading:
+            # A book without headings opens with its running title ("TIMEO"), once.
+            self.has_heading = True
+            self.pending.append(Heading(title, 1, page_index, 0.0))
         columns = split_columns(
             [
                 bl
                 for i, bl in enumerate(layout.lines)
                 if i not in labels
+                and i not in heads
                 and not profile.is_running(bl.line, page_height)
                 and not SEPARATOR_RE.match(bl.text)
             ],
@@ -312,6 +378,7 @@ class _State:
             # entries ("Chapter One ...... 42") and a column of page numbers are dropped.
             lines = [bl for bl in lines if not _CONTENTS_ENTRY_RE.match(plain(bl.text))]
             glosses = ()
+        lines = self._label_margin_refs(lines)
         margins = _page_margins(lines, profile.body_size)
         new_page = True
         # Blank lines only separate paragraphs between two lines of the same page; blanks
@@ -349,6 +416,28 @@ class _State:
 
     def finish(self) -> Iterator[Block]:
         yield from self._flush()
+
+    def _label_margin_refs(self, lines: list[BodyLine]) -> list[BodyLine]:
+        """Give the page's margin references their full labels ("b" -> "22b"), in order.
+
+        Bare numbers on a page without section letters, outside a running sequence, are
+        line numbers ("5", "10"): dropped."""
+        readings = [r for bl in lines for r in MARGIN_REF_RE.findall(bl.text)]
+        if not readings:
+            return lines
+        running = bool(self.margin_label and self.margin_label[:-1].isdigit())
+        keep = running or any(has_letter(r) for r in readings)
+
+        def label(match: re.Match) -> str:
+            new = next_label(self.margin_label, match.group(1)) if keep else None
+            if new is None:
+                return ""
+            self.margin_label = new
+            return margin_ref(new)
+
+        return [
+            BodyLine(MARGIN_REF_RE.sub(label, bl.text), bl.line, bl.endnote_label) for bl in lines
+        ]
 
     # -- line handling ----------------------------------------------------------------
     def _add_line(self, body_line: BodyLine, margins: _Margins, new_page: bool) -> Iterator[Block]:
@@ -473,6 +562,7 @@ class _State:
                 # Several lines of large type: a passage in big print, not a heading.
                 yield Paragraph(text, False, current.page, current.top)
             else:
+                self.has_heading = True
                 yield Heading(text, current.level, current.page, current.top)
         elif current.kind == "note":
             yield Note(current.label, current.text())
@@ -489,6 +579,7 @@ class _State:
             if text:
                 level = self._implicit_heading_level(current, plain(text))
                 if level:
+                    self.has_heading = True
                     yield Heading(text, level, current.page, current.top)
                 else:
                     yield Paragraph(text, current.kind == "small", current.page, current.top)
