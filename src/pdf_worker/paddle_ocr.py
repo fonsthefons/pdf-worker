@@ -412,6 +412,26 @@ def _foreign_script(text: str) -> bool:
     return foreign >= _MIN_FOREIGN and foreign >= letters * _FOREIGN_SHARE
 
 
+def _patch_foreign(text: str, scan_text: str) -> str:
+    """A few made-up foreign letters in a good block ("Análogamente,均匀可可可, el
+    espíritu" for "puedo cancelar con"): those words from Tesseract's reading of the block,
+    aligned with Paddle's."""
+    ours, theirs = text.split(), scan_text.split()
+    if not theirs:
+        return text
+    matcher = difflib.SequenceMatcher(
+        None, [norm(w) for w in ours], [norm(w) for w in theirs], autojunk=False
+    )
+    out = []
+    for op, i1, i2, j1, j2 in matcher.get_opcodes():
+        stretch = ours[i1:i2]
+        if op != "equal" and any(_FOREIGN_RE.search(w) for w in stretch) and j2 > j1:
+            out += theirs[j1:j2]
+        else:
+            out += stretch
+    return " ".join(out)
+
+
 def _scan_text(scan: PageScan, rect: pymupdf.Rect) -> str:
     """Tesseract's words inside ``rect`` (page units), in reading order."""
     return " ".join(
@@ -600,6 +620,8 @@ def prepare_blocks(
         block = {**block, "label": _relabel(block, text, number)}
         if block.get("label") == "aside_text" and is_mark(text):
             continue  # a margin reference ("12", "e"): found in the scan instead
+        if block.get("label") == "aside_text" and not re.search(r"\w", text):
+            continue  # a reader's tick or stroke in the margin ("！" for ✓)
         if block.get("label") == "footnote" and _SIGNATURE_RE.match(text):
             continue  # a printer's signature at the foot ("160. — 18"), not a note
         if macrons:
@@ -609,6 +631,8 @@ def prepare_blocks(
         rect = pymupdf.Rect(x0 * sx, y0 * sy, x1 * sx, y1 * sy)
         if scan and _foreign_script(text):
             text = _scan_text(scan, rect) or text
+        elif scan and _FOREIGN_RE.search(text):
+            text = _patch_foreign(text, _scan_text(scan, rect))
         if read_mixed and block.get("label") == _MIXED_LABEL:
             # Paddle reads the Greek as Latin look-alikes ("tà šèovta"); keep the lines.
             lines = read_mixed(page, rect + (-3, -3, 3, 3))

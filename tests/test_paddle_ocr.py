@@ -204,6 +204,14 @@ def test_running_heads_and_notes_paddle_mislabels():
     assert paddle_ocr._relabel(sign, "160. — 18", number) == "footer"
 
 
+def test_a_few_made_up_chinese_letters_take_tesseracts_words():
+    paddle = "de su posibilidad. Análogamente,均匀可可可可可可可可可, el espíritu todos los estados"
+    tess = "de su posibilidad. Análogamente puedo cancelar con el espíritu todos los estados"
+    assert paddle_ocr._patch_foreign(paddle, tess) == (
+        "de su posibilidad. Análogamente puedo cancelar con el espíritu todos los estados"
+    )
+
+
 def test_clean_text_removes_latex_wrappers():
     assert paddle_ocr.clean_text("in $ \\text{Āfricā} $ est") == "in Āfricā est"
     assert paddle_ocr.clean_text("1. \\underline{\\text{Creación de los seres}} (30c)") == (

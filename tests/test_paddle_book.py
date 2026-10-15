@@ -16,7 +16,7 @@ from pdf_worker.paddle_book import (
     restore_question_marks,
     spanish_letters,
 )
-from pdf_worker.structure import Heading, Note, Paragraph
+from pdf_worker.structure import Gloss, Heading, Note, Paragraph
 
 pytest.importorskip("pymupdf_fonts")
 
@@ -139,6 +139,24 @@ def test_pages_missing_from_the_scan_take_their_notes_with_them(tmp_path):
     with pymupdf.open(path) as doc:
         notes = [b for b in iter_paddle_blocks(doc, rows, images=False) if isinstance(b, Note)]
     assert [n.label for n in notes] == ["c0-6", "c0-13"]
+
+
+def test_a_readers_tick_in_the_margin_is_no_gloss(tmp_path):
+    rows = [
+        _row(
+            0,
+            ("text", [144, 300, 1046, 900], INTRO),
+            ("aside_text", [1060, 400, 1090, 430], "！"),
+            ("aside_text", [1060, 500, 1150, 560], "-a -ā:\nItalia"),
+        )
+    ]
+    path = tmp_path / "tick.pdf"
+    with pymupdf.open() as doc:
+        doc.new_page()
+        doc.save(path)
+    with pymupdf.open(path) as doc:
+        blocks = list(iter_paddle_blocks(doc, rows, images=False))
+    assert [b.lines for b in blocks if isinstance(b, Gloss)] == [("-a -ā:", "Italia")]
 
 
 def test_a_printed_table_of_contents_is_dropped(tmp_path):
