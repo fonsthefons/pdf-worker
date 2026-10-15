@@ -179,6 +179,7 @@ def test_clean_text_removes_latex_wrappers():
         "1. Creación de los seres (30c)"
     )
     assert paddle_ocr.clean_text("T_{M\\cdot} - x") == "TM - x"
+    assert paddle_ocr.clean_text("S_i saga. {Cuéntasela") == "Si saga. Cuéntasela"
 
 
 def test_clean_text_flattens_tables():

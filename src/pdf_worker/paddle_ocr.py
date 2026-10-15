@@ -329,6 +329,8 @@ def clean_text(text: str) -> str:
     while (unwrapped := _LATEX_WRAP_RE.sub(r"\1", text)) != text:
         text = unwrapped
     text = _LATEX_COMMAND_RE.sub("", _LATEX_SUB_RE.sub(r"\1", text))
+    # What LaTeX leaves: "S_i", a lone "{Cuéntasela" (books have no braces in prose).
+    text = re.sub(r"[{}]|(?<=\w)_(?=\w)", "", text)
     text = re.sub(r"</?su[bp]>", "", text.replace("$", ""))
     if "<table" not in text:
         return text
