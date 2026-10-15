@@ -80,38 +80,49 @@ def next_label(previous: str | None, reading: str) -> str | None:
 
 # Costs for ``assign_labels``: a mark taken as ink that is no mark (pencil, a smudge),
 # by what it was read as; a label with no mark; readings against labels.
-_JUNK = {"unread": 0.6, "letter": 1.0, "number": 1.2}
+# An unreadable blob is labelled only where the labels around force it (dropping it
+# would skip a label): past the last page number it is taken for pencil.
+_JUNK = {"unread": 0.4, "letter": 1.0, "number": 1.2}
 _SKIP = 1.0
-_UNREAD, _NEAR_LETTER, _WRONG_LETTER = 0.4, 0.6, 1.0
+_UNREAD, _NEAR_LETTER, _WRONG_LETTER = 0.5, 0.6, 1.0
 _NEAR_NUMBER, _WRONG_NUMBER, _NUMBER_AS_LETTER, _LETTER_AS_NUMBER = 0.8, 1.2, 1.3, 1.0
 _CONFUSED = {frozenset("ce"), frozenset("ad"), frozenset("bh")}
 _MAX_SKIP = 5  # labels in a row without a mark
 _SECTION_GAP = 4  # pages without marks that end a dialogue (an introduction follows)
 
 
-def assign_labels(readings: list[tuple[int, str]]) -> list[str | None]:
+def assign_labels(readings: list[tuple[int, str | None]]) -> list[str | None]:
     """Labels for a book's marks at once: ``readings`` are (page number, reading) in
-    reading order; None marks ink taken for no mark at all.
+    reading order, a None reading where a heading breaks the text. Returns a label for
+    each mark (breaks left out); None for ink taken for no mark at all.
 
     One misread can't be judged alone: "e" after "23c" may be 23e (23d missed), 23d
     misread, or a pencil stroke. So the whole run of marks of a dialogue is labelled
     together (dynamic programming): labels only go up, each mark is a label or junk,
-    and the sequence that fits the readings at least cost wins. Marks more than
-    ``_SECTION_GAP`` pages apart start a new run (the next dialogue counts anew).
+    and the sequence that fits the readings at least cost wins. A heading, or marks
+    more than ``_SECTION_GAP`` pages apart, start a new run (the next dialogue counts
+    anew; an introduction's pencil marks, with no page number read, label nothing).
     """
     labels: list[str | None] = []
-    start = 0
-    for i in range(1, len(readings) + 1):
-        if i == len(readings) or readings[i][0] - readings[i - 1][0] > _SECTION_GAP:
-            labels += _label_run([r for _, r in readings[start:i]])
-            start = i
-    return labels
+    run: list[str] = []
+    last_page = None
+    for page, reading in readings:
+        if reading is None or (last_page is not None and page - last_page > _SECTION_GAP):
+            labels += _label_run(run)
+            run = []
+        if reading is not None:
+            run.append(reading)
+            last_page = page
+    return labels + _label_run(run)
 
 
 def _label_run(readings: list[str]) -> list[str | None]:
     numbers = [int(m.group(1)) for r in readings if (m := _MARK_RE.match(r)) and m.group(1)]
-    if not numbers:  # no page number anywhere: nothing to count from
-        return [next_label(None, r) if has_letter(r) else None for r in readings]
+    # No page number anywhere, nothing to count from. A pencil stroke reads as "1":
+    # shortcut: one-digit pages (Euthyphro 2-9) alone don't start a count; fine for
+    # every dialogue whose run reaches page 10.
+    if not any(n >= 10 for n in numbers):
+        return [None] * len(readings)
     lo, hi = max(1, min(numbers) - 1) * 5, (max(numbers) + 2) * 5
     size = hi - lo
     inf = float("inf")
@@ -123,7 +134,8 @@ def _label_run(readings: list[str]) -> list[str | None]:
         new, came = [inf] * size, [None] * size
         for s in range(size):
             emit = _emit_cost(reading, lo + s)
-            best, prev = start_cost + emit, -1
+            # A run starts at a page number ("17"): starting at "17e" skips b to d.
+            best, prev = start_cost + (lo + s) % 5 * _SKIP + emit, -1
             for gap in range(1, _MAX_SKIP + 2):
                 if s - gap < 0:
                     break
@@ -149,7 +161,14 @@ def _label_run(readings: list[str]) -> list[str | None]:
         if prev == -1:
             break
         state = prev
-    return out
+    # A real run shows its page numbers: two read exactly where the labels put them.
+    # Ink in an introduction (list numbers, pencil) may fit a few labels by chance.
+    confirmed = sum(
+        1
+        for reading, label in zip(readings, out, strict=True)
+        if label and label.endswith("a") and reading == label[:-1] and len(reading) > 1
+    )
+    return out if confirmed >= 2 else [None] * len(readings)
 
 
 def _label(value: int) -> str:

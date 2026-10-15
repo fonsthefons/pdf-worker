@@ -46,6 +46,12 @@ def test_a_reference_that_starts_at_one_is_a_new_count():
     _, numbers = number_notes(["Una nota.", "Otra."], [1, 2], last=40)
     assert numbers == [1, 2]
     # A note read as "1" while the references go on (test_platon_bad_3: note 13).
+    # Note 1's reference lost: the text's "²" and a note's "²" start the count again.
+    _, numbers = number_notes(["La República.", "² philósophon."], [2], last=53)
+    assert numbers == [1, 2]
+    # One small read alone is a misread, not a new count.
+    _, numbers = number_notes(["La República.", "⁵⁵ philósophon."], [2], last=53)
+    assert numbers == [54, 55]
     _, numbers = number_notes(["¹ Esta misma.", "¹⁴ Por confundir."], [13, 14], last=12)
     assert numbers == [13, 14]
 

@@ -50,6 +50,15 @@ def left_open(blocks: Sequence[Sequence]) -> bool:
     return bool(notes) and not notes[-1].endswith(_NOTE_END)
 
 
+def _note_reads(notes: Sequence[str]) -> set[int]:
+    reads = set()
+    for note in notes:
+        match = _NOTE_NUMBER_RE.match(note)
+        if match and (match.group(1) or match.group(2)):
+            reads.add(from_sup(match.group(1) or match.group(2)))
+    return reads
+
+
 def number_notes(
     notes: Sequence[str], refs: Sequence[int], last: int | None, last_open: bool = False
 ) -> tuple[list[str], list[int | None]]:
@@ -63,6 +72,15 @@ def number_notes(
     expected = last + 1 if last is not None else None
     if refs and refs[0] == 1:
         expected = 1  # a new count: a chapter's, or the page's
+    elif (
+        expected is not None
+        and refs
+        and refs[0] <= 1 + _MAX_SKIPPED < expected - refs[0]
+        and refs[0] in _note_reads(notes)
+    ):
+        # A new count whose first reference was lost: the text and a note both read
+        # "2" where 54 was due (Timeo after its introduction, p. 154).
+        expected = 1
     # With no count yet, extra notes at the top go on from the page before (as many as
     # the notes outnumber the references).
     skip = max(0, len(notes) - len(refs)) if expected is None else 0

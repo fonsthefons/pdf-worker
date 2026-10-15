@@ -50,13 +50,18 @@ def test_a_whole_run_of_marks_is_labelled_together():
     labels = assign_labels(list(zip(pages, reads, strict=True)))
     assert labels[3:9] == [None, "23d", None, None, "23e", "24a"]
     assert labels[-1] == "25a" and labels[0] == "23a"
+    # A heading starts a new run; one with no number read labels nothing (pencil
+    # marks in an introduction).
+    run = [(1, r) for r in ("66", "?", "c", "d", "e", "67", "b")]
+    run += [(2, None), (3, "c"), (3, "?")]
+    assert assign_labels(run) == ["66a", "66b", "66c", "66d", "66e", "67a", "67b", None, None]
+    # Nor one where no page number of two digits is read where it is labelled.
+    assert assign_labels([(5, "2"), (5, "?"), (5, "12"), (6, "2"), (6, "3")]) == [None] * 5
     # A long gap (an introduction) starts the next dialogue's count.
-    assert assign_labels([(1, "67"), (2, "b"), (20, "17"), (21, "b")]) == [
-        "67a",
-        "67b",
-        "17a",
-        "17b",
-    ]
+    filebo_end = [(1, r) for r in ("66", "b", "c", "d", "e", "67", "b")]
+    timeo_start = [(20, r) for r in ("17", "b", "c", "d", "e", "18", "b")]
+    labels = assign_labels(filebo_end + timeo_start)
+    assert labels[5:9] == ["67a", "67b", "17a", "17b"]
 
 
 def test_line_numbers_are_not_section_references():

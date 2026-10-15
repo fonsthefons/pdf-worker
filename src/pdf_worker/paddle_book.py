@@ -140,10 +140,11 @@ def iter_paddle_blocks(
                 yield from book.add_page(doc.load_page(row["page"]), row, blocks, anchors, pictures)
         yield from book.flush()
 
-    readings: list[tuple[int, str]] = []
+    readings: list[tuple[int, str | None]] = []
     dry = _Book(lambda reading: readings.append((dry.page, reading)))
-    for _ in build(dry, False):
-        pass
+    for block in build(dry, False):
+        if isinstance(block, Heading):
+            readings.append((dry.page, None))  # a new section: the marks count anew
     labels = iter(assign_labels(readings))
     book = _Book(lambda reading: next(labels))
     if language == "es":

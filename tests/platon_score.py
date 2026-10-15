@@ -114,6 +114,8 @@ def good_truth(pages=PAGES):
             for y, label in sorted(margin):
                 if label.isdigit():
                     label_num, label = label, label + "a"
+                elif label_num is None:
+                    continue  # pages starting mid-section: no number yet
                 else:
                     label = f"{label_num}{label}"
                 label = count.mref(label)
@@ -226,9 +228,9 @@ def score(ours_path: str, verbose=False, pages=PAGES) -> dict[str, float]:
     extra = [o for o in opara if not any(g is not None and abs(g - o) <= 1 for g in good_set)]
     print(f"PARAGRAPHS good={len(gpara)} found={len(hit)} missed={len(missed)} extra={len(extra)}")
     if shows("para"):
-        for i in missed:
+        for i in missed[:25]:
             print("   missed start:", " ".join(gw[max(0, i - 4) : i]), "|", " ".join(gw[i : i + 6]))
-        for o in sorted(extra):
+        for o in sorted(extra)[:25]:
             print("   extra break: ", " ".join(ow[max(0, o - 4) : o]), "|", " ".join(ow[o : o + 6]))
 
     # Footnote references: present at the right word?
