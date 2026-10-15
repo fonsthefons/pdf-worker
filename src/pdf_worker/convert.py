@@ -7,7 +7,7 @@ notes) -> writer. Every stage works page by page.
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pdf_worker.document import open_pdf
@@ -31,6 +31,7 @@ FORMATS = {
     "docx": ".docx",
     "pdf": ".pdf",
 }
+NOTE_PLACES = ("page", "end")  # where a reflowed PDF sets its footnotes
 
 # Very common short words per language, for a cheap language guess.
 _STOPWORDS = {
@@ -62,6 +63,7 @@ class ConvertReport:
     output_path: Path
     metadata: Metadata
     stats: WriteStats
+    restored_refs: list[str] = field(default_factory=list)  # see pdf_worker.missing_refs
 
 
 def stopword_scores(text: str) -> dict[str, int]:
@@ -101,38 +103,57 @@ def convert_pdf(
     language: str | None = None,
     images: bool = True,
     cover: bool = True,
+    notes_at: str = "page",
+    paddle_rows: list[dict] | None = None,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
-    ``images`` keeps the pictures; ``cover`` makes page 1 the EPUB cover.
+    ``images`` keeps the pictures; ``cover`` makes page 1 the EPUB cover; ``notes_at``
+    ("page" or "end") places a PDF's footnotes. With ``paddle_rows`` (PaddleOCR-VL's
+    blocks, see ``paddle_ocr.paddle_pages``) the book is built from them instead of the
+    PDF's text layer (``pdf_worker.paddle_book``).
     """
     if fmt not in FORMATS:
         raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
+    if notes_at not in NOTE_PLACES:
+        raise UnsupportedFormatError(f"Notes go at {' or '.join(NOTE_PLACES)}, not {notes_at!r}")
     output_path = Path(output_path)
     if output_path.resolve() == Path(pdf_path).resolve():
         raise UnsupportedFormatError(f"The output would overwrite the input: {output_path}")
+    keep_images = images and fmt != "txt"
+    restored: list[str] = []
     with open_pdf(pdf_path) as doc:
-        profile = analyze_document(doc)
         info = doc.metadata or {}
+        if paddle_rows is not None:
+            from pdf_worker.paddle_book import iter_paddle_blocks, text_sample
+
+            sample = text_sample(paddle_rows)
+            blocks = iter_paddle_blocks(doc, paddle_rows, images=keep_images, restored=restored)
+        else:
+            profile = analyze_document(doc)
+            sample = profile.text_sample
+            blocks = iter_blocks(doc, profile, images=keep_images)
         meta = Metadata(
             title=title or _title_from(info, pdf_path),
             author=author or (info.get("author") or "").strip(),
-            language=language or guess_language(profile.text_sample),
+            language=language or guess_language(sample),
         )
-        blocks = iter_blocks(doc, profile, images=images and fmt != "txt")
         if fmt == "epub":
             cover_jpeg = render_cover(doc.load_page(0)) if cover and doc.page_count else None
             stats = write_epub(blocks, output_path, meta, cover=cover_jpeg)
+        elif fmt == "pdf":
+            stats = write_pdf(blocks, output_path, meta, notes_at=notes_at)
         else:
             writer = {
                 "md": write_markdown,
                 "html": write_html,
                 "txt": write_text,
                 "docx": write_docx,
-                "pdf": write_pdf,
             }[fmt]
             stats = writer(blocks, output_path, meta)
-    return ConvertReport(output_path=output_path, metadata=meta, stats=stats)
+    return ConvertReport(
+        output_path=output_path, metadata=meta, stats=stats, restored_refs=restored
+    )
 
 
 def pdf_title(pdf_path: str | Path) -> str:

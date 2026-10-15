@@ -49,6 +49,7 @@ _NOTES_RE = re.compile(r'<section id="notes" class="notes">\n(.*?)</section>\n',
 _ASIDE_RE = re.compile(r'<aside class="note" id="(n\d+)"[^>]*>(.*?)</aside>\n?', re.DOTALL)
 _TOC_NOTES_RE = re.compile(r'\n?<li><a href="#notes">[^<]*</a>(?:</li>)?')
 _LINK_TAG_RE = re.compile(r"</?a\b[^>]*>")
+_BACK_RE = re.compile(r' <a class="back"[^>]*>[^<]*</a>')
 _REF_ID_RE = re.compile(r"r(\d+)(?:-\d+)?")
 # A margin reference from the EPUB writer, and the word after it.
 _MREF_RE = re.compile(r'<span class="mref" id="(m\d+)">([^<]*)</span>(\s*)([^\s<]*)')
@@ -58,7 +59,11 @@ _MREF_SIZE = 7.5
 _MREF_COLOR = (0.18, 0.49, 0.2)  # green, as in the EPUB
 
 
-def write_pdf(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> WriteStats:
+def write_pdf(
+    blocks: Iterable[Block], output_path: Path, meta: Metadata, notes_at: str = "page"
+) -> WriteStats:
+    """Lay the book out as an A5 PDF. ``notes_at``: "page" sets each footnote at the foot
+    of the page that refers to it, "end" keeps them all in the notes section."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.w."))
     fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.")
@@ -66,7 +71,8 @@ def write_pdf(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wri
     try:
         page_html = work / "book.html"
         stats = write_html(blocks, page_html, meta, images_dir=work / "images", css=_CSS)
-        html, notes = _split_notes(page_html.read_text(encoding="utf-8"))
+        html = page_html.read_text(encoding="utf-8")
+        html, notes = _split_notes(html) if notes_at == "page" else (html, {})
         html, labels = _margin_refs(html)
         archive = pymupdf.Archive(str(work))
         reserve: dict[int, float] = {}
@@ -111,6 +117,7 @@ def _split_notes(html: str) -> tuple[str, dict[str, tuple[str, float]]]:
         for note_id, body in _ASIDE_RE.findall(section.group(1)):
             if f'<a class="noteref" id="r{note_id[1:]}"' not in html:
                 continue  # no page to put it under
+            body = _BACK_RE.sub("", body)  # under its reference, the note needs no way back
             body = _LINK_TAG_RE.sub("", body)  # links are added once the note is placed
             height = _height(page, body)
             if height <= FRAME.height * _MAX_NOTE:

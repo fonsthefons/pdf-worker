@@ -22,10 +22,17 @@ def test_notes_count_on_from_the_previous_page_whatever_was_read():
     texts, numbers = number_notes(["llamado Zeus.", "⁹ En el.", "¹⁰ Esta.", "Estos."], [11], 8)
     assert numbers == [None, 9, 10, 11] and texts[0] == "llamado Zeus."
 
+    # Going on in capitals: the next note has the number due (test_platon_bad_3 p. 22).
+    _, numbers = number_notes(["Hermes 88 (1960).", "¹⁴ Por confundir."], [14], 13)
+    assert numbers == [None, 14]
+
 
 def test_a_reference_that_starts_at_one_is_a_new_count():
     _, numbers = number_notes(["Una nota.", "Otra."], [1, 2], last=40)
     assert numbers == [1, 2]
+    # A note read as "1" while the references go on (test_platon_bad_3: note 13).
+    _, numbers = number_notes(["¹ Esta misma.", "¹⁴ Por confundir."], [13, 14], last=12)
+    assert numbers == [13, 14]
 
 
 def test_misread_and_dropped_references_take_the_missing_numbers():
@@ -37,6 +44,14 @@ def test_misread_and_dropped_references_take_the_missing_numbers():
     scan = _scan("Filebo *? la verdad, cueste lo que cueste 5, los hombres 4. ¿O no")
     assert fix_refs(texts, [3, 4, 5, 6], scan) == [
         "Filebo⁴? la verdad, cuesta lo que cuesta⁵. los hombres⁶. ¿O no"
+    ]
+
+
+def test_a_due_number_in_plain_digits_is_a_reference():
+    # test_platon_bad_3 p. 28: note 27 came as "número 27.", note 28 as "²" ("^{2k}").
+    texts = ["sino también su número 27. Y no ... dialéctica o eristicamente². PRO. — 3 veces"]
+    assert fix_refs(texts, [27, 28], []) == [
+        "sino también su número²⁷. Y no ... dialéctica o eristicamente²⁸. PRO. — 3 veces"
     ]
 
 

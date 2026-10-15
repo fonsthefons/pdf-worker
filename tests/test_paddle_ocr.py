@@ -122,6 +122,8 @@ def test_short_speeches_are_body_paragraphs():
 def test_clean_text_turns_latex_superscripts_into_references():
     assert paddle_ocr.clean_text("interlocutor $ ^{1} $.") == "interlocutor¹."
     assert paddle_ocr.clean_text("Tome 2<sup>e</sup>, M.$^{A}$") == "Tome 2e, M.A"
+    # Note 28 misread as "2k": the digits stay a reference, renumbered later.
+    assert paddle_ocr.clean_text("o eristicamente^{2k}.") == "o eristicamente²."
 
 
 def test_clean_text_removes_latex_wrappers():
