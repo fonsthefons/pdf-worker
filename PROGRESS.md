@@ -797,7 +797,10 @@ any step in PROGRESS.md NIGHT PLAN is not marked [done] and no step is in progre
 this session, continue it from PROGRESS.md; otherwise do nothing." This resumes the work
 after the 5-hour token window resets (the session must stay open). When all steps are
 done: CronDelete the job and say so in the report.
-1. Philosophy whole book (`scratch/philo/book_1-462.{md,txt}` already built): run
+1. [done] Result: 689 refs/683 notes (1 ref, 5 notes unmatched); 11 false `[193a]`-style
+   labels, all in the bibliography; body garble: 1 lost Greek word, 2 odd letters
+   (details in `scratch/NIGHT_REPORT.md`). Cron job e2a82415 created.
+   Philosophy whole book (`scratch/philo/book_1-462.{md,txt}` already built): run
    `scratch/link_check.py` on the .md, `scratch/garble_scan.py` on the .txt, and check no
    `[NNa]` margin labels. Do NOT fix: report each error kind, how often it happens, and
    estimated time/tokens to fix.
