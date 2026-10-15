@@ -25,7 +25,7 @@ from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
 from pdf_worker.margin_refs import assign_labels
 from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
-from pdf_worker.paddle_ocr import page_scanner, prepare_blocks, text_settings
+from pdf_worker.paddle_ocr import clean_text, page_scanner, prepare_blocks, text_settings
 from pdf_worker.structure import Block, Gloss, Heading, Image, Note, Paragraph
 
 _SENTENCE_END = tuple('.!?»"”’)]:;')
@@ -49,6 +49,9 @@ _DROP = {"header", "number", "footer", "formula_number"}
 # bien?", "lPor qué?", "2El qué?", "ipodrías ...?"): group 1 is that word.
 _LOST_QUESTION_RE = re.compile(r"(?<![\w¿¡])[iIlℓ12|!ủé](?=(\w+)[^.!?¿]*\?)")
 _COMMON = 3  # a word seen this often in the book is a real one
+# Printed page numbers further apart than this: pages are missing from the scan (a
+# misread page number rarely jumps forward by little).
+_PAGE_JUMP = 1
 
 
 def restore_question_marks(text: str, counts: Counter) -> str:
@@ -97,6 +100,7 @@ def iter_paddle_blocks(
     # all at once (``assign_labels``), which needs every reading.
     prepared = []  # (page mark, row, blocks, anchors); blocks None for front matter
     last_note, last_open = None, False
+    printed = None  # the previous page's printed number
     front = True
     try:
         for done, row in enumerate(sorted(rows, key=lambda r: r["page"])):
@@ -119,6 +123,18 @@ def iter_paddle_blocks(
                     prepared.append((mark, row, None, None))
                     continue
                 front = False
+            if number.isdigit() and printed is not None and int(number) - printed > _PAGE_JUMP:
+                # Pages missing from the scan (279 -> 282): their notes are gone too, so
+                # the count goes on from this page's first reference, not from the last.
+                refs = [
+                    from_sup(r)
+                    for b in row["blocks"]
+                    if b.get("label") != "footnote"
+                    for r in SUPERSCRIPT_RE.findall(clean_text(b.get("text", "")))
+                ]
+                if refs and last_note is not None and min(refs) > last_note:
+                    last_note, last_open = min(refs) - 1, False
+            printed = int(number) if number.isdigit() else None
             blocks, anchors, last_note = prepare_blocks(
                 page, row, macrons, latin_default, rivals, scan_of(page), last_note, last_open
             )

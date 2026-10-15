@@ -181,8 +181,14 @@ def score(ours_path: str, verbose=False, pages=PAGES) -> dict[str, float]:
     """Print the scores (and with ``verbose`` every difference, or only those of the
     sections named in it: words, para, refs, notes, mref); return the main ones."""
 
+    shown: dict[str, int] = {}
+
     def shows(section: str) -> bool:
-        return verbose is True or (bool(verbose) and section in verbose)
+        """Whether to print a difference of ``section`` (at most 30 each with --show)."""
+        if not (verbose is True or (bool(verbose) and section in verbose)):
+            return False
+        shown[section] = shown.get(section, 0) + 1
+        return verbose is True or shown[section] <= 30
 
     gw, gev, gnotes = good_truth(pages)
     ow, oev, onotes = our_side(ours_path)

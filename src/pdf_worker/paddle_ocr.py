@@ -88,6 +88,7 @@ _MIN_FONT, _MAX_FONT = 3.0, 40.0
 _PARAGRAPH_WIDTH = 0.4  # blocks wider than this share of the page are rewrapped
 _UNHYPHEN_RE = re.compile(r"(\w)-\n(?=[a-zà-ÿā-ž])")
 _DIGIT_IN_WORD_RE = re.compile(r"[^\W\d_][0-9]|[0-9][^\W\d_]")  # "FILE0", "S1"
+_WORD_RE = re.compile(r"[^\W\d_]{2}")  # two letters in a row: some word
 _WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
 
 
@@ -472,6 +473,8 @@ def prepare_blocks(
             continue
         if block.get("label") == "aside_text" and is_mark(text):
             continue  # a margin reference ("12", "e"): found in the scan instead
+        if block.get("label") == "footnote" and not _WORD_RE.search(text):
+            continue  # a printer's signature at the foot ("160. — 18"), not a note
         if macrons:
             text = restore_macrons_if_latin(text, latin_default, rivals)
         text = _printable(text, font)

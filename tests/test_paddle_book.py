@@ -110,6 +110,32 @@ def test_worker_progress_reaches_the_caller_and_errors_keep_their_tail(tmp_path,
     assert seen == [1, 2]
 
 
+def test_pages_missing_from_the_scan_take_their_notes_with_them(tmp_path):
+    # Printed pages 279 -> 282: notes 7-12 were on 280-281; "¹" is a misread "¹³".
+    rows = [
+        _row(
+            0,
+            ("number", [144, 60, 180, 90], "279"),
+            ("text", [144, 120, 1046, 400], INTRO + "el orden $ ^{6} $."),
+            ("footnote", [144, 1400, 1046, 1440], "6 Tal como lo muestra."),
+        ),
+        _row(
+            1,
+            ("number", [144, 60, 180, 90], "282"),
+            ("text", [144, 120, 1046, 400], "Inundaciones en nueve mil años $ ^{13} $. " + INTRO),
+            ("footnote", [144, 1400, 1046, 1440], "$ ^{1} $ Como se ve Critias."),
+        ),
+    ]
+    path = tmp_path / "gap.pdf"
+    with pymupdf.open() as doc:
+        for _ in rows:
+            doc.new_page()
+        doc.save(path)
+    with pymupdf.open(path) as doc:
+        notes = [b for b in iter_paddle_blocks(doc, rows, images=False) if isinstance(b, Note)]
+    assert [n.label for n in notes] == ["c0-6", "c0-13"]
+
+
 def test_a_question_mark_read_as_a_letter_is_put_back():
     counts = Counter({"por": 40, "idea": 5, "dea": 0, "qué": 30})
     assert restore_question_marks("PRO. — iY bien? lPor qué no? 2El qué?", counts) == (
