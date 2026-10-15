@@ -11,8 +11,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pdf_worker import margin_estimates
 from pdf_worker.document import open_pdf
 from pdf_worker.docx_export import write_docx
+from pdf_worker.drop_notes import drop_notes
 from pdf_worker.epub import write_epub
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.html_export import write_html
@@ -32,7 +34,8 @@ FORMATS = {
     "docx": ".docx",
     "pdf": ".pdf",
 }
-NOTE_PLACES = ("page", "end")  # where a reflowed PDF sets its footnotes
+# Where a reflowed PDF sets its footnotes; "none" leaves notes out of every format.
+NOTE_PLACES = ("page", "end", "none")
 
 # Very common short words per language, for a cheap language guess.
 _STOPWORDS = {
@@ -107,14 +110,17 @@ def convert_pdf(
     notes_at: str = "page",
     paddle_rows: list[dict] | None = None,
     on_page: Callable[[int, int], None] | None = None,
+    estimate_margin_refs: bool = False,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
     ``images`` keeps the pictures; ``cover`` makes page 1 the EPUB cover; ``notes_at``
-    ("page" or "end") places a PDF's footnotes. With ``paddle_rows`` (PaddleOCR-VL's
+    ("page" or "end") places a PDF's footnotes, "none" drops the notes and their
+    references in every format. With ``paddle_rows`` (PaddleOCR-VL's
     blocks, see ``paddle_ocr.paddle_pages``) the book is built from them instead of the
     PDF's text layer (``pdf_worker.paddle_book``); ``on_page(done, total)`` then
-    follows the pages.
+    follows the pages. ``estimate_margin_refs`` adds the margin references the scan lost
+    between two found ones (``pdf_worker.margin_estimates``).
     """
     if fmt not in FORMATS:
         raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
@@ -138,6 +144,10 @@ def convert_pdf(
             profile = analyze_document(doc)
             sample = profile.text_sample
             blocks = iter_blocks(doc, profile, images=keep_images)
+        if estimate_margin_refs:
+            blocks = margin_estimates.estimate_margin_refs(blocks)
+        if notes_at == "none":
+            blocks = drop_notes(blocks)
         meta = Metadata(
             title=title or _title_from(info, pdf_path),
             author=author or (info.get("author") or "").strip(),

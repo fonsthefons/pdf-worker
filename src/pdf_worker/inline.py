@@ -26,6 +26,11 @@ LEADING_PAGE_MARKS_RE = re.compile("^((?:[^]*)+)(.*)$", re.DOTALL)
 MARGIN_REF_RE = re.compile("([^]*)")
 
 
+# A margin reference's label starting with this was estimated, not found on the page
+# (``pdf_worker.margin_estimates``); writers that colour labels draw it pink.
+ESTIMATED = "~"
+
+
 @dataclass(frozen=True)
 class MarginRef:
     label: str  # "22a", "22b" ... (raw OCR readings until structure labels them)

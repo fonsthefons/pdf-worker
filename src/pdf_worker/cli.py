@@ -294,7 +294,15 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         choices=conversion.NOTE_PLACES,
         default="page",
         help="Reflowed PDF: footnotes at the foot of their page (default) or all at the "
-        "end of the book.",
+        "end of the book. 'none' (any format): leave out the notes and their references "
+        "(margin references stay).",
+    )
+    parser.add_argument(
+        "--estimate-margin-refs",
+        action="store_true",
+        help="Add margin references (Stephanus '23c') the scan lost between two found "
+        "ones, spread evenly over the words between them; shown as '[~23c]', pink where "
+        "labels are coloured.",
     )
     _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
@@ -309,6 +317,7 @@ def _run_convert(args: argparse.Namespace) -> int:
         images=args.images,
         cover=args.cover,
         notes_at=args.notes,
+        estimate_margin_refs=args.estimate_margin_refs,
     )
     if args.ocr in ("redo", "force") and args.engine == "paddle":
         # The book is built from Paddle's blocks themselves, not from a text layer.

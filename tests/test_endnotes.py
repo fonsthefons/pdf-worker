@@ -2,6 +2,9 @@ import pymupdf
 
 from pdf_worker import endnotes
 from pdf_worker.convert import convert_pdf
+from pdf_worker.drop_notes import drop_notes
+from pdf_worker.inline import margin_ref
+from pdf_worker.structure import Heading, Note, Paragraph
 from pdf_worker.text_extraction import extract_text_to_file
 
 BODY = 11
@@ -99,6 +102,31 @@ def test_chapter_endnotes_in_markdown(make_layout_pdf, tmp_path):
     assert "[^c2-1]: First note of two.\n" in text
     # The per-chapter subheading inside the notes section is not a stray heading.
     assert text.count("# Chapter Two") == 1
+
+
+def test_notes_none_drops_notes_their_chapter_and_references(make_layout_pdf, tmp_path):
+    pdf = _book(make_layout_pdf)
+
+    for fmt in ("md", "txt"):
+        report = convert_pdf(pdf, tmp_path / f"book.{fmt}", fmt, notes_at="none")
+        text = (tmp_path / f"book.{fmt}").read_text(encoding="utf-8")
+        assert report.stats.notes == 0
+        assert "Claim number 2 of Chapter One is stated here." in text
+        assert "note of" not in text and "[^" not in text and "[2]" not in text
+        assert "Notes" not in text  # the endnotes chapter's heading went with it
+
+
+def test_notes_none_keeps_margin_references():
+    blocks = [
+        Heading("TIMEO", 1),
+        Paragraph(margin_ref("22a") + "honores[^c1-1] y"),
+        Note("c1-1", "n"),
+    ]
+
+    assert list(drop_notes(blocks)) == [
+        Heading("TIMEO", 1),
+        Paragraph(margin_ref("22a") + "honores y"),
+    ]
 
 
 def test_numbered_list_without_references_is_not_notes(make_layout_pdf, tmp_path):
