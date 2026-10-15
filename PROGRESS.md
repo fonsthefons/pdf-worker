@@ -772,7 +772,40 @@
   filter narrowed (it had dropped notes like "31. 7."); a few made-up Chinese letters in
   a good block replaced by Tesseract's words.
 - Link check: pp. 41-150 169 refs / 167 notes, 2 notes without their reference;
-  pp. 151-290 227 / 225, 1 ref without a note, 2 notes without a reference.
+  pp. 151-290 227 / 225, 1 ref without a note, 2 notes without a reference;
+  pp. 291-370 204 / 202 (before 1aa45be: "fórmula32" glued refs, two notes in one block
+  split; not re-checked since).
+- Later commits: 1aa45be (glued refs on a lowercase word, merged note blocks split).
+  Platón regression after all of it (clean build): words 1.9%, refs 350/367, notes 358,
+  margin 645/714 — unchanged or better.
+- Scratch gotcha: `scratch/platon_full.py` no longer merges running-job work files (they
+  were philosophy's and overwrote Platón pages). `scratch/book_build.py` still merges
+  them with setdefault (fine when the running job is the same PDF).
+
+## Resume point (2026-10-15, session paused by the user)
+- Branch `feature/platon-full` (on top of `feature/familia-better`), all committed,
+  nothing pushed (user pushes). 174 unit tests pass, ruff clean.
+- Philosophy OCR is complete: all 462 pages are in the Paddle cache
+  (`scratch/paddle-home`). A whole-book build was started in the background at pause:
+  `scratch/book_build.py test_pdfs/philosophy.pdf 1-462 scratch/philo md txt` ->
+  `scratch/philo/book_1-462.{md,txt}` (may or may not have finished; rerun if missing).
+- Next steps, in order:
+  1. Philosophy whole book: `scratch/link_check.py scratch/philo/book_1-462.md`,
+     `scratch/garble_scan.py scratch/philo/book_1-462.txt`, check no `[NNa]` margin
+     labels; fix what shows up (sample page images with `scratch/crop.py PAGE Y0 Y1 DPI
+     test_pdfs/philosophy.pdf`; raw Paddle blocks with `scratch/philo_raw.py`,
+     `scratch/philo_find.py`, `scratch/philo_refs.py`).
+  2. Build philosophy pdf + epub (`book_build.py ... pdf epub`), epubcheck, and
+     `scratch/check_book_pdf.py` on the PDF; look at a couple of rendered pages.
+  3. Re-check Platón after any fix (`scratch/platon_full.py 1-293 [txt pdf epub]`,
+     `tests/platon_score.py book_1-293.txt --pages 6-175 [--show refs,mref]`).
+  4. Then the user's requested improvement (asked 2026-10-15, to do after the
+     iterations): the "Book profile for notes" in the TODO below — detect the note style
+     from a 10-20 page sample, pass it to the build as a default (like `text_settings`),
+     keep per-page fallbacks; re-run both books and compare scores.
+  5. Final report to the user for Steps 2 and 3 (errors found, fixes, remaining issues:
+     ~10% margin refs off, a few lost refs/notes, Paddle word misreads/accents,
+     Critias pp. 280-281 missing from the scan).
 
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
