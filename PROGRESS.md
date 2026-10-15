@@ -804,11 +804,12 @@ done: CronDelete the job and say so in the report.
    `scratch/link_check.py` on the .md, `scratch/garble_scan.py` on the .txt, and check no
    `[NNa]` margin labels. Do NOT fix: report each error kind, how often it happens, and
    estimated time/tokens to fix.
-2. [running 2026-10-16 in background; rerun if `scratch/philo/book_1-462.{pdf,epub}`
-   missing] Build philosophy pdf + epub (`scratch/book_build.py test_pdfs/philosophy.pdf 1-462
+2. [done] epubcheck clean; PDF 805 pages, 0 broken links, 11 margin labels (the
+   bibliography ones); pp. 120, 500 look right. Build philosophy pdf + epub (`scratch/book_build.py test_pdfs/philosophy.pdf 1-462
    scratch/philo pdf epub`), epubcheck, `scratch/check_book_pdf.py`, look at 2-3 rendered
    pages. Report.
-3. (run last) Re-score Platón: `scratch/platon_full.py 1-293`, then
+3. [running 2026-10-16 in background: `scratch/platon_full.py 1-293`; rerun if
+   `scratch/platon_full/book_1-293.txt` is older than this] (run last) Re-score Platón: `scratch/platon_full.py 1-293`, then
    `tests/platon_score.py scratch/platon_full/book_1-293.txt --pages 6-175`. Baseline:
    words 1.9%, refs 350/367, notes 358, margin ok 645 / wrong 38 / missing 31 / extra 5.
    Report differences.
@@ -822,10 +823,8 @@ done: CronDelete the job and say so in the report.
    `[~23d]` — choose and document). First a dry run on Platón: how many of the 31
    missing get an estimate, and how many land within ±1 line of the good edition (the
    scorer). Build it unless fewer than half land within ~3 lines; then report only.
-   [in progress] Code + unit tests committed (`margin_estimates.py`, `convert
-   --estimate-margin-refs`, labels "[~23c]", pink in EPUB/HTML/PDF). Dry run left:
-   `scratch/platon_estimate.py build` (was running) then `scratch/platon_estimate.py
-   eval`; drop the feature (revert) if fewer than half land within ~3 lines.
+   [done] `margin_estimates.py`, `convert --estimate-margin-refs`, "[~23c]", pink in
+   EPUB/HTML/PDF. Dry run: 40 estimates, 21 judgeable, 15 within 3 lines (7 within 1).
 6. [done] `--notes none` (`drop_notes.py`, tests in test_endnotes.py); 180 fast tests pass.
    `convert --notes none`: drop notes (incl. an endnotes chapter) and strip reference
    markers ([12], ¹², [^c1-12]) in all formats; keep margin refs (11a...). Unit test.
