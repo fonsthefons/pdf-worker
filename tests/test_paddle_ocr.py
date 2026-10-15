@@ -161,6 +161,27 @@ def test_mixed_script_keeps_the_more_confident_reading_of_each_word():
     assert merge_readings(spanish, greek) == ["21b1 τὰ δέοντα Badham"]
 
 
+def test_a_note_the_model_skipped_comes_from_tesseracts_lines():
+    words = [
+        ScanWord("Body", 0, False, (10, 100, 40, 110)),
+        ScanWord("43.", 5, False, (10, 500, 20, 510)),
+        ScanWord("Ibid.,", 5, False, (25, 500, 50, 510)),
+        ScanWord("44.", 6, False, (10, 512, 20, 522)),
+        ScanWord("Ibid.", 6, False, (25, 512, 50, 522)),
+        ScanWord("y", 7, False, (25, 524, 30, 534)),
+        ScanWord("45.", 8, False, (10, 536, 20, 546)),
+    ]
+    found = paddle_ocr._recover_notes(PageScan(words, []), [43, 44, 45], [43, 45], 495)
+    assert found == [(44, "Ibid. y")]
+
+
+def test_a_printers_signature_is_no_note_but_a_short_note_is():
+    for signature in ("160. — 18", "160. -4", "160. ~2", "160. - S"):
+        assert paddle_ocr._SIGNATURE_RE.match(signature)
+    for note in ("31. 7.", "30. I, 7.", "36. 13.", "²¹ Cf. Tym. 2Sa-b."):
+        assert not paddle_ocr._SIGNATURE_RE.match(note)
+
+
 def test_running_heads_and_notes_paddle_mislabels():
     number = [799, 126, 832, 153]
     head = {"label": "paragraph_title", "bbox": [435, 131, 517, 156]}
@@ -170,6 +191,7 @@ def test_running_heads_and_notes_paddle_mislabels():
     assert paddle_ocr._relabel(head, "FILEBO", number) == "header"
     assert paddle_ocr._relabel(title, "FILEBO", number) == "paragraph_title"
     assert paddle_ocr._relabel(note, "11D Cf. Leyes 863a-c.", number) == "footnote"
+    assert paddle_ocr._relabel(note, "16. De l'esprit des lois, XI, 6.", number) == "footnote"
     assert paddle_ocr._relabel(sign, "160. — 18", number) == "footer"
 
 

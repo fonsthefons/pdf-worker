@@ -141,6 +141,32 @@ def test_pages_missing_from_the_scan_take_their_notes_with_them(tmp_path):
     assert [n.label for n in notes] == ["c0-6", "c0-13"]
 
 
+def test_a_printed_table_of_contents_is_dropped(tmp_path):
+    rows = [
+        _row(
+            0,
+            ("paragraph_title", [400, 200, 800, 260], "PRÓLOGO"),
+            ("text", [144, 300, 1046, 900], INTRO),
+        ),
+        _row(
+            1,
+            ("paragraph_title", [400, 200, 800, 260], "ÍNDICE"),
+            ("content", [144, 300, 1046, 900], "III. ROUSSEAU.—I ..... 6\nVida y escritos."),
+            ("paragraph_title", [400, 950, 800, 990], "PARTE IV"),
+            ("text", [144, 1000, 1046, 1300], INTRO),
+        ),
+    ]
+    path = tmp_path / "toc.pdf"
+    with pymupdf.open() as doc:
+        for _ in rows:
+            doc.new_page()
+        doc.save(path)
+    with pymupdf.open(path) as doc:
+        blocks = list(iter_paddle_blocks(doc, rows, images=False))
+    assert [b.text for b in blocks if isinstance(b, Heading)] == ["PRÓLOGO"]
+    assert "ROUSSEAU" not in " ".join(plain(b.text) for b in blocks if isinstance(b, Paragraph))
+
+
 def test_a_margin_mark_read_into_the_text_goes():
     book = _Book(lambda reading: "17b")
     assert plain(book._body_text("de niño. b PRO.— ¡Cómo?", [(3, "b")])) == (

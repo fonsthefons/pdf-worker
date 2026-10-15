@@ -45,7 +45,7 @@ _SPEAKER_RE = re.compile(
     r"([A-ZÁÉÍÓÚÑỐ][A-Za-záéíóúñốÁÉÍÓÚÑỐ]{1,11})\s*\.?\s*[—–-]\s*"
 )
 # The model's second reading of a note's own number: "³⁵ 5 ¿Eco", "²⁷ ? Sobre".
-_NOTE_JUNK_RE = re.compile(r"^(?:\d{1,3}\)?|[?*'])\s+")
+_NOTE_JUNK_RE = re.compile(r"^(?:\d{1,3}[.)]?|[?*'])\s+")
 # Front matter: the leading pages with fewer words than this (title pages, credits).
 _FRONT_WORDS = 60
 _HEAD_ZONE = 0.15  # a "header" lower on the page is a centred line (dramatis personae)
@@ -155,6 +155,11 @@ def iter_paddle_blocks(
                     prepared.append((mark, row, None, None))
                     continue
                 front = False
+            if any(b.get("label") == "content" for b in row["blocks"]):
+                # A printed table of contents ("ROUSSEAU.—I ..... 6"): the book's own
+                # navigation stands for it, as in the text-layer path.
+                prepared.append((mark, row, None, None))
+                continue
             if number.isdigit() and printed is not None and int(number) - printed > _PAGE_JUMP:
                 # Pages missing from the scan (279 -> 282): their notes are gone too, so
                 # the count goes on from this page's first reference, not from the last.

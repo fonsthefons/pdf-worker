@@ -37,6 +37,12 @@ def test_notes_count_on_from_the_previous_page_whatever_was_read():
     assert left_open([["text", None, "x"], ["footnote", None, "Como indica"]])
     assert not left_open([["footnote", None, "Cf. Rep. 583."]])
 
+    # Notes 30-32 missed by the model: "33." agrees with the text's ³³, so it stays 33.
+    _, numbers = number_notes(["33. Ibid."], [30, 31, 32, 33], 29)
+    assert numbers == [33]
+    # Printed as "17." (Copleston): the number is read, not counted blind.
+    texts, numbers = number_notes(["15. Ibid., XI, 5.", "17. Essai de cosmologie."], [15, 17], 14)
+    assert numbers == [15, 17] and texts[1] == "¹⁷ Essai de cosmologie."
     # "78" read as "π" is a number, not a lowercase word going on (Platón p. 59).
     texts, numbers = number_notes(["π Para HARDING.", "⁷⁹ Para Calicles."], [78, 79], 77)
     assert numbers == [78, 79] and texts[0] == "⁷⁸ Para HARDING."

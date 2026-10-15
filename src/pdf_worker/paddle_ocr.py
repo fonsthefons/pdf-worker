@@ -58,6 +58,7 @@ from pdf_worker.note_numbers import (
     from_sup,
     left_open,
     number_notes,
+    sup,
 )
 from pdf_worker.ocr import (
     DEFAULT_LANGUAGE,
@@ -92,12 +93,15 @@ _MIN_FONT, _MAX_FONT = 3.0, 40.0
 _PARAGRAPH_WIDTH = 0.4  # blocks wider than this share of the page are rewrapped
 _UNHYPHEN_RE = re.compile(r"(\w)-\n(?=[a-zà-ÿā-ž])")
 _DIGIT_IN_WORD_RE = re.compile(r"[^\W\d_][0-9]|[0-9][^\W\d_]")  # "FILE0", "S1"
-_WORD_RE = re.compile(r"[^\W\d_]{2}")  # two letters in a row: some word
+# A printer's signature: "160. — 18", "160. -4", "160. ~2", "160. - S" (not "31. 7.").
+_SIGNATURE_RE = re.compile(r"^\d{1,4}\.?\s*[—–~-]\s*\S{1,3}$")
 # Vietnamese-only letters (Latin Extended Additional vowels, ă ơ ư đ), Arabic, CJK.
 _FOREIGN_RE = re.compile(r"[Ạ-ỹăơưđĂƠƯĐ؀-ۿ぀-ヿ一-鿿]")
 _MIN_FOREIGN, _FOREIGN_SHARE = 3, 0.05
 _MIXED_LABEL = "algorithm"  # what Paddle calls a table of Greek variants
-_FOOTER_NOTE_RE = re.compile(r"^\d[\dA-Za-z]{0,3}\s+\S*[^\W\d_]{2}")  # "11D Cf. Leyes"
+_NOTE_START_RE = re.compile(r"^\d{1,3}\.?$")  # a scan line opening a note: "45."
+# "11D Cf. Leyes", "16. De l'esprit"
+_FOOTER_NOTE_RE = re.compile(r"^\d[\dA-Za-z]{0,3}\.?\s+\S*[^\W\d_]{2}")
 _WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
 
 
@@ -343,6 +347,36 @@ def clean_text(text: str) -> str:
     return text
 
 
+def _recover_notes(
+    scan: PageScan, refs: list[int], numbers: list[int | None], notes_top: float
+) -> list[tuple[int, str]]:
+    """Notes the model skipped ("44. Ibid." between 43 and 45, its ⁴⁴ in the text), from
+    Tesseract's lines at the foot of the page: (number, text)."""
+    have = {n for n in numbers if n is not None}
+    if not have:
+        return []
+    wanted = [n for n in sorted(set(refs)) if min(have) < n < max(have) and n not in have]
+    lines: dict[int, list[ScanWord]] = {}
+    for word in scan.words:
+        if not word.margin and word.box and word.box[3] > notes_top:
+            lines.setdefault(word.line, []).append(word)
+    ordered = [words for _, words in sorted(lines.items())]
+    found = []
+    for n in wanted:
+        for k, words in enumerate(ordered):
+            if words[0].text.rstrip(".") != str(n):
+                continue
+            text = [w.text for w in words[1:]]
+            for more in ordered[k + 1 :]:  # its next lines, up to the next note
+                if _NOTE_START_RE.match(more[0].text):
+                    break
+                text += [w.text for w in more]
+            if text:
+                found.append((n, " ".join(text)))
+            break
+    return found
+
+
 def _relabel(block: dict, text: str, number: list | None) -> str:
     """Paddle's label, corrected: a title on the page number's row is the running head
     ("FILEBO" beside "91"); a footer that opens with a number and words is a footnote
@@ -553,7 +587,7 @@ def prepare_blocks(
         block = {**block, "label": _relabel(block, text, number)}
         if block.get("label") == "aside_text" and is_mark(text):
             continue  # a margin reference ("12", "e"): found in the scan instead
-        if block.get("label") == "footnote" and not _WORD_RE.search(text):
+        if block.get("label") == "footnote" and _SIGNATURE_RE.match(text):
             continue  # a printer's signature at the foot ("160. — 18"), not a note
         if macrons:
             text = restore_macrons_if_latin(text, latin_default, rivals)
@@ -592,6 +626,16 @@ def prepare_blocks(
     texts, numbers = number_notes([b[2] for b in notes], refs, last_note, last_open)
     for note, text in zip(notes, texts, strict=True):
         note[2] = text
+    if scan and notes:
+        top = min(b[1].y0 for b in notes)
+        for n, text in _recover_notes(scan, refs, numbers, top):
+            # After the note numbered just below it.
+            before = max((k for k, m in enumerate(numbers) if m is not None and m < n), default=-1)
+            at = blocks.index(notes[before]) + 1 if before >= 0 else blocks.index(notes[0])
+            blocks.insert(
+                at, ["footnote", pymupdf.Rect(notes[max(before, 0)][1]), f"{sup(n)} {text}"]
+            )
+            numbers.append(n)
     fixed = fix_refs([b[2] for b in body_blocks], numbers, scan.words if scan else [])
     if scan:
         fixed = _fix_digit_words(fixed, scan.words)

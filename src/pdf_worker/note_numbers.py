@@ -19,11 +19,10 @@ from pdf_worker.margin_refs import ScanWord, norm
 _TO_SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _FROM_SUP = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 SUPERSCRIPT_RE = re.compile("[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
-# A note's own number: superscript, plain, or a mark the model made of it ("* ").
-# A note's number: superscript, plain, or misread as a symbol ("*", or "π" for "78"
-# when a capitalised word follows).
+# A note's own number: superscript, plain ("17 ", "17. "), or misread as a symbol ("*",
+# or "π" for "78" when a capitalised word follows).
 _NOTE_NUMBER_RE = re.compile(
-    r"^(?:([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*|(\d{1,3})\s+|([*'’‘\"“”^°]|[^\sA-Za-zÀ-ÿ\d«¿¡(\[](?=\s+[A-ZÁÉÍÓÚÑ]))\s+)(?=\S)"
+    r"^(?:([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*|(\d{1,3})[.)]?\s+|([*'’‘\"“”^°]|[^\sA-Za-zÀ-ÿ\d«¿¡(\[](?=\s+[A-ZÁÉÍÓÚÑ]))\s+)(?=\S)"
 )
 _MAX_SKIPPED = 2  # a read number this far ahead means Paddle missed notes
 _NOTE_END = (".", "?", "!", "»", ")", '"', "”", "…")
@@ -110,7 +109,11 @@ def number_notes(
             number = read if read is not None else (refs[k] if k < len(refs) else None)
         # A read "1" alone is no new count (note 13 came as "1"): that needs the page's
         # references to start from 1 too (expected is then 1).
-        elif read is not None and expected <= read <= expected + _MAX_SKIPPED:
+        elif read is not None and (
+            expected <= read <= expected + _MAX_SKIPPED or (read > expected and read in refs)
+        ):
+            # Further ahead only when the text has that reference too: notes 30-32
+            # missed, "33." with ³³ in the text is still 33 (Copleston p. 25).
             number = read
         else:
             number = expected
