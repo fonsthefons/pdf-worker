@@ -614,6 +614,9 @@
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.
+- 2026-10-15: committed 9e86cbf (footnote/margin-ref fixes). Denied: committing the
+  code-review-graph tooling files and `git push origin feature/bad-scans-2`; nothing
+  pushed or merged.
 - 2026-10-13: `gh pr merge 20` was denied by the permission classifier; the user has to
   merge PR #20 (and the stacked PR) themselves or allow `gh pr merge`.
 - (Earlier: Claude couldn't edit `.claude/settings.local.json` itself, so the user copied

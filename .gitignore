@@ -14,3 +14,5 @@ scratch/
 test_pdfs/
 # Per-machine Claude Code settings (absolute paths).
 .claude/settings.local.json
+# Added by code-review-graph
+.code-review-graph/
