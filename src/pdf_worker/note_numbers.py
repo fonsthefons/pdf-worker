@@ -31,8 +31,11 @@ _STRAY_RE = re.compile(r"^[\d!¡*'’°]{1,3}[.,;:?!»)]*$")
 _STRONG, _WEAK = 1, 0  # a stray digit or "!" against a stray "?"
 # A reference Paddle wrote in plain digits, as a word of its own: "su número 27."
 _BARE_REF_RE = re.compile(r"(\d{1,3})([.,;:?!»)]*)")
-# ... or glued after the closing punctuation: "constricción”.5"
-_GLUED_REF_RE = re.compile(r"(.*[^\W\d_][^\w\s]{1,2})(\d{1,3})([.,;:?!»)]*)")
+# ... or glued after the closing punctuation ("constricción”.5") or onto a lowercase word
+# ("fórmula32"; not "S1", "FILE0")
+_GLUED_REF_RE = re.compile(
+    r"(.*[^\W\d_](?:[^\w\s]{1,2}|(?<=[a-záéíóúñü]{3})))(\d{1,3})([.,;:?!»)]*)"
+)
 _PADDLE = 2  # Paddle saw a reference there, with another number
 
 

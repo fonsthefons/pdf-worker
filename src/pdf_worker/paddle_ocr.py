@@ -100,6 +100,8 @@ _FOREIGN_RE = re.compile(r"[Ạ-ỹăơưđĂƠƯĐ؀-ۿ぀-ヿ一-鿿]")
 _MIN_FOREIGN, _FOREIGN_SHARE = 3, 0.05
 _MIXED_LABEL = "algorithm"  # what Paddle calls a table of Greek variants
 _NOTE_START_RE = re.compile(r"^\d{1,3}\.?$")  # a scan line opening a note: "45."
+_NOTE_SPLIT_RE = re.compile(r"\n(?=\d{1,3}[.)]\s)")  # a note block's line opening a note
+_NOTE_BREAK = "\x1e"
 # "11D Cf. Leyes", "16. De l'esprit", "15. C.S., III" (not "160. - S", a signature)
 _FOOTER_NOTE_RE = re.compile(r"^\d[\dA-Za-z]{0,3}\.?\s+[^\W\d_]")
 _WORKER_PAGE_RE = re.compile(r"paddle: page (\d+)/\d+")  # paddle_worker's progress line
@@ -624,6 +626,10 @@ def prepare_blocks(
             continue  # a reader's tick or stroke in the margin ("！" for ✓)
         if block.get("label") == "footnote" and _SIGNATURE_RE.match(text):
             continue  # a printer's signature at the foot ("160. — 18"), not a note
+        if block.get("label") == "footnote":
+            # Short notes read as one block ("10. J 28.\n11. J 31."): split at the end,
+            # after the lines are joined.
+            text = _NOTE_SPLIT_RE.sub(_NOTE_BREAK, text)
         if macrons:
             text = restore_macrons_if_latin(text, latin_default, rivals)
         text = _printable(text, font)
@@ -656,6 +662,10 @@ def prepare_blocks(
             # A block opening in lowercase continues the previous page's sentence.
             if block.get("label") == "text" and not text[0].islower():
                 text = "  " + text
+        if block.get("label") == "footnote":
+            for part in text.split(_NOTE_BREAK):
+                blocks.append(["footnote", pymupdf.Rect(rect), part.strip()])
+            continue
         blocks.append([block.get("label"), rect, text])
     notes = [b for b in blocks if b[0] == "footnote"]
     body_blocks = [b for b in blocks if b[0] != "footnote"]

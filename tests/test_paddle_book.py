@@ -141,6 +141,23 @@ def test_pages_missing_from_the_scan_take_their_notes_with_them(tmp_path):
     assert [n.label for n in notes] == ["c0-6", "c0-13"]
 
 
+def test_two_notes_read_as_one_block_are_split(tmp_path):
+    rows = [
+        _row(
+            0,
+            ("text", [144, 300, 1046, 900], INTRO + " J 28 $ ^{10} $ y J 31 $ ^{11} $."),
+            ("footnote", [144, 1400, 1046, 1440], "10. J 28.\n11. J 31."),
+        )
+    ]
+    path = tmp_path / "two.pdf"
+    with pymupdf.open() as doc:
+        doc.new_page()
+        doc.save(path)
+    with pymupdf.open(path) as doc:
+        notes = [b for b in iter_paddle_blocks(doc, rows, images=False) if isinstance(b, Note)]
+    assert [(n.label, n.text) for n in notes] == [("c0-10", "J 28."), ("c0-11", "J 31.")]
+
+
 def test_a_readers_tick_in_the_margin_is_no_gloss(tmp_path):
     rows = [
         _row(

@@ -85,6 +85,9 @@ def test_a_due_number_in_plain_digits_is_a_reference():
     assert fix_refs(texts, [4, 5, 6, 7], []) == [
         "consolidado.”⁴ Así ... bajo perpetua constrición”.⁵ Todos ... S1 y art.12 aquí⁷"
     ]
+    # Glued straight onto the word (Copleston p. 300).
+    texts = ["parte”.³¹ Esta fórmula32 puede ser FILE3 la"]
+    assert fix_refs(texts, [31, 32, 33], []) == ["parte”.³¹ Esta fórmula³² puede ser FILE3 la"]
 
 
 def test_a_stray_question_mark_counts_only_when_it_fills_the_gap():
