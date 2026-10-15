@@ -44,7 +44,7 @@ def main() -> int:
     with pymupdf.open(args.pdf) as doc, open(args.out, "w", encoding="utf-8") as out:
         for done, index in enumerate(pages, start=1):
             image = work / f"page-{index}.png"
-            doc.load_page(index).get_pixmap(dpi=args.dpi).save(image)
+            doc.load_page(index).get_pixmap(dpi=args.dpi, annots=False).save(image)
             blocks = []
             width = height = 0
             for result in pipeline.predict(str(image)):

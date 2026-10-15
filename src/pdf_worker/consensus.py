@@ -246,7 +246,7 @@ def _page_image(page: pymupdf.Page) -> "np.ndarray":
 
     from pdf_worker.underlines import MIN_UNDERLINES, erase_underlines
 
-    pix = page.get_pixmap(dpi=_DPI, colorspace=pymupdf.csGRAY)
+    pix = page.get_pixmap(dpi=_DPI, colorspace=pymupdf.csGRAY, annots=False)
     gray = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.stride)
     gray = gray[:, : pix.width].copy()
     cleaned, broken = erase_underlines(gray, _DPI)

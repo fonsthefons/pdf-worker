@@ -77,7 +77,7 @@ def test_underlined_pages_of_a_scan_are_redone(tmp_path):
 
 
 def test_page_boxes_are_moved_to_the_origin_for_ocr(tmp_path):
-    from pdf_worker.ocr import _zero_origin_copy
+    from pdf_worker.ocr import _ocr_source_copy
 
     source = tmp_path / "spread.pdf"
     doc = pymupdf.open()
@@ -87,13 +87,35 @@ def test_page_boxes_are_moved_to_the_origin_for_ocr(tmp_path):
     doc.save(source)
     target = tmp_path / "moved.pdf"
 
-    assert _zero_origin_copy(source, target)
+    assert _ocr_source_copy(source, target)
     with pymupdf.open(source) as before, pymupdf.open(target) as after:
         old = before[0].search_for("right-hand")[0]
         new = after[0].search_for("right-hand")[0]
         assert tuple(after[0].mediabox) == (0, 0, 330, 500)
         assert new == old  # same place on the visible page
-    assert not _zero_origin_copy(target, tmp_path / "unused.pdf")
+    assert not _ocr_source_copy(target, tmp_path / "unused.pdf")
+
+
+def test_a_readers_marks_are_dropped_before_ocr(tmp_path):
+    from pdf_worker.ocr import _ocr_source_copy
+
+    source = tmp_path / "marked.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Roma in Italia est.", fontsize=12)
+    words = page.search_for("Italia")[0]
+    page.add_highlight_annot(words)
+    page.add_underline_annot(words)
+    page.add_ink_annot([[(72, 200), (150, 210)]])
+    page.insert_link({"kind": pymupdf.LINK_URI, "from": words, "uri": "https://example.org"})
+    doc.save(source)
+    target = tmp_path / "clean.pdf"
+
+    assert _ocr_source_copy(source, target)
+    with pymupdf.open(target) as clean:
+        assert not list(clean[0].annots())
+        assert len(clean[0].get_links()) == 1
+        assert "Roma in Italia est." in clean[0].get_text()
 
 
 def test_space_sizes_do_not_move_the_line():

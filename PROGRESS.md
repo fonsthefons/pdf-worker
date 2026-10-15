@@ -707,6 +707,21 @@
   Result: words back, dialogue starts at [11a].
 - Tests: `test_a_word_past_a_column_measured_too_narrow_stays`. 173 pass, ruff clean.
 
+## Familia "better" scan: reader's marks removed (Step 1 of 2026-10-15 list)
+- `test_familia_better_with_notes.pdf` (6 pages, same pages as test_familia_bad): the
+  highlights/underlines were PDF annotations (Highlight, Underline, with popup notes);
+  the scan itself has no handwriting (only dust specks). Stripped them
+  (`scratch/familia_better_strip.py`) into `test_pdfs/test_familia_better.pdf`, deleted
+  the original (user's choice).
+- Its OCR layer is *not* better (`scratch/familia_layer_diff.py`): "est." -> "esto"
+  everywhere (Spanish model), "ī" -> "I", "m" -> "rn", small-cap c -> "e", "littera" ->
+  "linera"; no macrons in either layer. Per the user, Step 1 stops here.
+- Library: every page render (`paddle_worker`, `consensus._page_image`, underline
+  detection, OCR probe, figures/cover, missing-ref crops) now passes `annots=False`, and
+  OCRmyPDF's source copy (`ocr._ocr_source_copy`, was `_zero_origin_copy`) drops markup
+  annotations (`ocr.MARKUP_ANNOTS`; links stay). Test:
+  `test_a_readers_marks_are_dropped_before_ocr`.
+
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.

@@ -142,7 +142,7 @@ def tesseract_try(tesseract: str, language: str) -> Try:
     def attempt(page: pymupdf.Page, region: pymupdf.Rect, number: int) -> str | None:
         import numpy
 
-        pix = page.get_pixmap(dpi=_TESS_DPI, clip=region, colorspace=pymupdf.csGRAY)
+        pix = page.get_pixmap(dpi=_TESS_DPI, clip=region, colorspace=pymupdf.csGRAY, annots=False)
         gray = numpy.frombuffer(pix.samples, dtype=numpy.uint8).reshape(pix.height, pix.width)
         tokens = [w[4] for line in _tesseract_lines(gray, tesseract, language) for w in line]
         return _one(_after_word(tokens, number))

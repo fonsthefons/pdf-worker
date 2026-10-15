@@ -83,7 +83,7 @@ def erase_underlines(gray: np.ndarray, dpi: float) -> tuple[np.ndarray, int]:
 
 def is_underlined(page: pymupdf.Page) -> bool:
     """Does this (scanned) page have hand-drawn underlines? A quick low-resolution look."""
-    pix = page.get_pixmap(dpi=_DETECT_DPI, colorspace=pymupdf.csGRAY)
+    pix = page.get_pixmap(dpi=_DETECT_DPI, colorspace=pymupdf.csGRAY, annots=False)
     gray = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.stride)
     _, broken = find_underlines(gray[:, : pix.width] < 128, _DETECT_DPI)
     return broken >= MIN_UNDERLINES

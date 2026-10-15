@@ -81,7 +81,9 @@ def page_images(
 def render_cover(page: pymupdf.Page) -> bytes:
     """The first page as a JPEG cover, about ``COVER_HEIGHT_PX`` tall."""
     zoom = COVER_HEIGHT_PX / max(page.rect.height, 1.0)
-    pixmap = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), colorspace=pymupdf.csRGB)
+    pixmap = page.get_pixmap(
+        matrix=pymupdf.Matrix(zoom, zoom), colorspace=pymupdf.csRGB, annots=False
+    )
     return pixmap.tobytes("jpeg", jpg_quality=JPEG_QUALITY)
 
 
@@ -99,7 +101,7 @@ def labels_inside(lines: list[Line], images: list[PageImage]) -> set[int]:
 
 def _render(page: pymupdf.Page, rect: pymupdf.Rect) -> PageImage:
     rect = (rect + (-_PAD, -_PAD, _PAD, _PAD)) & page.rect
-    pixmap = page.get_pixmap(clip=rect, dpi=FIGURE_DPI, colorspace=pymupdf.csRGB)
+    pixmap = page.get_pixmap(clip=rect, dpi=FIGURE_DPI, colorspace=pymupdf.csRGB, annots=False)
     data = pixmap.tobytes("jpeg", jpg_quality=JPEG_QUALITY)
     return PageImage(rect=rect, data=data, width=pixmap.width, height=pixmap.height)
 
@@ -119,7 +121,7 @@ def _merge(rects: list[pymupdf.Rect]) -> list[pymupdf.Rect]:
 
 def _illustrations_in_scan(page: pymupdf.Page, lines: list[Line]) -> list[pymupdf.Rect]:
     """Tall bands of ink without lines of text, on a scanned page."""
-    pixmap = page.get_pixmap(dpi=_SCAN_DPI, colorspace=pymupdf.csGRAY)
+    pixmap = page.get_pixmap(dpi=_SCAN_DPI, colorspace=pymupdf.csGRAY, annots=False)
     width, height, samples = pixmap.width, pixmap.height, pixmap.samples
     scale = height / page.rect.height
     # "Ink" is anything clearly darker than this scan's paper (watercolours are light).
