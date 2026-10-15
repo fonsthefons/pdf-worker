@@ -8,7 +8,14 @@ from pdf_worker.epub import write_epub
 from pdf_worker.footnotes import BodyLine
 from pdf_worker.inline import margin_ref, plain
 from pdf_worker.layout import DocumentProfile, Line
-from pdf_worker.margin_refs import PageScan, ScanMark, ScanWord, mark_paddle_blocks, next_label
+from pdf_worker.margin_refs import (
+    PageScan,
+    ScanMark,
+    ScanWord,
+    assign_labels,
+    mark_paddle_blocks,
+    next_label,
+)
 from pdf_worker.output import Metadata
 from pdf_worker.structure import Heading, Note, Paragraph, _State
 from pdf_worker.text_export import write_text
@@ -33,6 +40,23 @@ def test_labels_follow_the_section_order_whatever_was_read():
     assert labels == ["22a", "22b", "22c", "22d", "22e", "23a", "23c", "23d"]
     assert next_label(None, "b") == "b"  # no number yet: as printed
     assert next_label(None, "?") is None
+
+
+def test_a_whole_run_of_marks_is_labelled_together():
+    # Platón bad pp. 41-43: a misread "23", then a stray "e" and two pencil blots
+    # among 23d and 23e; the greedy reading ran one label ahead from there on.
+    pages = [41] * 3 + [42] * 5 + [43] * 4 + [44] * 2
+    reads = ["22", "b", "c", "e", "d", "?", "?", "e", "24", "?", "c", "?", "e", "25"]
+    labels = assign_labels(list(zip(pages, reads, strict=True)))
+    assert labels[3:9] == [None, "23d", None, None, "23e", "24a"]
+    assert labels[-1] == "25a" and labels[0] == "23a"
+    # A long gap (an introduction) starts the next dialogue's count.
+    assert assign_labels([(1, "67"), (2, "b"), (20, "17"), (21, "b")]) == [
+        "67a",
+        "67b",
+        "17a",
+        "17b",
+    ]
 
 
 def test_line_numbers_are_not_section_references():

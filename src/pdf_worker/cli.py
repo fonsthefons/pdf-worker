@@ -78,7 +78,7 @@ def _progress(stage: str):
         line = f"{stage}: {pct}% ({done}/{total} pages)"
         if first < done < total:
             left = (time.monotonic() - start) / (done - first) * (total - done)
-            line += f", about {_duration(left)} left"
+            line += f", {_duration(left)} left"
         if tty:
             sys.stderr.write(f"\r\033[K{line}" + ("\n" if done >= total else ""))
         else:
@@ -92,7 +92,11 @@ def _duration(seconds: float) -> str:
     minutes = round(seconds / 60)
     if minutes < 1:
         return "under a minute"
-    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d} min"
+    return (
+        f"about {minutes} min"
+        if minutes < 60
+        else f"about {minutes // 60} h {minutes % 60:02d} min"
+    )
 
 
 @contextmanager

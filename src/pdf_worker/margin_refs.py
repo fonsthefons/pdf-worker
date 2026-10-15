@@ -78,6 +78,126 @@ def next_label(previous: str | None, reading: str) -> str | None:
     return expected
 
 
+# Costs for ``assign_labels``: a mark taken as ink that is no mark (pencil, a smudge),
+# by what it was read as; a label with no mark; readings against labels.
+_JUNK = {"unread": 0.6, "letter": 1.0, "number": 1.2}
+_SKIP = 1.0
+_UNREAD, _NEAR_LETTER, _WRONG_LETTER = 0.4, 0.6, 1.0
+_NEAR_NUMBER, _WRONG_NUMBER, _NUMBER_AS_LETTER, _LETTER_AS_NUMBER = 0.8, 1.2, 1.3, 1.0
+_CONFUSED = {frozenset("ce"), frozenset("ad"), frozenset("bh")}
+_MAX_SKIP = 5  # labels in a row without a mark
+_SECTION_GAP = 4  # pages without marks that end a dialogue (an introduction follows)
+
+
+def assign_labels(readings: list[tuple[int, str]]) -> list[str | None]:
+    """Labels for a book's marks at once: ``readings`` are (page number, reading) in
+    reading order; None marks ink taken for no mark at all.
+
+    One misread can't be judged alone: "e" after "23c" may be 23e (23d missed), 23d
+    misread, or a pencil stroke. So the whole run of marks of a dialogue is labelled
+    together (dynamic programming): labels only go up, each mark is a label or junk,
+    and the sequence that fits the readings at least cost wins. Marks more than
+    ``_SECTION_GAP`` pages apart start a new run (the next dialogue counts anew).
+    """
+    labels: list[str | None] = []
+    start = 0
+    for i in range(1, len(readings) + 1):
+        if i == len(readings) or readings[i][0] - readings[i - 1][0] > _SECTION_GAP:
+            labels += _label_run([r for _, r in readings[start:i]])
+            start = i
+    return labels
+
+
+def _label_run(readings: list[str]) -> list[str | None]:
+    numbers = [int(m.group(1)) for r in readings if (m := _MARK_RE.match(r)) and m.group(1)]
+    if not numbers:  # no page number anywhere: nothing to count from
+        return [next_label(None, r) if has_letter(r) else None for r in readings]
+    lo, hi = max(1, min(numbers) - 1) * 5, (max(numbers) + 2) * 5
+    size = hi - lo
+    inf = float("inf")
+    start_cost = 0.0  # cost of the marks so far when all were junk
+    cost = [inf] * size  # cost when the last labelled mark has label lo + s
+    back = []  # per mark: per state, the previous state (-1: start) or None (junk)
+    for reading in readings:
+        junk = _junk_cost(reading)
+        new, came = [inf] * size, [None] * size
+        for s in range(size):
+            emit = _emit_cost(reading, lo + s)
+            best, prev = start_cost + emit, -1
+            for gap in range(1, _MAX_SKIP + 2):
+                if s - gap < 0:
+                    break
+                c = cost[s - gap] + (gap - 1) * _SKIP + emit
+                if c < best:
+                    best, prev = c, s - gap
+            if cost[s] + junk < best:
+                best, prev = cost[s] + junk, None
+            new[s], came[s] = best, prev
+        back.append(came)
+        start_cost += junk
+        cost = new
+    # Walk back from the cheapest end.
+    state = min(range(size), key=cost.__getitem__)
+    if start_cost <= cost[state]:
+        return [None] * len(readings)
+    out: list[str | None] = [None] * len(readings)
+    for i in range(len(readings) - 1, -1, -1):
+        prev = back[i][state]
+        if prev is None:
+            continue  # junk: the state stays
+        out[i] = _label(lo + state)
+        if prev == -1:
+            break
+        state = prev
+    return out
+
+
+def _label(value: int) -> str:
+    return f"{value // 5}{'abcde'[value % 5]}"
+
+
+def _junk_cost(reading: str) -> float:
+    match = _MARK_RE.match(reading)
+    if not match or not reading or reading == UNREADABLE:
+        return _JUNK["unread"]
+    return _JUNK["number"] if match.group(1) else _JUNK["letter"]
+
+
+def _emit_cost(reading: str, value: int) -> float:
+    number, letter = divmod(value, 5)
+    letter = "abcde"[letter]
+    match = _MARK_RE.match(reading)
+    if not match or not reading:
+        return _UNREAD
+    digits, read_letter = match.groups()
+    costs = []
+    if read_letter:
+        if letter == "a":  # the "a" line carries the number, not a letter
+            costs.append(_LETTER_AS_NUMBER)
+        elif read_letter == letter:
+            costs.append(0.0)
+        else:
+            near = frozenset((read_letter, letter)) in _CONFUSED
+            costs.append(_NEAR_LETTER if near else _WRONG_LETTER)
+    if digits:
+        if letter != "a":
+            costs.append(_NUMBER_AS_LETTER)
+        elif int(digits) == number:
+            costs.append(0.0)
+        else:
+            costs.append(_NEAR_NUMBER if _one_off(digits, str(number)) else _WRONG_NUMBER)
+    return min(costs)
+
+
+def _one_off(read: str, real: str) -> bool:
+    """Read "22" for 23 or "56" for 36: one more or less, or one digit wrong."""
+    if abs(int(read) - int(real)) == 1:
+        return True
+    if len(read) != len(real):
+        return False
+    return sum(a != b for a, b in zip(read, real, strict=True)) == 1
+
+
 # -- marks stored on the page -------------------------------------------------------------
 
 

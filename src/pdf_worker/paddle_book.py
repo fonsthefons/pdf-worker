@@ -21,8 +21,8 @@ import pymupdf
 from pdf_worker import missing_refs
 from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
-from pdf_worker.margin_refs import next_label
-from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup
+from pdf_worker.margin_refs import assign_labels
+from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
 from pdf_worker.paddle_ocr import page_scanner, prepare_blocks, text_settings
 from pdf_worker.structure import Block, Gloss, Heading, Image, Note, Paragraph
@@ -70,8 +70,10 @@ def iter_paddle_blocks(
         code = TESSERACT_CODES.get(language, DEFAULT_LANGUAGE)
         tries.append(("Tesseract", missing_refs.tesseract_try(tesseract_path(), code)))
     tries.append(("Paddle crop", clips))
-    book = _Book()
-    last_note = None
+    # Pages are prepared first and the book is built after: margin marks are labelled
+    # all at once (``assign_labels``), which needs every reading.
+    prepared = []  # (page mark, row, blocks, anchors); blocks None for front matter
+    last_note, last_open = None, False
     front = True
     try:
         for done, row in enumerate(sorted(rows, key=lambda r: r["page"])):
@@ -82,7 +84,7 @@ def iter_paddle_blocks(
                 (b["text"].strip() for b in row["blocks"] if b.get("label") == "number"), ""
             )
             label = number if number.isdigit() else str(row["page"] + 1)
-            book.marks.append(page_mark(row["page"], label))
+            mark = page_mark(row["page"], label)
             if front:
                 words = sum(
                     len(b.get("text", "").split())
@@ -90,31 +92,49 @@ def iter_paddle_blocks(
                     if b.get("label") in ("text", "footnote")
                 )
                 if words < _FRONT_WORDS:
-                    continue  # title pages: the cover and the metadata stand for them
+                    # title pages: the cover and the metadata stand for them
+                    prepared.append((mark, row, None, None))
+                    continue
                 front = False
             blocks, anchors, last_note = prepare_blocks(
-                page, row, macrons, latin_default, rivals, scan_of(page), last_note
+                page, row, macrons, latin_default, rivals, scan_of(page), last_note, last_open
             )
+            last_open = left_open(blocks)
             for n, source in missing_refs.restore(page, blocks, tries):
                 if restored is not None:
                     restored.append(f"note {n} reference restored from {source}, page {label}")
-            yield from book.add_page(page, row, blocks, anchors, images)
+            prepared.append((mark, row, blocks, anchors))
         if on_page:
             on_page(len(rows), len(rows))
-        yield from book.flush()
     finally:
         clips.close()
 
+    def build(book: _Book, pictures: bool) -> Iterator[Block]:
+        for mark, row, blocks, anchors in prepared:
+            book.marks.append(mark)
+            book.page = row["page"]
+            if blocks is not None:
+                yield from book.add_page(doc.load_page(row["page"]), row, blocks, anchors, pictures)
+        yield from book.flush()
+
+    readings: list[tuple[int, str]] = []
+    dry = _Book(lambda reading: readings.append((dry.page, reading)))
+    for _ in build(dry, False):
+        pass
+    labels = iter(assign_labels(readings))
+    yield from build(_Book(lambda reading: next(labels)), images)
+
 
 class _Book:
-    def __init__(self) -> None:
+    def __init__(self, label_of: Callable[[str], str | None]) -> None:
+        self.label_of = label_of  # a margin mark's reading -> its label (None: no mark)
+        self.page = 0  # the page being added (0-based)
         self.para: str | None = None  # the paragraph in progress (may run on a page)
         self.pending: list[Block] = []  # notes, glosses and pictures after it
         self.marks: list[str] = []  # page starts not yet placed in the text
         self.part = 0
         self.notes_seen = False
         self.last_note: str | None = None
-        self.margin_label: str | None = None
 
     def flush(self) -> Iterator[Block]:
         if self.para is not None:
@@ -176,9 +196,8 @@ class _Book:
         """Margin references at their words, note references as ``[^label]``."""
         words = text.split()
         for k, reading in sorted(marks):
-            label = next_label(self.margin_label, reading)
+            label = self.label_of(reading)
             if label and k < len(words):
-                self.margin_label = label
                 words[k] = margin_ref(label) + words[k]
         text = _BROKEN_WORD_RE.sub(r"\1", " ".join(words))
         text = _SPEAKER_RE.sub(

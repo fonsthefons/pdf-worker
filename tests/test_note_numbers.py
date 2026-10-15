@@ -1,7 +1,7 @@
 """Footnote numbers on PaddleOCR-VL pages (from test_platon_bad_5, Filebo 11a-13a)."""
 
 from pdf_worker.margin_refs import PageScan, ScanMark, ScanWord, mark_paddle_blocks
-from pdf_worker.note_numbers import fix_refs, number_notes
+from pdf_worker.note_numbers import fix_refs, left_open, number_notes
 
 
 def _scan(text: str) -> list[ScanWord]:
@@ -25,6 +25,21 @@ def test_notes_count_on_from_the_previous_page_whatever_was_read():
     # Going on in capitals: the next note has the number due (test_platon_bad_3 p. 22).
     _, numbers = number_notes(["Hermes 88 (1960).", "¹⁴ Por confundir."], [14], 13)
     assert numbers == [None, 14]
+
+    # Going on alone, in capitals: note 86 broke off and nothing on the page refers to
+    # note 87 (Platón p. 67). After a finished note, it is note 87 whose ref was lost.
+    _, numbers = number_notes(["GOLDSCHMIDT, ob. cit."], [], 86, last_open=True)
+    assert numbers == [None]
+    _, numbers = number_notes(["Cf. Rep. 583.", "⁸⁶ Cuestión."], [86], 84, last_open=False)
+    assert numbers == [85, 86]
+    _, numbers = number_notes(["Sobre este análisis."], [87], 86, last_open=True)
+    assert numbers == [87]
+    assert left_open([["text", None, "x"], ["footnote", None, "Como indica"]])
+    assert not left_open([["footnote", None, "Cf. Rep. 583."]])
+
+    # "78" read as "π" is a number, not a lowercase word going on (Platón p. 59).
+    texts, numbers = number_notes(["π Para HARDING.", "⁷⁹ Para Calicles."], [78, 79], 77)
+    assert numbers == [78, 79] and texts[0] == "⁷⁸ Para HARDING."
 
 
 def test_a_reference_that_starts_at_one_is_a_new_count():

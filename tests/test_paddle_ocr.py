@@ -35,7 +35,7 @@ def test_blocks_become_an_invisible_text_layer():
     page = doc.new_page()
     page.insert_font(fontname="notos", fontbuffer=pymupdf.Font("notos").buffer)
 
-    written, last_note = paddle_ocr.write_blocks(page, ROW, macrons=True)
+    written, last_note, _ = paddle_ocr.write_blocks(page, ROW, macrons=True)
 
     text = page.get_text()
     assert written == 3  # the image block has no text

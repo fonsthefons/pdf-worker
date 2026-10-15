@@ -20,8 +20,13 @@ _TO_SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _FROM_SUP = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 SUPERSCRIPT_RE = re.compile("[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
 # A note's own number: superscript, plain, or a mark the model made of it ("* ").
-_NOTE_NUMBER_RE = re.compile(r"^(?:([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*|(\d{1,3})\s+|([*'’‘\"“”^°])\s+)(?=\S)")
+# A note's number: superscript, plain, or misread as a symbol ("*", or "π" for "78"
+# when a capitalised word follows).
+_NOTE_NUMBER_RE = re.compile(
+    r"^(?:([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*|(\d{1,3})\s+|([*'’‘\"“”^°]|[^\sA-Za-zÀ-ÿ\d«¿¡(\[](?=\s+[A-ZÁÉÍÓÚÑ]))\s+)(?=\S)"
+)
 _MAX_SKIPPED = 2  # a read number this far ahead means Paddle missed notes
+_NOTE_END = (".", "?", "!", "»", ")", '"', "”", "…")
 # What Tesseract makes of a small reference after a word: "5,", "!0?", "!!.", "*".
 _STRAY_RE = re.compile(r"^[\d!¡*'’°]{1,3}[.,;:?!»)]*$")
 _STRONG, _WEAK = 1, 0  # a stray digit or "!" against a stray "?"
@@ -38,13 +43,21 @@ def from_sup(text: str) -> int:
     return int(text.translate(_FROM_SUP))
 
 
+def left_open(blocks: Sequence[Sequence]) -> bool:
+    """Whether a page's last footnote (``[label, rect, text]`` blocks) breaks off
+    mid-sentence, to go on at the foot of the next page."""
+    notes = [b[2].rstrip() for b in blocks if b[0] == "footnote" and b[2].strip()]
+    return bool(notes) and not notes[-1].endswith(_NOTE_END)
+
+
 def number_notes(
-    notes: Sequence[str], refs: Sequence[int], last: int | None
+    notes: Sequence[str], refs: Sequence[int], last: int | None, last_open: bool = False
 ) -> tuple[list[str], list[int | None]]:
     """Give a page's notes their numbers.
 
     ``refs`` are the reference numbers Paddle read on the page, ``last`` the previous
-    page's last note (None: no count yet). Returns the notes, each starting with its
+    page's last note (None: no count yet), ``last_open`` whether that note broke off
+    mid-sentence (``left_open``). Returns the notes, each starting with its
     number as superscript, and the numbers (None: the previous page's last note going on,
     or no number to be had)."""
     expected = last + 1 if last is not None else None
@@ -55,14 +68,18 @@ def number_notes(
     skip = max(0, len(notes) - len(refs)) if expected is None else 0
     texts, numbers = [], []
     # An unnumbered first note goes on from the previous page when it starts lowercase,
-    # or when the next note has the number due ("Hermes 88 (1960)…", then "¹⁴").
+    # when the next note has the number due ("Hermes 88 (1960)…", then "¹⁴"), or when
+    # nothing on the page refers to the note due ("GOLDSCHMIDT, ob. cit. …" alone).
     second = _NOTE_NUMBER_RE.match(notes[1]) if len(notes) > 1 else None
     second_read = second and (second.group(1) or second.group(2))
     next_is_due = bool(second_read) and expected is not None and from_sup(second_read) == expected
+    unreferenced = last_open and expected is not None and all(r > expected for r in refs)
     for i, note in enumerate(notes):
         match = _NOTE_NUMBER_RE.match(note)
         body = note[match.end() :] if match else note
-        goes_on = i == 0 and last is not None and (body[:1].islower() or next_is_due)
+        goes_on = (
+            i == 0 and last is not None and (body[:1].islower() or next_is_due or unreferenced)
+        )
         if not match and (i < skip or goes_on):
             texts.append(note)
             numbers.append(None)

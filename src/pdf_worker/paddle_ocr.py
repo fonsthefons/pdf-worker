@@ -51,7 +51,13 @@ from pdf_worker.margin_refs import (
     norm,
     scan_page,
 )
-from pdf_worker.note_numbers import SUPERSCRIPT_RE, fix_refs, from_sup, number_notes
+from pdf_worker.note_numbers import (
+    SUPERSCRIPT_RE,
+    fix_refs,
+    from_sup,
+    left_open,
+    number_notes,
+)
 from pdf_worker.ocr import (
     DEFAULT_LANGUAGE,
     MODES,
@@ -372,14 +378,16 @@ def _write_text_layer(
         raise PdfOpenError(f"Could not open {pdf_path}: {exc}") from exc
     with doc:
         font = _font()
-        last_note = None
+        last_note, last_open = None, False
         for row in rows:
             page = doc.load_page(row["page"])
             scan = scan_of(page)  # finds the margin references Paddle drops
             if mode != "skip":
                 _remove_text(page)
             page.insert_font(fontname=_FONT, fontbuffer=font.buffer)
-            _, last_note = write_blocks(page, row, macrons, latin_default, rivals, scan, last_note)
+            _, last_note, last_open = write_blocks(
+                page, row, macrons, latin_default, rivals, scan, last_note, last_open
+            )
         doc.save(out, garbage=3, deflate=True)
     return macrons
 
@@ -392,9 +400,11 @@ def write_blocks(
     rivals: Collection[str] | None = None,
     scan: PageScan | None = None,
     last_note: int | None = None,
-) -> tuple[int, int | None]:
-    """Write a page's Paddle blocks as invisible text; returns the blocks written and
-    the page's last footnote number (``last_note`` is the previous page's).
+    last_open: bool = False,
+) -> tuple[int, int | None, bool]:
+    """Write a page's Paddle blocks as invisible text; returns the blocks written, the
+    page's last footnote number and whether that note breaks off (``last_note`` and
+    ``last_open`` are the previous page's).
 
     With ``macrons``, blocks that read as Latin rather than one of the ``rivals``
     languages get their macrons restored; blocks too short to tell follow
@@ -402,7 +412,7 @@ def write_blocks(
     page (see ``pdf_worker.margin_refs``); its words help put back dropped footnote
     references (``pdf_worker.note_numbers``)."""
     blocks, anchors, last_note = prepare_blocks(
-        page, row, macrons, latin_default, rivals, scan, last_note
+        page, row, macrons, latin_default, rivals, scan, last_note, last_open
     )
     written = 0
     # One body size per page: the model's boxes are tight, so a short paragraph would
@@ -425,7 +435,7 @@ def write_blocks(
         page.parent.xref_set_key(
             page.xref, MARKS_KEY, pymupdf.get_pdf_str(json.dumps(stored)) if stored else "null"
         )
-    return written, last_note
+    return written, last_note, left_open(blocks)
 
 
 def prepare_blocks(
@@ -436,10 +446,12 @@ def prepare_blocks(
     rivals: Collection[str] | None = None,
     scan: PageScan | None = None,
     last_note: int | None = None,
+    last_open: bool = False,
 ) -> tuple[list[list], dict[int, list[tuple[int, str]]], int | None]:
     """A page's Paddle blocks, cleaned: ``[label, rect (page units), text]`` in reading
     order (footnotes numbered, references fixed, margin marks taken out), the margin
-    references per block (``{block: [(word index, reading)]}``) and the last note."""
+    references per block (``{block: [(word index, reading)]}``) and the last note.
+    ``last_open``: the previous page's last note broke off (``note_numbers.left_open``)."""
     sx = page.rect.width / (row.get("width") or page.rect.width)
     sy = page.rect.height / (row.get("height") or page.rect.height)
     font = _font()
@@ -486,7 +498,7 @@ def prepare_blocks(
     notes = [b for b in blocks if b[0] == "footnote"]
     body_blocks = [b for b in blocks if b[0] != "footnote"]
     refs = [from_sup(r) for b in body_blocks for r in SUPERSCRIPT_RE.findall(b[2])]
-    texts, numbers = number_notes([b[2] for b in notes], refs, last_note)
+    texts, numbers = number_notes([b[2] for b in notes], refs, last_note, last_open)
     for note, text in zip(notes, texts, strict=True):
         note[2] = text
     fixed = fix_refs([b[2] for b in body_blocks], numbers, scan.words if scan else [])
