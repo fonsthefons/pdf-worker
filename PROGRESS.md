@@ -751,6 +751,29 @@
 - Whole book scores (good pp. 6-175): word errors 2.0%, refs 348/367 (6 are on the two
   pages missing from the scan), notes 355/367, margin refs 620/714 on the right line.
 
+## philosophy.pdf, Copleston VI (Step 3 of 2026-10-15 list), branch feature/platon-full
+- 462 pages, Spanish, Acrobat OCR layer (poor). Paddle OCR cached in the background
+  (`scratch/paddle_cache_book.py`); builds of page ranges with `scratch/book_build.py PDF
+  A-B scratch/philo [txt md pdf epub]`. No good edition: judged against page images
+  (crops via `scratch/crop.py`) and with an exact reference/note link check on the
+  Markdown output (`scratch/link_check.py`).
+- No margin references are inserted anywhere (the label assignment needs two page
+  numbers read exactly; this book has none).
+- The "hand-made annotations" are pencil ticks (✓) at line ends in the right margin
+  (e.g. p. 83). Paddle ignores them in the text; one became a margin note "！": margin
+  blocks without a letter or digit are now dropped. No colour, no underlines found
+  (`scratch/ink_pages.py`, `scratch/margin_ink.py`).
+- Fixes: printed contents pages (Paddle label "content") dropped; note numbers printed
+  "17." read; a read note number further ahead is kept when the text has that reference
+  (notes 30-32 missed had pushed every later note 3-7 back); notes Paddle skipped (or
+  whose page it saw no note on) recovered from Tesseract's lines; footer-labelled notes
+  ("16. De l'esprit", "15. C.S.") relabelled; references glued after punctuation
+  ("constricción”.5") in Paddle's text and in the PDF's layer; the printer's-signature
+  filter narrowed (it had dropped notes like "31. 7."); a few made-up Chinese letters in
+  a good block replaced by Tesseract's words.
+- Link check: pp. 41-150 169 refs / 167 notes, 2 notes without their reference;
+  pp. 151-290 227 / 225, 1 ref without a note, 2 notes without a reference.
+
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.
