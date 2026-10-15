@@ -1,13 +1,16 @@
-"""Score a reflowed test_platon_bad_3 (.txt from convert) against the good ePub-made PDF.
+"""Score a reflowed Platón book (.txt from convert) against the good ePub-made PDF.
 
-Usage: python tests/platon_score.py <ours.txt> [--verbose]
-(also used by ``test_paddle_book_platon.py``).
+Usage: python tests/platon_score.py <ours.txt> [--pages 6-175] [--verbose]
+(also used by ``test_paddle_book_platon.py``). The default pages, 6-23, are what
+test_platon_bad_3 covers; 6-175 is the whole book.
 
-Ground truth: platon_dialogos_vi_good.pdf pp. 6-23 (Introducción, Nota bibliográfica,
+Ground truth: platon_dialogos_vi_good.pdf's pages (Introducción, Nota bibliográfica,
 Filebo 11a-...), their notes (linked pages in the final "Notas" section), the margin
 references (labels in the right margin) and paragraph starts (indented lines).
 Our side: the txt writer's format: paragraphs separated by blank lines, refs "[n]",
 margin refs "[11b]", notes as "[n] text" lines at the end (numbering restarts per part).
+Both sides count a new part when note references restart at 1, and a new dialogue when
+the margin numbers go down (Filebo 67 -> Timeo 17): labels are "<dialogue>:<label>".
 """
 
 import difflib
@@ -20,7 +23,6 @@ import pymupdf
 
 GOOD = str(Path(__file__).resolve().parents[1] / "test_pdfs" / "platon_dialogos_vi_good.pdf")
 PAGES = range(6, 24)  # 1-based: what test_platon_bad_3 covers
-FILEBO_START = 13  # good page where the dialogue (and its own note numbering) starts
 REF_RE = re.compile(r"\[(\d+)\]")
 MREF_RE = re.compile(r"\[(\d+[a-e])\]")
 WORD_RE = re.compile(r"\w+", re.UNICODE)
@@ -35,7 +37,28 @@ def words_of(text: str) -> list[str]:
 
 
 # -- ground truth ------------------------------------------------------------------------
-def good_truth():
+class _Counter:
+    """Part and dialogue numbers, from note numbers and margin numbers as they come."""
+
+    def __init__(self) -> None:
+        self.part = self.last_ref = 0
+        self.dialogue = self.last_num = 0
+
+    def ref(self, n: int) -> tuple[int, int]:
+        if n == 1 and self.last_ref > 1:
+            self.part += 1
+        self.last_ref = n
+        return (self.part, n)
+
+    def mref(self, label: str) -> str:
+        num = int(re.match(r"\d+", label).group())
+        if num < self.last_num:
+            self.dialogue += 1
+        self.last_num = num
+        return f"{self.dialogue}:{label}"
+
+
+def good_truth(pages=PAGES):
     """Body tokens with events, from the good PDF.
 
     Returns words (list), events: list of (kind, word index, value) where kind is
@@ -45,10 +68,11 @@ def good_truth():
     events = []
     notes = {}
     label_num = None
+    count = _Counter()
     with pymupdf.open(GOOD) as doc:
-        for p in PAGES:
+        for p in pages:
             page = doc[p - 1]
-            part = "intro" if p < FILEBO_START else "filebo"
+            page_refs = {}  # note number -> key, for the links below
             margin = []  # (y, label)
             lines = []  # (y0, y1, x0, [spans])
             for block in page.get_text("dict")["blocks"]:
@@ -75,7 +99,9 @@ def good_truth():
                 for s in spans:
                     m = REF_RE.fullmatch(s["text"].strip())
                     if m and s["flags"] & 1:  # superscript
-                        refs.append((part, int(m.group(1))))
+                        key = count.ref(int(m.group(1)))
+                        page_refs[key[1]] = key
+                        refs.append(key)
                         text += f" \x00{len(refs) - 1} "
                         continue
                     text += s["text"]
@@ -90,6 +116,7 @@ def good_truth():
                     label_num, label = label, label + "a"
                 else:
                     label = f"{label_num}{label}"
+                label = count.mref(label)
                 hit = [k for k, lw in enumerate(line_words) if lw[0] - 4 <= y <= lw[1]]
                 if hit:
                     # The ePub sets the label near its own line, which wraps differently
@@ -104,13 +131,13 @@ def good_truth():
                 if target is None:
                     continue
                 m = REF_RE.search(page.get_textbox(link["from"]))
-                if not m:
+                if not m or int(m.group(1)) not in page_refs:
                     continue
                 text = doc[target].get_text()
                 text = re.sub(r"www\.lectulandia\.com - Página \d+", "", text)
                 text = text.replace("<<", "")
                 text = REF_RE.sub("", text, count=1)
-                notes[(part, int(m.group(1)))] = " ".join(text.split())
+                notes[page_refs[int(m.group(1))]] = " ".join(text.split())
     return words, events, notes
 
 
@@ -131,30 +158,26 @@ def our_side(path: str):
         notes[(part_index, n)] = " ".join(para[REF_RE.match(para).end() :].split())
     words: list[str] = []
     events = []
-    ref_part, last_ref = 0, 0
+    count = _Counter()
     for para in body:
         events.append(("para", len(words), None))
         for token in re.split(r"(\[\d+[a-e]?\])", para):
             m = MREF_RE.fullmatch(token)
             if m:
-                events.append(("mref", len(words), m.group(1)))
+                events.append(("mref", len(words), count.mref(m.group(1))))
                 continue
             m = REF_RE.fullmatch(token)
             if m:
-                n = int(m.group(1))
-                if n == 1 and last_ref > 1:
-                    ref_part += 1
-                last_ref = n
-                events.append(("ref", len(words), (ref_part, n)))
+                events.append(("ref", len(words), count.ref(int(m.group(1)))))
                 continue
             words.extend(words_of(token))
     return words, events, notes
 
 
 # -- scoring -----------------------------------------------------------------------------
-def score(ours_path: str, verbose: bool = False) -> dict[str, float]:
+def score(ours_path: str, verbose: bool = False, pages=PAGES) -> dict[str, float]:
     """Print the scores (and with ``verbose`` every difference); return the main ones."""
-    gw, gev, gnotes = good_truth()
+    gw, gev, gnotes = good_truth(pages)
     ow, oev, onotes = our_side(ours_path)
     sm = difflib.SequenceMatcher(None, gw, ow, autojunk=False)
     # Good words before our first / after our last match are outside our range.
@@ -204,12 +227,11 @@ def score(ours_path: str, verbose: bool = False) -> dict[str, float]:
             print("   extra break: ", " ".join(ow[max(0, o - 4) : o]), "|", " ".join(ow[o : o + 6]))
 
     # Footnote references: present at the right word?
-    parts = {"intro": 0, "filebo": 1}
     oref = {v: i for kind, i, v in oev if kind == "ref"}
     gref = [(v, i) for kind, i, v in gev if kind == "ref" and g_lo <= i <= g_hi]
     ok = wrong_place = missing = 0
-    for (part, n), i in gref:
-        key = (parts[part], n)
+    for key, i in gref:
+        part, n = key
         if key not in oref:
             missing += 1
             if verbose:
@@ -233,10 +255,10 @@ def score(ours_path: str, verbose: bool = False) -> dict[str, float]:
     )
 
     # Note texts
-    used = {(parts[p], n) for (p, n), i in gref}
+    used = {key for key, i in gref}
     sims = []
-    for (part, n), text in sorted(gnotes.items(), key=lambda kv: (parts[kv[0][0]], kv[0][1])):
-        key = (parts[part], n)
+    for key, text in sorted(gnotes.items()):
+        part, n = key
         if key not in used:
             continue
         ours = onotes.get(key, "")
@@ -290,4 +312,8 @@ def score(ours_path: str, verbose: bool = False) -> dict[str, float]:
 
 
 if __name__ == "__main__":
-    score(sys.argv[1], "--verbose" in sys.argv)
+    pages = PAGES
+    if "--pages" in sys.argv:
+        first, last = sys.argv[sys.argv.index("--pages") + 1].split("-")
+        pages = range(int(first), int(last) + 1)
+    score(sys.argv[1], "--verbose" in sys.argv, pages)
