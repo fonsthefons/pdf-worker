@@ -221,9 +221,8 @@ Findings:
 
 ## NEXT SESSION — start here (written 2026-10-16, end of session)
 State:
-- PR #28 (`feature/spelling-refine`, everything above) is open and pushed. Merging was
-  denied to Claude (see Blocked): the user merges it. If it is merged, work from main;
-  if not, ask the user.
+- PR #28 (`feature/spelling-refine`, everything above) was merged by the user on
+  2026-10-16. Start new work on a new branch from main.
 - The user is filling in the review files by hand (action/value columns):
   `test_pdfs/philosophy.fixes.tsv` (653 rows) and
   `test_pdfs/platon_dialogos_vi_bad.fixes.tsv` (482 rows). They are not in git
@@ -1142,7 +1141,7 @@ done: CronDelete the job and say so in the report.
 
 ## Blocked
 - 2026-10-16: `gh pr merge 28 --merge` (feature/spelling-refine) denied by the auto-mode
-  classifier (Merge Without Review); the user merges it. The repo has no CI workflow
+  classifier (Merge Without Review); the user merged it. The repo has no CI workflow
   (no `.github/`), so PRs get no checks.
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.
