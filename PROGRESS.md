@@ -124,6 +124,15 @@ each (it re-checks from the cached OCR, no re-OCR needed):
    philosophy); limit it or cache lookups.
 4. Small word list for dictionary gaps (rehúye, inherencia, capitación,
    Considerémoslo, superlatives like correctísima).
+5. Measure the pipeline on new books (user request, 2026-10-16). Find Spanish scanned
+   PDFs on the internet that are public domain or freely licensed, ideally ones with a
+   trusted text version to compare against (e.g. an Internet Archive scan of a book that
+   is also on Project Gutenberg or Biblioteca Virtual Miguel de Cervantes). Vary them:
+   old print, footnotes, two columns, poor scans. Take ~10-20 pages from each (don't
+   OCR whole books), run the pipeline, and measure: word error rate against the
+   reference text, spelling rows per page and their type mix (`classify_spelling.py`),
+   and structure problems (headings, notes, split words). Keep downloads in
+   `test_pdfs/` and don't commit them. Write the results per book in this file.
 Open question for the user (ask when you get there): old spellings in the original
 (atribuído, solicitásteis): keep, or flag?
 Test books: `test_pdfs/philosophy.pdf 1-462`, `test_pdfs/platon_dialogos_vi_bad.pdf
