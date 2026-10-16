@@ -296,6 +296,42 @@ Steps:
 6. Then continue with the list below (rebuild with the fixes, analysis, reuse, final
    books). If the page works well, move the scripts into the package later.
 
+Progress (2026-10-16, evening, branch `feature/review-model`):
+- 0. `scratch/groq_client.py`: `config` import replaced by constants (model
+  gpt-oss-120b, reasoning low, temperature 0.2, 8000 tokens/request, `.env` in repo).
+- 1. `scratch/review_packets.py STEM [--sample N]`: done. Sample of 20: 16 line crops,
+  1 block, 3 none (find not in any Paddle block, e.g. joined split words). Context from
+  the built txt (falls back to the row's 60-char context). Reuses
+  `mixed_script._tsv` for Tesseract word boxes (200 dpi).
+- 2. `scratch/review_model.py STEM [--sample N]`: 25 rows/request (8000-token budget),
+  resumable (appends to proposals.jsonl, skips done ids, skips rows the user decided).
+  Sample 20: all valid, ~2.6k prompt + 1.3k output tokens; spot-check 10: 9 sensible,
+  1 bad guess ("Cprk" -> "Cambridge"; printed is likely "Cork"). Added: prompt says
+  the printed word shares most letters with `find`; a replace with similarity < 0.6
+  to `find` is set to confidence low.
+- 3. Skipped: no rows decided by hand yet in either file (`scratch/count_decided.py`).
+  Run `review_eval.py` later only if the user decides rows first.
+- 4. `scratch/review_page.py STEM` -> `scratch/review_ai/<stem>/review.html` (local).
+  Keys: j/k move, a accept, i ignore, e edit (Enter = replace), c clear. Filters by
+  kind+type group, confidence, undecided. localStorage `review:<stem>`; Export ->
+  decisions.tsv.
+- 5. `scratch/merge_decisions.py STEM decisions.tsv` (reuses `read_fixes`/
+  `write_fixes`; backup first). Self-check `scratch/test_merge.py` passes.
+- Backups of both review files: `scratch/review_ai/*.fixes.tsv` (before any run).
+- Full run (both books, packets + model) via `scratch/review_run_all.py`, log in
+  `scratch/review_ai/run.log`. Done, no failed batches (rate limit waits only):
+  - philosophy 647 rows (crops: 595 line, 15 block, 37 none): replace 211 high /
+    28 medium / 19 low; ignore 380 high / 3 medium; 6 invalid (no proposal).
+  - Platón 432 rows (392 line, 5 block, 35 none): replace 239 high / 30 medium /
+    29 low; ignore 121 high / 3 medium / 7 low; 3 invalid.
+  - Spot-check Platón chars rows: Greek transliterations handled inconsistently
+    (some ignored, some "loū" -> "loû"); a stray `$` proposed as ignore (should be
+    removed: can't be a replace with an empty value). User checks these on the page.
+- Pages built: `scratch/review_ai/philosophy/review.html`,
+  `scratch/review_ai/platon_dialogos_vi_bad/review.html`. WAITING FOR THE USER to
+  review and Export; then `merge_decisions.py STEM ~/Downloads/decisions.tsv` (path
+  outside the repo: the user moves it into `scratch/review_ai/<stem>/` first).
+
 Next, when the user says the review files are done:
 1. Back up both files, then rebuild both books from the Paddle cache with the fixes
    (`scratch/book_build.py PDF RANGE OUTDIR pdf epub txt`; Platón with
