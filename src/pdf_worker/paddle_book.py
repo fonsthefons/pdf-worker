@@ -114,11 +114,13 @@ def iter_paddle_blocks(
     latin_macrons: bool | None = None,
     restored: list[str] | None = None,
     on_page: Callable[[int, int], None] | None = None,
+    margin_refs: bool = True,
 ) -> Iterator[Block]:
     """The book's blocks from Paddle's ``rows`` (one per page, as ``paddle_pages``
     returns them) for the scanned ``doc``. References put back by
     ``pdf_worker.missing_refs`` are told in ``restored``, one line each.
-    ``on_page(done, total)`` is called after each page."""
+    ``on_page(done, total)`` is called after each page. Without ``margin_refs`` no
+    margin mark is labelled."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
     scan_of = page_scanner(language)
     read_mixed = mixed_reader(language)
@@ -201,13 +203,16 @@ def iter_paddle_blocks(
                 yield from book.add_page(doc.load_page(row["page"]), row, blocks, anchors, pictures)
         yield from book.flush()
 
-    readings: list[tuple[int, str | None]] = []
-    dry = _Book(lambda reading: readings.append((dry.page, reading)))
-    for block in build(dry, False):
-        if isinstance(block, Heading):
-            readings.append((dry.page, None))  # a new section: the marks count anew
-    labels = iter(assign_labels(readings))
-    book = _Book(lambda reading: next(labels))
+    if margin_refs:
+        readings: list[tuple[int, str | None]] = []
+        dry = _Book(lambda reading: readings.append((dry.page, reading)))
+        for block in build(dry, False):
+            if isinstance(block, Heading):
+                readings.append((dry.page, None))  # a new section: the marks count anew
+        labels = iter(assign_labels(readings))
+        book = _Book(lambda reading: next(labels))
+    else:
+        book = _Book(lambda reading: None)
     if language == "es":
         book.counts = Counter(
             w.lower() for row in rows for b in row["blocks"] for w in re.findall(r"\w+", b["text"])

@@ -182,6 +182,17 @@ def test_labels_lost_between_two_found_ones_are_estimated_evenly():
     assert out[2:] == blocks[2:]
 
 
+def test_margin_references_are_off_unless_asked_for():
+    from pdf_worker.convert import _without_margin_refs
+
+    blocks = [
+        Heading(margin_ref("22a") + "TIMEO", 1),
+        Paragraph("muchos " + margin_ref("22b") + "honores"),
+    ]
+
+    assert list(_without_margin_refs(blocks)) == [Heading("TIMEO", 1), Paragraph("muchos honores")]
+
+
 def test_estimated_labels_are_pink_in_the_reflowed_pdf(tmp_path):
     out = tmp_path / "book.pdf"
     text = margin_ref("22a") + "honores " + " ".join(FULL) + " " + margin_ref("~22b") + "fin"

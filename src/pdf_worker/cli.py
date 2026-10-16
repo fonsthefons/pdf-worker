@@ -298,11 +298,17 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         "(margin references stay).",
     )
     parser.add_argument(
+        "--margin-refs",
+        action="store_true",
+        help="Keep the section numbers printed in the margin of classical editions "
+        "(Stephanus '22b' in Plato). Off by default: other books have none.",
+    )
+    parser.add_argument(
         "--estimate-margin-refs",
         action="store_true",
-        help="Add margin references (Stephanus '23c') the scan lost between two found "
-        "ones, spread evenly over the words between them; shown as '[~23c]', pink where "
-        "labels are coloured.",
+        help="With --margin-refs (implied): add margin references the scan lost between "
+        "two found ones, spread evenly over the words between them; shown as '[~23c]', "
+        "pink where labels are coloured.",
     )
     _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
@@ -317,6 +323,7 @@ def _run_convert(args: argparse.Namespace) -> int:
         images=args.images,
         cover=args.cover,
         notes_at=args.notes,
+        margin_refs=args.margin_refs,
         estimate_margin_refs=args.estimate_margin_refs,
     )
     if args.ocr in ("redo", "force") and args.engine == "paddle":

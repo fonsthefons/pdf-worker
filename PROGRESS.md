@@ -930,7 +930,35 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
 5. (2026-10-12) "Complete the next steps 1, 2 and 3": Latin macrons (PR #6), margin
    glosses and line numbers (PR #7), PaddleOCR-VL evaluation (PR #8). Done.
 
+## Margin refs off by default, rebuilds (2026-10-16, user's answers)
+- `convert --margin-refs` (off by default: only classical editions have them; ink in
+  other books' margins made false labels, e.g. philosophy's bibliography "[193a]").
+  `convert_pdf(margin_refs=)`, `iter_paddle_blocks(margin_refs=)` skips labelling, the
+  text-layer path strips the markers. `--estimate-margin-refs` implies it. `kindle`
+  keeps the default (off). Scratch: `platon_full.py ... [--estimate] [--notes-end]`
+  (margin refs on), `book_build.py ... [--margin-refs] [--notes-end]`.
+- Rebuilt with notes at the end (`--notes end` avoids the page-foot overlap below):
+  Platón pdf+epub with estimates, philosophy pdf+epub without margin refs.
+
 ## TODO (user, 2026-10-15: later, low priority)
+- Reflowed PDF, `--notes page`: notes can overlap the text (philosophy p. 446 under
+  "futilidad"). MuPDF Story has no footnotes: `pdf_export` guesses each page's room for
+  notes and lays the book out again, up to `_MAX_PASSES` (12); if it hasn't settled it
+  draws the notes anyway. `check_book_pdf.py` doesn't test overlap. Options (user chose
+  `--notes end` for now): (a) Typst writer: Markdown -> Pandoc (3.10 has a typst
+  writer) -> `typst` (pip, into .venv); native footnotes, hyphenation by language,
+  notes split across pages, widows/orphans, layout in seconds; margin refs inline first
+  (~1-2 h), in the margin later; check Libertinus has polytonic Greek. (b) page-by-page
+  layout in the current engine, LaTeX-style (~2 h). (c) quick patch: notes that don't fit
+  after the last pass go to the end section (~30 min).
+- Wrong letters from Paddle (user: note only, don't fix now): "volūmenes" (philosophy
+  PDF p. 85), "brevę" (p. 571), macron for umlaut in German names ("Būtzow",
+  "SCHŌNEBAUM"), Cyrillic "Во" in "ВоHATEC". Fix: map ū->ü/ú, ę->e, Cyrillic look-alikes
+  by the word's language (~15 min).
+- Notes without a reference (user: note only, don't fix now): philosophy c3-6, c6-5,
+  c10-30, c11-71, c15-16 (e.g. PDF p. 804, "En sus últimos años Herder..."): the note was
+  found but its superscript in the text was not. (A reference without a note, c9-2 p.
+  285, is already shown as "no note found": fine.)
 - Book profile for notes (user asked 2026-10-15 to keep this for later): after Paddle
   reads a sample of 10-20 pages (they are cached anyway), detect the book's note style
   once: number format (superscript / "17." / "1)"), restart per chapter or part,

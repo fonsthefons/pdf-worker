@@ -35,7 +35,7 @@ def test_platon_bad_3_matches_the_good_book(tmp_path, monkeypatch):
         pytest.skip("Paddle pages of test_platon_bad_3 only partly cached")
     out = tmp_path / "book.txt"
 
-    convert_pdf(BAD, out, "txt", paddle_rows=rows)
+    convert_pdf(BAD, out, "txt", paddle_rows=rows, margin_refs=True)
 
     scores = score(str(out))
     # Measured 2026-10-15: 1.7%, 4 extra breaks, 56/57 refs (note 8's from the text

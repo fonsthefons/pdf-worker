@@ -7,8 +7,8 @@ notes) -> writer. Every stage works page by page.
 
 import re
 from collections import Counter
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from pdf_worker import margin_estimates
@@ -19,11 +19,12 @@ from pdf_worker.epub import write_epub
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.html_export import write_html
 from pdf_worker.images import render_cover
+from pdf_worker.inline import MARGIN_REF_RE
 from pdf_worker.layout import analyze_document
 from pdf_worker.markdown_export import write_markdown
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.pdf_export import write_pdf
-from pdf_worker.structure import iter_blocks
+from pdf_worker.structure import Block, Heading, Paragraph, iter_blocks
 from pdf_worker.text_export import write_text
 
 FORMATS = {
@@ -110,6 +111,7 @@ def convert_pdf(
     notes_at: str = "page",
     paddle_rows: list[dict] | None = None,
     on_page: Callable[[int, int], None] | None = None,
+    margin_refs: bool = False,
     estimate_margin_refs: bool = False,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
@@ -119,9 +121,12 @@ def convert_pdf(
     references in every format. With ``paddle_rows`` (PaddleOCR-VL's
     blocks, see ``paddle_ocr.paddle_pages``) the book is built from them instead of the
     PDF's text layer (``pdf_worker.paddle_book``); ``on_page(done, total)`` then
-    follows the pages. ``estimate_margin_refs`` adds the margin references the scan lost
-    between two found ones (``pdf_worker.margin_estimates``).
+    follows the pages. ``margin_refs`` keeps the margin references of classical editions
+    ("22b", ``pdf_worker.margin_refs``); other books have none, and ink in their margins
+    would only make false ones. ``estimate_margin_refs`` (implies ``margin_refs``) adds
+    those the scan lost between two found ones (``pdf_worker.margin_estimates``).
     """
+    margin_refs = margin_refs or estimate_margin_refs
     if fmt not in FORMATS:
         raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
     if notes_at not in NOTE_PLACES:
@@ -138,12 +143,19 @@ def convert_pdf(
 
             sample = text_sample(paddle_rows)
             blocks = iter_paddle_blocks(
-                doc, paddle_rows, images=keep_images, restored=restored, on_page=on_page
+                doc,
+                paddle_rows,
+                images=keep_images,
+                restored=restored,
+                on_page=on_page,
+                margin_refs=margin_refs,
             )
         else:
             profile = analyze_document(doc)
             sample = profile.text_sample
             blocks = iter_blocks(doc, profile, images=keep_images)
+            if not margin_refs:
+                blocks = _without_margin_refs(blocks)
         if estimate_margin_refs:
             blocks = margin_estimates.estimate_margin_refs(blocks)
         if notes_at == "none":
@@ -169,6 +181,13 @@ def convert_pdf(
     return ConvertReport(
         output_path=output_path, metadata=meta, stats=stats, restored_refs=restored
     )
+
+
+def _without_margin_refs(blocks: Iterable[Block]) -> Iterator[Block]:
+    for block in blocks:
+        if isinstance(block, Heading | Paragraph) and MARGIN_REF_RE.search(block.text):
+            block = replace(block, text=MARGIN_REF_RE.sub("", block.text))
+        yield block
 
 
 def pdf_title(pdf_path: str | Path) -> str:

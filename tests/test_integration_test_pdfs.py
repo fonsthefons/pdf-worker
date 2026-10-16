@@ -272,7 +272,7 @@ def test_abbyy_scan_layer_converts_to_clean_dialogue(tmp_path):
     # pp. 19-20: the start of the Filebo, Stephanus numbers in the margins.
     sample = _platon_pages(tmp_path, 19, 20)
 
-    convert_pdf(sample, tmp_path / "out.md", "md")
+    convert_pdf(sample, tmp_path / "out.md", "md", margin_refs=True)
 
     text = (tmp_path / "out.md").read_text(encoding="utf-8")
     # The Stephanus marks leave the text and open their lines, labelled in full; the
