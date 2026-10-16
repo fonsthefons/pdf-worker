@@ -185,12 +185,10 @@ class Review:
 
         def join(match: re.Match) -> str:
             first, second = match["first"], match["second"]
-            # Two words with a space between stay apart ("sino que"); a hyphen is a break.
-            if (
-                second[0].islower()
-                and ("-" in match["sep"] or not (self._spelled(first) and self._spelled(second)))
-                and self._spelled(first + second)
-            ):
+            # A hyphen is a break. With a space, only a fragment after it is joined
+            # ("por ciones"): not "sino que", old "acallar á", or "confies en" (confíes).
+            fragment = "-" in match["sep"] or (len(second) > 1 and not self._spelled(second))
+            if second[0].islower() and fragment and self._spelled(first + second):
                 return match["marks"] + first
             return match.group()
 

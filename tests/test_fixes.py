@@ -103,7 +103,7 @@ def test_joins_words_split_at_line_breaks():
         + margin_ref("108d")
         + "car por ciones al "
         + page_mark(1, "2")
-        + "gún; cosa-en-sí, físico-químico, sino que, Jean-Jacques."
+        + "gún; cosa-en-sí, físico-químico, sino que, Jean-Jacques, acallar á Don, confies en."
     )
     out, _, _ = _run([], [Paragraph(page_mark(0, "1") + text)])
     assert out[0].text == page_mark(0, "1") + (
@@ -111,7 +111,7 @@ def test_joins_words_split_at_line_breaks():
         + margin_ref("108d")
         + "invocar porciones "
         + page_mark(1, "2")
-        + "algún; cosa-en-sí, físico-químico, sino que, Jean-Jacques."
+        + "algún; cosa-en-sí, físico-químico, sino que, Jean-Jacques, acallar á Don, confies en."
     )
 
 
