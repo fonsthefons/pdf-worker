@@ -327,6 +327,11 @@ Progress (2026-10-16, evening, branch `feature/review-model`):
   - Spot-check Platón chars rows: Greek transliterations handled inconsistently
     (some ignored, some "loū" -> "loû"); a stray `$` proposed as ignore (should be
     removed: can't be a replace with an empty value). User checks these on the page.
+- User: no checks in bibliographies. `fixes.py`: chars rows (odd letters, `$`) are no
+  longer flagged under a Bibliografía/Índice heading or in entry-like paragraphs (spelling
+  already skipped them); notes still get chars checks. Existing such rows in the review
+  files go `stale` on the next build. Review pages: images now embedded (base64): the
+  user's viewer didn't load the relative `crops/` paths.
 - Pages built: `scratch/review_ai/philosophy/review.html`,
   `scratch/review_ai/platon_dialogos_vi_bad/review.html`. WAITING FOR THE USER to
   review and Export; then `merge_decisions.py STEM ~/Downloads/decisions.tsv` (path

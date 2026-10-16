@@ -143,19 +143,20 @@ def test_spelling_only_in_the_body():
     blocks = [
         Heading("Capítulo", 1),
         Paragraph(page_mark(0, "1") + "Texto becho."),
-        Note("1", "Nota cfecto."),
+        Note("1", "Nota cfecto, ВоHATEC."),
         Paragraph("Letra pequeña dcdicaban.", small=True),
         Heading("Bibliografía", 1),
         Heading("Ediciones", 2),
         Paragraph("Philologie Būtzow."),
         Heading("Diálogo", 1),
         Paragraph("Otra vez mendaba."),
-        Paragraph("MAIGRON, L., Le roman historique, París, 1898."),
+        Paragraph("MAIGRON, L., Le roman historique, París, 1898, $ Būtzow."),
         Paragraph("Gesammelte kleinere Schriften, 6 vols., Halle, 1775."),
     ]
     _, _, review = _run([], blocks)
     assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho", "mendaba"}
-    assert ("chars", "Būtzow") in {(f.kind, f.find) for f in review.fixes}
+    # Odd letters are flagged in notes, not in bibliographies or entry-like paragraphs.
+    assert {f.find for f in review.fixes if f.kind == "chars"} == {"ВоHATEC"}
 
 
 def test_no_spelling_check_for_other_languages():

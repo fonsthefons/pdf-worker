@@ -21,7 +21,8 @@ Kinds flagged: ``spelling`` (Spanish and English books, body text only: not note
 small print, bibliographies or indexes; words found at most twice in the book, unknown
 to the Hunspell dictionary (and to ``dictionaries/es.extra.txt``), and not
 English/German/French/Italian/Latin words of 5+ letters), ``chars`` (odd letters:
-macrons outside Latin, Cyrillic look-alikes, stray ``$``), ``note-no-ref``,
+macrons outside Latin, Cyrillic look-alikes, stray ``$``; not in bibliographies or
+indexes), ``note-no-ref``,
 ``ref-no-note``, ``margin-est`` (estimated margin references) and ``margin-missing``
 (labels missing between two found ones).
 
@@ -187,6 +188,7 @@ class Review:
         self.labels: list[tuple[str, str] | None] = []  # margin labels; None: a heading
         self.back: int | None = None  # level of the bibliography/index heading we're under
         self.body = True  # spelling is checked in the body text only
+        self.reference = False  # bibliography/index: nothing is checked
         self.body_words = 0
         self.old_marks = 0  # body words only old spelling uses ("á" alone, "vn")
 
@@ -196,9 +198,9 @@ class Review:
                 if isinstance(block, Heading):
                     self.labels.append(None)
                     self._section(block)
-                self.body = self.back is None and not isinstance(block, Note)
+                self.reference = self.back is not None or _is_reference(block)
+                self.body = not self.reference and not isinstance(block, Note)
                 self.body = self.body and not getattr(block, "small", False)
-                self.body = self.body and not _is_reference(block)
                 text = self._text(self._join_split(block.text) if self.spell else block.text)
                 if isinstance(block, Note):
                     self.notes.setdefault(block.label, self.page)
@@ -302,13 +304,15 @@ class Review:
         for label in MARGIN_REF_RE.findall(text):
             self.labels.append((label, self.page))
         words = REF_RE.sub("", plain(text))
-        for match in _DOLLAR_RE.finditer(words):
+        for match in _DOLLAR_RE.finditer(words if not self.reference else ""):
             self._flag("chars", match.group(), words, match)
         for match in _WORD_RE.finditer(words):
             word = match.group()
             if self.body:
                 self.body_words += 1
                 self.old_marks += word.lower() in _OLD_MARKS
+            if self.reference:
+                continue
             if self.check_chars and (_MACRON_RE.search(word) or _CYRILLIC_RE.search(word)):
                 self._flag("chars", word, words, match)
             elif self.body and self.spell and len(word) > 2 and _LATIN_RE.fullmatch(word):
