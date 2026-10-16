@@ -939,6 +939,10 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
   (margin refs on), `book_build.py ... [--margin-refs] [--notes-end]`.
 - Rebuilt with notes at the end (`--notes end` avoids the page-foot overlap below):
   Platón pdf+epub with estimates, philosophy pdf+epub without margin refs.
+  Platón: epubcheck clean; PDF 293 pages, 1563 links, 0 broken, 688 margin labels
+  (estimates pink, e.g. p. 27 "~21b"), 1 stray "$". Philosophy: epubcheck clean; PDF
+  759 pages, 3260 links, 0 broken, 0 margin labels; p. 396 ("futilidad") no overlap.
+  Seen on Platón p. 27: "ipodrias" for "¿podrías" (an "¿" misread not restored).
 
 ## TODO (user, 2026-10-15: later, low priority)
 - Reflowed PDF, `--notes page`: notes can overlap the text (philosophy p. 446 under
