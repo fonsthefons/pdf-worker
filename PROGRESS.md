@@ -64,7 +64,16 @@ Progress (2026-10-16):
   after stemming; 1328 capitalised, mostly bibliography names/German/French titles),
   chars 6 (all real: volūmenes, ūber, Būtzow, SCHŌNEBAUM, ВоHATEC, Germānicas),
   note-no-ref 5, ref-no-note 1.
-  STOPPED here for the user's decision on spelling (see report).
+- User chose a full-form dictionary. Now: LibreOffice Hunspell dictionaries (es_ES,
+  en_US; licence notes alongside) in `src/pdf_worker/dictionaries/`, read by `spylls`
+  (pure Python, 0.1 ms/word; replaces pyspellchecker in pyproject). Words of 5+ letters
+  the English dictionary knows are excused (bibliography titles); shorter ones stay
+  ("ban" for "han"). Re-trial: Platón spelling 1315 (was 4943); philosophy ~2100 (was
+  6065; 2500 before the English filter, of which 412 English). What's left: real
+  misreadings (becho, dcdicaban, Icyenda, Posiblc), missing accents (pudieramos,
+  logico), fragments of words split at line ends (niciones, tamiento, apli), and
+  names/German/French/Greek transliterations (best silenced with `* ignore` rows).
+  Capitalised words are kept: they include real errors (CuaI, Fúlebo).
 
 ## Done
 

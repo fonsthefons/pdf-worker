@@ -18,8 +18,8 @@ Actions (``value`` in brackets):
 - ``add`` [``21d before pero``]: a margin reference the scan lost.
 
 Kinds flagged: ``spelling`` (Spanish and English books; words found at most twice in
-the book and unknown to ``pyspellchecker``), ``chars`` (odd letters: macrons outside
-Latin, Cyrillic look-alikes, stray ``$``), ``note-no-ref``, ``ref-no-note``,
+the book, unknown to the Hunspell dictionary, and not English words of 5+ letters),
+``chars`` (odd letters: macrons outside Latin, Cyrillic look-alikes, stray ``$``), ``note-no-ref``, ``ref-no-note``,
 ``margin-est`` (estimated margin references) and ``margin-missing`` (labels missing
 between two found ones).
 """
@@ -37,7 +37,10 @@ from pdf_worker.margin_estimates import label_value, value_label
 from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph
 
 SPELL_LANGUAGES = ("es", "en")
+# Hunspell dictionaries from LibreOffice (es_ES, en_US), read by spylls.
+_DICTIONARIES = Path(__file__).parent / "dictionaries"
 _MAX_SPELLING_COUNT = 2
+_MIN_ENGLISH = 5  # letters: shorter words aren't excused by the English dictionary
 _MAX_MISSING = 10  # more margin labels lost in a row: the found ones are suspect
 _CONTEXT = 30  # characters each side
 _SPLIT_RE = re.compile(f"({PAGE_MARK_RE.pattern})")
@@ -99,9 +102,12 @@ class Review:
         self.fixes = fixes
         self.spell = None
         if language in SPELL_LANGUAGES:
-            from spellchecker import SpellChecker
+            from spylls.hunspell import Dictionary
 
-            self.spell = SpellChecker(language=language)
+            self.spell = Dictionary.from_files(str(_DICTIONARIES / language))
+            # Quoted English titles are common in bibliographies; short words stay
+            # checked, they may be misreadings ("ban" for "han").
+            self.english = Dictionary.from_files(str(_DICTIONARIES / "en"))
         self.check_chars = language != "la"  # macrons are Latin
         self.page = ""
         self.hits = [0] * len(fixes)  # occurrences of each fix's target on its page
@@ -207,7 +213,9 @@ class Review:
             elif self.spell and len(word) > 2 and _LATIN_RE.fullmatch(word):
                 key = word.lower()
                 if key not in self.known:
-                    self.known[key] = key in self.spell
+                    self.known[key] = _knows(self.spell, word) or (
+                        len(word) >= _MIN_ENGLISH and _knows(self.english, word)
+                    )
                 if not self.known[key]:
                     self._flag("spelling", word, words, match, key)
 
@@ -268,6 +276,10 @@ class Review:
                 found.append(Fix("", previous[1], "margin-missing", span))
             previous = (value, entry[1])
         return found
+
+
+def _knows(dictionary, word: str) -> bool:
+    return dictionary.lookup(word) or dictionary.lookup(word.lower())
 
 
 def _word_pattern(text: str) -> re.Pattern:

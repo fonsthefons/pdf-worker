@@ -87,6 +87,12 @@ def test_ambiguous_find_changes_only_the_first():
     assert review.fixes[0].status == "ambiguous"
 
 
+def test_spelling_knows_inflections_and_long_english_words():
+    text = "Si pudiésemos explicaras diciéndoselo: no ban sido, he abandoned becho."
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"ban", "becho"}
+
+
 def test_no_spelling_check_for_other_languages():
     _, added, _ = _run([], language="la")
     assert "spelling" not in added and "chars" not in added  # macrons are Latin
