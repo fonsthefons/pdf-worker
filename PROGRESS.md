@@ -1,5 +1,40 @@
 # Progress
 
+## REVIEW PLAN (agreed with user 2026-10-16) — START HERE, not started yet
+Goal: every conversion follows one book structure, and the user fixes OCR errors in a
+review file (edited in Cursor) instead of in the output. Cheap after OCR (Paddle is
+cached), so rebuilding often is fine. Decided: no Typst for now (notes go at the end;
+MuPDF layout is enough); no index/bibliography work (kept as plain text); margin refs
+accuracy (Platón 645/714 right line, 38 wrong, 31 missing, 5 extra) is good enough.
+Book order: cover -> book's own title/edition pages -> generated contents -> preface ->
+text -> appendices/bibliography/index -> notes. Front matter is fine as is.
+1. Text cover, all formats: title + author (+ translator if metadata/title page gives
+   one) in big type, replacing the page-1 scan. PDF/docx: first page. EPUB: that page
+   rendered to an image (Kindle needs an image for the library thumbnail).
+2. Reflowed PDF: the new PDF's own page numbers, centred at the foot, not on the cover.
+   (Printed edition's page numbers not wanted in the PDF.)
+3. One file `<pdf stem>.fixes.tsv` next to the PDF (`--fixes PATH` overrides). Columns:
+   `id, page, kind, find, context, action, value, status`. Each build: applies rows with
+   an action to the blocks before any writer (so writers stay unchanged); appends new
+   suspicious items with empty action; keeps user rows; marks rows whose `find` vanished
+   `stale`. Written atomically. Actions: replace, ignore, attach, drop, accept, move, add.
+   `find` = exact text on that page (page `*` = whole book); if it occurs twice, apply to
+   the first and flag as ambiguous. Examples:
+   - `27 spelling ipodrias replace ¿podrías` (that page only)
+   - `* spelling Eutifrón ignore` (never flagged again)
+   - `* chars Būtzow replace Bützow` (whole book)
+   - `804 note-no-ref c3-6 attach Herder` (superscript inserted after "Herder")
+   - `285 ref-no-note c9-2 drop` (orphan superscript removed)
+   - `27 margin-est ~21b accept` / `move Sócrates` (estimate -> normal / moved)
+   - `31 margin-missing 21c..21e add "21d before pero"`
+4. Kinds flagged: spelling (es/en only, `pyspellchecker` into .venv + pyproject; only
+   words occurring <= 2 times in the book; skip italics and Greek; other languages: no
+   spelling check), odd chars (ū for ü, Cyrillic look-alikes, stray `$`), note-no-ref,
+   ref-no-note, margin-est, margin-missing. Wrong-line margin refs can't be detected.
+5. Unit tests (apply fixes; merge on rebuild keeps user rows, marks stale). Trial on
+   Platón and philosophy: report row counts per kind, esp. Spanish spelling noise, BEFORE
+   going further. Log decisions here.
+
 ## Done
 
 ### Feature 1: PDF text extraction (2026-10-11)
@@ -707,6 +742,154 @@
   Result: words back, dialogue starts at [11a].
 - Tests: `test_a_word_past_a_column_measured_too_narrow_stays`. 173 pass, ruff clean.
 
+## Familia "better" scan: reader's marks removed (Step 1 of 2026-10-15 list)
+- `test_familia_better_with_notes.pdf` (6 pages, same pages as test_familia_bad): the
+  highlights/underlines were PDF annotations (Highlight, Underline, with popup notes);
+  the scan itself has no handwriting (only dust specks). Stripped them
+  (`scratch/familia_better_strip.py`) into `test_pdfs/test_familia_better.pdf`, deleted
+  the original (user's choice).
+- Its OCR layer is *not* better (`scratch/familia_layer_diff.py`): "est." -> "esto"
+  everywhere (Spanish model), "ī" -> "I", "m" -> "rn", small-cap c -> "e", "littera" ->
+  "linera"; no macrons in either layer. Per the user, Step 1 stops here.
+- Library: every page render (`paddle_worker`, `consensus._page_image`, underline
+  detection, OCR probe, figures/cover, missing-ref crops) now passes `annots=False`, and
+  OCRmyPDF's source copy (`ocr._ocr_source_copy`, was `_zero_origin_copy`) drops markup
+  annotations (`ocr.MARKUP_ANNOTS`; links stay). Test:
+  `test_a_readers_marks_are_dropped_before_ocr`.
+
+## Whole Platón book (Step 2 of 2026-10-15 list), branch feature/platon-full
+- Progress for whole-book runs: `paddle_pages(on_page=)`, `convert_pdf(on_page=)`; the CLI
+  prints "Step 1/2, OCR: 41% (120/293 pages), about 35 min left" (one rewritten line on
+  a terminal, a line per 5% in a log), then "Step 2/2, building the book".
+- Full Paddle OCR of the 293 pages is cached (`scratch/platon_full_ocr.py`, ~1 h with
+  other work running). Builds from the cache: `scratch/platon_full.py FIRST-LAST [fmt..]`
+  (output `scratch/platon_full/book_*.{txt,pdf,epub}`); scoring:
+  `tests/platon_score.py book.txt --pages 6-175 [--show refs,mref,notes,para,words]`
+  (any good-PDF page range now; parts/dialogues counted from restarts).
+- Fixes found by cutting the book into 1-80, 81-160, then the whole:
+  - Margin refs: `margin_refs.assign_labels` labels a dialogue's marks at once (dynamic
+    programming: pencil blobs are junk, letters misread, labels skipped). The greedy
+    `next_label` ran one ahead after a stray mark (99 wrong lines on pp. 1-80). Runs
+    break at headings and at 4+ pages without marks; a run needs two page numbers read
+    exactly (introductions' pencil and outline numbers label nothing).
+  - Notes: a note broken off mid-sentence goes on at the next page's unnumbered first
+    note when nothing there refers to the note due (`left_open`); "π" for "78"; a lost
+    first reference still restarts the count (text and note both read "2" where 54 was
+    due); printer's signatures ("160. — 18") are not notes; pages missing from the scan
+    (printed 279 -> 282) reset the count from the page's first reference.
+  - Garbling: "¿" read as i/l/ℓ/2 ("iY bien?") restored with the book's own vocabulary;
+    margin marks read as words beside their label dropped; LaTeX commands unwrapped;
+    "^{1267}" = ref 126 + "?"; made-up Vietnamese replaced by Tesseract's words of that
+    box (`ScanWord.box`); Vietnamese letters in Spanish mapped back ("Sốc." -> "Sóc.");
+    the Greek variants table (Paddle label "algorithm") re-read by `mixed_script`
+    (Tesseract spa and grc, more confident word wins), one small line per table row.
+- Whole book scores (good pp. 6-175): word errors 2.0%, refs 348/367 (6 are on the two
+  pages missing from the scan), notes 355/367, margin refs 620/714 on the right line.
+
+## philosophy.pdf, Copleston VI (Step 3 of 2026-10-15 list), branch feature/platon-full
+- 462 pages, Spanish, Acrobat OCR layer (poor). Paddle OCR cached in the background
+  (`scratch/paddle_cache_book.py`); builds of page ranges with `scratch/book_build.py PDF
+  A-B scratch/philo [txt md pdf epub]`. No good edition: judged against page images
+  (crops via `scratch/crop.py`) and with an exact reference/note link check on the
+  Markdown output (`scratch/link_check.py`).
+- No margin references are inserted anywhere (the label assignment needs two page
+  numbers read exactly; this book has none).
+- The "hand-made annotations" are pencil ticks (✓) at line ends in the right margin
+  (e.g. p. 83). Paddle ignores them in the text; one became a margin note "！": margin
+  blocks without a letter or digit are now dropped. No colour, no underlines found
+  (`scratch/ink_pages.py`, `scratch/margin_ink.py`).
+- Fixes: printed contents pages (Paddle label "content") dropped; note numbers printed
+  "17." read; a read note number further ahead is kept when the text has that reference
+  (notes 30-32 missed had pushed every later note 3-7 back); notes Paddle skipped (or
+  whose page it saw no note on) recovered from Tesseract's lines; footer-labelled notes
+  ("16. De l'esprit", "15. C.S.") relabelled; references glued after punctuation
+  ("constricción”.5") in Paddle's text and in the PDF's layer; the printer's-signature
+  filter narrowed (it had dropped notes like "31. 7."); a few made-up Chinese letters in
+  a good block replaced by Tesseract's words.
+- Link check: pp. 41-150 169 refs / 167 notes, 2 notes without their reference;
+  pp. 151-290 227 / 225, 1 ref without a note, 2 notes without a reference;
+  pp. 291-370 204 / 202 (before 1aa45be: "fórmula32" glued refs, two notes in one block
+  split; not re-checked since).
+- Later commits: 1aa45be (glued refs on a lowercase word, merged note blocks split).
+  Platón regression after all of it (clean build): words 1.9%, refs 350/367, notes 358,
+  margin 645/714 — unchanged or better.
+- Scratch gotcha: `scratch/platon_full.py` no longer merges running-job work files (they
+  were philosophy's and overwrote Platón pages). `scratch/book_build.py` still merges
+  them with setdefault (fine when the running job is the same PDF).
+
+## NIGHT PLAN (user, 2026-10-16) — START HERE, supersedes "Next steps" below
+Be token-efficient: summaries only, at most 3-4 page images (step 2), nothing beyond these
+steps. Reports go in `scratch/NIGHT_REPORT.md`, one short section per step, numbers only
+(counts, time and token estimates); a short entry here too. Commit locally on
+`feature/platon-full`, never push. Order: 1 -> 2 -> 5 -> 6 -> 3.
+Checkpoints: after each step, mark it "[done]" here with its result line and commit, so a
+session cut off by the token limit resumes at the first step not marked done (the user
+restarts it with "continue from PROGRESS.md" after the limit resets). Long builds: start
+them in the background and note the command here first.
+FIRST ACTION of the session: CronList; if no such job exists, CronCreate a recurring
+hourly job (off the :00/:30 marks, e.g. "17 * * * *") with the prompt "Night plan: if
+any step in PROGRESS.md NIGHT PLAN is not marked [done] and no step is in progress in
+this session, continue it from PROGRESS.md; otherwise do nothing." This resumes the work
+after the 5-hour token window resets (the session must stay open). When all steps are
+done: CronDelete the job and say so in the report.
+1. [done] Result: 689 refs/683 notes (1 ref, 5 notes unmatched); 11 false `[193a]`-style
+   labels, all in the bibliography; body garble: 1 lost Greek word, 2 odd letters
+   (details in `scratch/NIGHT_REPORT.md`). Cron job e2a82415 created.
+   Philosophy whole book (`scratch/philo/book_1-462.{md,txt}` already built): run
+   `scratch/link_check.py` on the .md, `scratch/garble_scan.py` on the .txt, and check no
+   `[NNa]` margin labels. Do NOT fix: report each error kind, how often it happens, and
+   estimated time/tokens to fix.
+2. [done] epubcheck clean; PDF 805 pages, 0 broken links, 11 margin labels (the
+   bibliography ones); pp. 120, 500 look right. Build philosophy pdf + epub (`scratch/book_build.py test_pdfs/philosophy.pdf 1-462
+   scratch/philo pdf epub`), epubcheck, `scratch/check_book_pdf.py`, look at 2-3 rendered
+   pages. Report.
+3. [done] Identical to the baseline below. All night steps done; cron job deleted.
+   (run last) Re-score Platón: `scratch/platon_full.py 1-293`, then
+   `tests/platon_score.py scratch/platon_full/book_1-293.txt --pages 6-175`. Baseline:
+   words 1.9%, refs 350/367, notes 358, margin ok 645 / wrong 38 / missing 31 / extra 5.
+   Report differences.
+4. Book note-style profile: do NOT build; it stays in the TODO list below.
+5. Margin refs estimated for missing marks (user's design): for labels missing between
+   two found labels, count the words between those two found labels, split them evenly
+   over the sections in between, place each estimate there (snapped to a line/word
+   start). Skip labels missing at a dialogue's start/end (no second anchor). Optional,
+   off by default (e.g. `convert --estimate-margin-refs`); estimated labels drawn PINK
+   in every format that colours them (found ones stay green; txt/md need a marker, e.g.
+   `[~23d]` — choose and document). First a dry run on Platón: how many of the 31
+   missing get an estimate, and how many land within ±1 line of the good edition (the
+   scorer). Build it unless fewer than half land within ~3 lines; then report only.
+   [done] `margin_estimates.py`, `convert --estimate-margin-refs`, "[~23c]", pink in
+   EPUB/HTML/PDF. Dry run: 40 estimates, 21 judgeable, 15 within 3 lines (7 within 1).
+6. [done] `--notes none` (`drop_notes.py`, tests in test_endnotes.py); 180 fast tests pass.
+   `convert --notes none`: drop notes (incl. an endnotes chapter) and strip reference
+   markers ([12], ¹², [^c1-12]) in all formats; keep margin refs (11a...). Unit test.
+   Uses the cached Paddle pages (no OCR rerun).
+
+## Resume point (2026-10-15, session paused by the user)
+- Branch `feature/platon-full` (on top of `feature/familia-better`), all committed,
+  nothing pushed (user pushes). 174 unit tests pass, ruff clean.
+- Philosophy OCR is complete: all 462 pages are in the Paddle cache
+  (`scratch/paddle-home`). A whole-book build was started in the background at pause:
+  `scratch/book_build.py test_pdfs/philosophy.pdf 1-462 scratch/philo md txt` ->
+  `scratch/philo/book_1-462.{md,txt}` (may or may not have finished; rerun if missing).
+- Next steps, in order:
+  1. Philosophy whole book: `scratch/link_check.py scratch/philo/book_1-462.md`,
+     `scratch/garble_scan.py scratch/philo/book_1-462.txt`, check no `[NNa]` margin
+     labels; fix what shows up (sample page images with `scratch/crop.py PAGE Y0 Y1 DPI
+     test_pdfs/philosophy.pdf`; raw Paddle blocks with `scratch/philo_raw.py`,
+     `scratch/philo_find.py`, `scratch/philo_refs.py`).
+  2. Build philosophy pdf + epub (`book_build.py ... pdf epub`), epubcheck, and
+     `scratch/check_book_pdf.py` on the PDF; look at a couple of rendered pages.
+  3. Re-check Platón after any fix (`scratch/platon_full.py 1-293 [txt pdf epub]`,
+     `tests/platon_score.py book_1-293.txt --pages 6-175 [--show refs,mref]`).
+  4. Then the user's requested improvement (asked 2026-10-15, to do after the
+     iterations): the "Book profile for notes" in the TODO below — detect the note style
+     from a 10-20 page sample, pass it to the build as a default (like `text_settings`),
+     keep per-page fallbacks; re-run both books and compare scores.
+  5. Final report to the user for Steps 2 and 3 (errors found, fixes, remaining issues:
+     ~10% margin refs off, a few lost refs/notes, Paddle word misreads/accents,
+     Critias pp. 280-281 missing from the scan).
+
 ## Blocked
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.
@@ -782,7 +965,46 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
 5. (2026-10-12) "Complete the next steps 1, 2 and 3": Latin macrons (PR #6), margin
    glosses and line numbers (PR #7), PaddleOCR-VL evaluation (PR #8). Done.
 
+## Margin refs off by default, rebuilds (2026-10-16, user's answers)
+- `convert --margin-refs` (off by default: only classical editions have them; ink in
+  other books' margins made false labels, e.g. philosophy's bibliography "[193a]").
+  `convert_pdf(margin_refs=)`, `iter_paddle_blocks(margin_refs=)` skips labelling, the
+  text-layer path strips the markers. `--estimate-margin-refs` implies it. `kindle`
+  keeps the default (off). Scratch: `platon_full.py ... [--estimate] [--notes-end]`
+  (margin refs on), `book_build.py ... [--margin-refs] [--notes-end]`.
+- Rebuilt with notes at the end (`--notes end` avoids the page-foot overlap below):
+  Platón pdf+epub with estimates, philosophy pdf+epub without margin refs.
+  Platón: epubcheck clean; PDF 293 pages, 1563 links, 0 broken, 688 margin labels
+  (estimates pink, e.g. p. 27 "~21b"), 1 stray "$". Philosophy: epubcheck clean; PDF
+  759 pages, 3260 links, 0 broken, 0 margin labels; p. 396 ("futilidad") no overlap.
+  Seen on Platón p. 27: "ipodrias" for "¿podrías" (an "¿" misread not restored).
+
 ## TODO (user, 2026-10-15: later, low priority)
+- Reflowed PDF, `--notes page`: notes can overlap the text (philosophy p. 446 under
+  "futilidad"). MuPDF Story has no footnotes: `pdf_export` guesses each page's room for
+  notes and lays the book out again, up to `_MAX_PASSES` (12); if it hasn't settled it
+  draws the notes anyway. `check_book_pdf.py` doesn't test overlap. Options (user chose
+  `--notes end` for now): (a) Typst writer: Markdown -> Pandoc (3.10 has a typst
+  writer) -> `typst` (pip, into .venv); native footnotes, hyphenation by language,
+  notes split across pages, widows/orphans, layout in seconds; margin refs inline first
+  (~1-2 h), in the margin later; check Libertinus has polytonic Greek. (b) page-by-page
+  layout in the current engine, LaTeX-style (~2 h). (c) quick patch: notes that don't fit
+  after the last pass go to the end section (~30 min).
+- Wrong letters from Paddle (user: note only, don't fix now): "volūmenes" (philosophy
+  PDF p. 85), "brevę" (p. 571), macron for umlaut in German names ("Būtzow",
+  "SCHŌNEBAUM"), Cyrillic "Во" in "ВоHATEC". Fix: map ū->ü/ú, ę->e, Cyrillic look-alikes
+  by the word's language (~15 min).
+- Notes without a reference (user: note only, don't fix now): philosophy c3-6, c6-5,
+  c10-30, c11-71, c15-16 (e.g. PDF p. 804, "En sus últimos años Herder..."): the note was
+  found but its superscript in the text was not. (A reference without a note, c9-2 p.
+  285, is already shown as "no note found": fine.)
+- Book profile for notes (user asked 2026-10-15 to keep this for later): after Paddle
+  reads a sample of 10-20 pages (they are cached anyway), detect the book's note style
+  once: number format (superscript / "17." / "1)"), restart per chapter or part,
+  page-foot notes or endnotes, margin references present or not, printer's signatures
+  at the foot, outer-margin side, reader's marks. Pass it to the book build like
+  `text_settings` does for the language, as a default; keep the per-page fallbacks
+  (books mix styles, e.g. Platón's introductions vs dialogues).
 - Greek in Paddle books: Paddle reads polytonic Greek as Latin look-alikes
   ("τὰ δέοντα" -> "tà šèovta"); see test_platon_bad_4 p16, the "Nota al texto" variants
   table (Paddle label "algorithm"). Plan: re-read such blocks with Tesseract `spa+grc`

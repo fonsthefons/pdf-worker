@@ -1,7 +1,7 @@
 """Footnote numbers on PaddleOCR-VL pages (from test_platon_bad_5, Filebo 11a-13a)."""
 
 from pdf_worker.margin_refs import PageScan, ScanMark, ScanWord, mark_paddle_blocks
-from pdf_worker.note_numbers import fix_refs, number_notes
+from pdf_worker.note_numbers import fix_refs, left_open, number_notes
 
 
 def _scan(text: str) -> list[ScanWord]:
@@ -26,11 +26,38 @@ def test_notes_count_on_from_the_previous_page_whatever_was_read():
     _, numbers = number_notes(["Hermes 88 (1960).", "¹⁴ Por confundir."], [14], 13)
     assert numbers == [None, 14]
 
+    # Going on alone, in capitals: note 86 broke off and nothing on the page refers to
+    # note 87 (Platón p. 67). After a finished note, it is note 87 whose ref was lost.
+    _, numbers = number_notes(["GOLDSCHMIDT, ob. cit."], [], 86, last_open=True)
+    assert numbers == [None]
+    _, numbers = number_notes(["Cf. Rep. 583.", "⁸⁶ Cuestión."], [86], 84, last_open=False)
+    assert numbers == [85, 86]
+    _, numbers = number_notes(["Sobre este análisis."], [87], 86, last_open=True)
+    assert numbers == [87]
+    assert left_open([["text", None, "x"], ["footnote", None, "Como indica"]])
+    assert not left_open([["footnote", None, "Cf. Rep. 583."]])
+
+    # Notes 30-32 missed by the model: "33." agrees with the text's ³³, so it stays 33.
+    _, numbers = number_notes(["33. Ibid."], [30, 31, 32, 33], 29)
+    assert numbers == [33]
+    # Printed as "17." (Copleston): the number is read, not counted blind.
+    texts, numbers = number_notes(["15. Ibid., XI, 5.", "17. Essai de cosmologie."], [15, 17], 14)
+    assert numbers == [15, 17] and texts[1] == "¹⁷ Essai de cosmologie."
+    # "78" read as "π" is a number, not a lowercase word going on (Platón p. 59).
+    texts, numbers = number_notes(["π Para HARDING.", "⁷⁹ Para Calicles."], [78, 79], 77)
+    assert numbers == [78, 79] and texts[0] == "⁷⁸ Para HARDING."
+
 
 def test_a_reference_that_starts_at_one_is_a_new_count():
     _, numbers = number_notes(["Una nota.", "Otra."], [1, 2], last=40)
     assert numbers == [1, 2]
     # A note read as "1" while the references go on (test_platon_bad_3: note 13).
+    # Note 1's reference lost: the text's "²" and a note's "²" start the count again.
+    _, numbers = number_notes(["La República.", "² philósophon."], [2], last=53)
+    assert numbers == [1, 2]
+    # One small read alone is a misread, not a new count.
+    _, numbers = number_notes(["La República.", "⁵⁵ philósophon."], [2], last=53)
+    assert numbers == [54, 55]
     _, numbers = number_notes(["¹ Esta misma.", "¹⁴ Por confundir."], [13, 14], last=12)
     assert numbers == [13, 14]
 
@@ -53,6 +80,14 @@ def test_a_due_number_in_plain_digits_is_a_reference():
     assert fix_refs(texts, [27, 28], []) == [
         "sino también su número²⁷. Y no ... dialéctica o eristicamente²⁸. PRO. — 3 veces"
     ]
+    # Glued after the closing quote (Copleston p. 64); "S1" or "art.12" are left alone.
+    texts = ["consolidado.”⁴ Así ... bajo perpetua constrición”.5 Todos ... S1 y art.12 aquí⁷"]
+    assert fix_refs(texts, [4, 5, 6, 7], []) == [
+        "consolidado.”⁴ Así ... bajo perpetua constrición”.⁵ Todos ... S1 y art.12 aquí⁷"
+    ]
+    # Glued straight onto the word (Copleston p. 300).
+    texts = ["parte”.³¹ Esta fórmula32 puede ser FILE3 la"]
+    assert fix_refs(texts, [31, 32, 33], []) == ["parte”.³¹ Esta fórmula³² puede ser FILE3 la"]
 
 
 def test_a_stray_question_mark_counts_only_when_it_fills_the_gap():

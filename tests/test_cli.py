@@ -43,6 +43,20 @@ def test_no_command_shows_help(capsys):
     assert "pdf-worker kindle book.pdf" in capsys.readouterr().out
 
 
+def test_progress_in_a_log_writes_every_five_percent(capsys):
+    from pdf_worker.cli import _progress
+
+    on_page = _progress("OCR")
+    for done in range(0, 101):
+        on_page(done, 100)
+
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == 21
+    assert lines[0] == "OCR: 0% (0/100 pages)"
+    assert lines[10] == "OCR: 50% (50/100 pages), under a minute left"
+    assert lines[-1] == "OCR: 100% (100/100 pages)"
+
+
 def test_extract_text_reports_errors_without_traceback(tmp_path, capsys):
     exit_code = main(["extract-text", str(tmp_path / "missing.pdf")])
 

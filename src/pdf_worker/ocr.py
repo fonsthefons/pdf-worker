@@ -33,6 +33,23 @@ INSTALL_HINT = "install it with: brew install tesseract tesseract-lang"
 # OCRmyPDF plugins (by module name): restore Latin macrons; erase hand-drawn underlines.
 LATIN_PLUGIN = "pdf_worker.ocr_latin_plugin"
 UNDERLINE_PLUGIN = "pdf_worker.ocr_underline_plugin"
+# A reader's marks on the page; links and form fields are part of the book and stay.
+MARKUP_ANNOTS = {
+    "/Highlight",
+    "/Underline",
+    "/StrikeOut",
+    "/Squiggly",
+    "/Ink",
+    "/Text",
+    "/Popup",
+    "/FreeText",
+    "/Caret",
+    "/Square",
+    "/Circle",
+    "/Line",
+    "/Polygon",
+    "/PolyLine",
+}
 
 # ISO 639-1 (what guess_language returns) -> Tesseract language code.
 TESSERACT_CODES = {
@@ -191,7 +208,7 @@ def ocr_pdf(
     os.close(fd)
     source = Path(tmp_name).with_suffix(".in.pdf")
     try:
-        if not _zero_origin_copy(pdf_path, source):
+        if not _ocr_source_copy(pdf_path, source):
             source = pdf_path
         _run_ocrmypdf(
             ocrmypdf, source, Path(tmp_name), chosen, mode, jobs, progress, plugins, report.pages
@@ -215,18 +232,26 @@ def _has_underlines(pdf_path: Path) -> bool:
         return bool(underlined_pages(doc, sample_only=True))
 
 
-def _zero_origin_copy(pdf_path: Path, target: Path) -> bool:
-    """Write a copy of the PDF whose pages all start at (0, 0), if any page doesn't.
+def _ocr_source_copy(pdf_path: Path, target: Path) -> bool:
+    """Write a copy of the PDF for OCRmyPDF, if the original needs changes.
 
     Scans of two-page spreads (ABBYY FineReader) give every other page a MediaBox
-    such as [330 0 660 518]; OCRmyPDF then places that page's text off the page.
-    Returns False (and writes nothing) when every page already starts at the origin.
+    such as [330 0 660 518]; OCRmyPDF then places that page's text off the page, so
+    every page is moved to start at (0, 0). A reader's highlights, underlines, ink and
+    notes (``MARKUP_ANNOTS``) are dropped so they are neither read nor kept.
+    Returns False (and writes nothing) when no page needs either change.
     """
     import pikepdf
 
     with pikepdf.open(pdf_path) as pdf:
         moved = False
         for page in pdf.pages:
+            annots = page.obj.get("/Annots")
+            if annots is not None:
+                kept = [a for a in annots if str(a.get("/Subtype")) not in MARKUP_ANNOTS]
+                if len(kept) != len(annots):
+                    page.obj["/Annots"] = pikepdf.Array(kept)
+                    moved = True
             x0, y0, x1, y1 = (float(v) for v in page.mediabox)
             if not (x0 or y0):
                 continue
@@ -337,7 +362,9 @@ def _probe_ocr(doc: pymupdf.Document) -> str:
     indexes = {doc.page_count * (k + 1) // (_PROBE_PAGES + 1) for k in range(_PROBE_PAGES)}
     texts = []
     for index in sorted(indexes):
-        png = doc.load_page(index).get_pixmap(dpi=_PROBE_DPI, colorspace=pymupdf.csGRAY)
+        png = doc.load_page(index).get_pixmap(
+            dpi=_PROBE_DPI, colorspace=pymupdf.csGRAY, annots=False
+        )
         result = subprocess.run(
             [tesseract_path(), "stdin", "stdout", "-l", probe],
             input=png.tobytes("png"),

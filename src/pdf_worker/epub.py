@@ -21,6 +21,7 @@ from pathlib import Path
 
 from pdf_worker.footnotes import display_marker
 from pdf_worker.inline import (
+    ESTIMATED,
     LinkClose,
     LinkOpen,
     MarginRef,
@@ -76,6 +77,7 @@ h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p { text-indent: 0; }
 p.small { font-size: 0.85em; text-indent: 0; margin: 0.4em 0; }
 a.noteref { text-decoration: none; }
 span.mref { color: #2e7d32; font-weight: bold; font-size: 0.8em; padding: 0 0.2em; }
+span.mref.est { color: #d81b60; }
 sup { font-size: 0.75em; line-height: 0; }
 aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; }
 div.gloss { font-size: 0.8em; margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
@@ -283,9 +285,9 @@ class _EpubBuilder:
                     open_links = 0
             elif isinstance(piece, MarginRef):
                 self.stats.margin_refs += 1
-                out.append(
-                    f'<span class="mref" id="m{self.stats.margin_refs}">{_esc(piece.label)}</span>'
-                )
+                kind = "mref est" if piece.label.startswith(ESTIMATED) else "mref"
+                mark_id = f"m{self.stats.margin_refs}"
+                out.append(f'<span class="{kind}" id="{mark_id}">{_esc(piece.label)}</span>')
             else:
                 last = 0
                 for match in REF_RE.finditer(piece):

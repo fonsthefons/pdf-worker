@@ -29,7 +29,9 @@ _SMALLER = 0.85  # a reference is set at most this share of its word's size
 _PAD = 4  # points around the stretch: a raised number reaches above the line
 _TESS_DPI = 600
 _CROP_DPI = 400
-_GLUED_RE = re.compile(r"^(.*[^\W\d_])(\d{1,3})\W*$")  # Tesseract's "causa8."
+# Tesseract's "causa8.", "constricción”.5"
+_GLUED_RE = re.compile(r"^(.*[^\W\d_][^\w\s]{0,2})(\d{1,3})\W*$")
+_CLOSERS = '.,;:”’»")'  # what may stand between a word and its reference
 _BODY_LABELS = {"text"}
 
 Try = Callable[[pymupdf.Page, pymupdf.Rect, int], str | None]
@@ -121,6 +123,16 @@ def text_layer(page: pymupdf.Page, region: pymupdf.Rect, number: int) -> str | N
         for line in block.get("lines", []):
             spans = line["spans"]
             for i, span in enumerate(spans):
+                glued = [
+                    m.group(1)
+                    for token in span["text"].split()
+                    if (m := _GLUED_RE.match(token))
+                    and int(m.group(2)) == number
+                    and not m.group(1)[0].isdigit()
+                ]
+                if glued:
+                    candidates += glued  # one word: 'constricción".5'
+                    continue
                 if not want.fullmatch(span["text"].strip()) or i == 0:
                     continue
                 word = ""
@@ -133,7 +145,13 @@ def text_layer(page: pymupdf.Page, region: pymupdf.Rect, number: int) -> str | N
                     size = max(size, prev["size"])
                     if piece != prev["text"]:
                         break  # the span holds earlier words too
-                if word and word[-1].isalpha() and span["size"] <= size * _SMALLER:
+                # The word may end in punctuation: "constricción”." then ⁵.
+                if (
+                    word
+                    and word.rstrip(_CLOSERS)[-1:].isalpha()
+                    and len(word) - len(word.rstrip(_CLOSERS)) <= 2
+                    and span["size"] <= size * _SMALLER
+                ):
                     candidates.append(word)
     return _one(candidates)
 
@@ -142,7 +160,7 @@ def tesseract_try(tesseract: str, language: str) -> Try:
     def attempt(page: pymupdf.Page, region: pymupdf.Rect, number: int) -> str | None:
         import numpy
 
-        pix = page.get_pixmap(dpi=_TESS_DPI, clip=region, colorspace=pymupdf.csGRAY)
+        pix = page.get_pixmap(dpi=_TESS_DPI, clip=region, colorspace=pymupdf.csGRAY, annots=False)
         gray = numpy.frombuffer(pix.samples, dtype=numpy.uint8).reshape(pix.height, pix.width)
         tokens = [w[4] for line in _tesseract_lines(gray, tesseract, language) for w in line]
         return _one(_after_word(tokens, number))
@@ -209,7 +227,7 @@ class PaddleClips:
         )
         candidates = [
             m.group(1)
-            for m in re.finditer(rf"(\S*[^\W\d_])[^\w\s]?{sup(number)}(?![⁰¹²³⁴⁵⁶⁷⁸⁹])", text)
+            for m in re.finditer(rf"(\S*[^\W\d_][^\w\s]{{0,2}}){sup(number)}(?![⁰¹²³⁴⁵⁶⁷⁸⁹])", text)
         ]
         return _one(candidates)
 

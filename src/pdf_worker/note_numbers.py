@@ -19,14 +19,23 @@ from pdf_worker.margin_refs import ScanWord, norm
 _TO_SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _FROM_SUP = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 SUPERSCRIPT_RE = re.compile("[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
-# A note's own number: superscript, plain, or a mark the model made of it ("* ").
-_NOTE_NUMBER_RE = re.compile(r"^(?:([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*|(\d{1,3})\s+|([*'’‘\"“”^°])\s+)(?=\S)")
+# A note's own number: superscript, plain ("17 ", "17. "), or misread as a symbol ("*",
+# or "π" for "78" when a capitalised word follows).
+_NOTE_NUMBER_RE = re.compile(
+    r"^(?:([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*|(\d{1,3})[.)]?\s+|([*'’‘\"“”^°]|[^\sA-Za-zÀ-ÿ\d«¿¡(\[](?=\s+[A-ZÁÉÍÓÚÑ]))\s+)(?=\S)"
+)
 _MAX_SKIPPED = 2  # a read number this far ahead means Paddle missed notes
+_NOTE_END = (".", "?", "!", "»", ")", '"', "”", "…")
 # What Tesseract makes of a small reference after a word: "5,", "!0?", "!!.", "*".
 _STRAY_RE = re.compile(r"^[\d!¡*'’°]{1,3}[.,;:?!»)]*$")
 _STRONG, _WEAK = 1, 0  # a stray digit or "!" against a stray "?"
 # A reference Paddle wrote in plain digits, as a word of its own: "su número 27."
 _BARE_REF_RE = re.compile(r"(\d{1,3})([.,;:?!»)]*)")
+# ... or glued after the closing punctuation ("constricción”.5") or onto a lowercase word
+# ("fórmula32"; not "S1", "FILE0")
+_GLUED_REF_RE = re.compile(
+    r"(.*[^\W\d_](?:[^\w\s]{1,2}|(?<=[a-záéíóúñü]{3})))(\d{1,3})([.,;:?!»)]*)"
+)
 _PADDLE = 2  # Paddle saw a reference there, with another number
 
 
@@ -38,31 +47,61 @@ def from_sup(text: str) -> int:
     return int(text.translate(_FROM_SUP))
 
 
+def left_open(blocks: Sequence[Sequence]) -> bool:
+    """Whether a page's last footnote (``[label, rect, text]`` blocks) breaks off
+    mid-sentence, to go on at the foot of the next page."""
+    notes = [b[2].rstrip() for b in blocks if b[0] == "footnote" and b[2].strip()]
+    return bool(notes) and not notes[-1].endswith(_NOTE_END)
+
+
+def _note_reads(notes: Sequence[str]) -> set[int]:
+    reads = set()
+    for note in notes:
+        match = _NOTE_NUMBER_RE.match(note)
+        if match and (match.group(1) or match.group(2)):
+            reads.add(from_sup(match.group(1) or match.group(2)))
+    return reads
+
+
 def number_notes(
-    notes: Sequence[str], refs: Sequence[int], last: int | None
+    notes: Sequence[str], refs: Sequence[int], last: int | None, last_open: bool = False
 ) -> tuple[list[str], list[int | None]]:
     """Give a page's notes their numbers.
 
     ``refs`` are the reference numbers Paddle read on the page, ``last`` the previous
-    page's last note (None: no count yet). Returns the notes, each starting with its
+    page's last note (None: no count yet), ``last_open`` whether that note broke off
+    mid-sentence (``left_open``). Returns the notes, each starting with its
     number as superscript, and the numbers (None: the previous page's last note going on,
     or no number to be had)."""
     expected = last + 1 if last is not None else None
     if refs and refs[0] == 1:
         expected = 1  # a new count: a chapter's, or the page's
+    elif (
+        expected is not None
+        and refs
+        and refs[0] <= 1 + _MAX_SKIPPED < expected - refs[0]
+        and refs[0] in _note_reads(notes)
+    ):
+        # A new count whose first reference was lost: the text and a note both read
+        # "2" where 54 was due (Timeo after its introduction, p. 154).
+        expected = 1
     # With no count yet, extra notes at the top go on from the page before (as many as
     # the notes outnumber the references).
     skip = max(0, len(notes) - len(refs)) if expected is None else 0
     texts, numbers = [], []
     # An unnumbered first note goes on from the previous page when it starts lowercase,
-    # or when the next note has the number due ("Hermes 88 (1960)…", then "¹⁴").
+    # when the next note has the number due ("Hermes 88 (1960)…", then "¹⁴"), or when
+    # nothing on the page refers to the note due ("GOLDSCHMIDT, ob. cit. …" alone).
     second = _NOTE_NUMBER_RE.match(notes[1]) if len(notes) > 1 else None
     second_read = second and (second.group(1) or second.group(2))
     next_is_due = bool(second_read) and expected is not None and from_sup(second_read) == expected
+    unreferenced = last_open and expected is not None and all(r > expected for r in refs)
     for i, note in enumerate(notes):
         match = _NOTE_NUMBER_RE.match(note)
         body = note[match.end() :] if match else note
-        goes_on = i == 0 and last is not None and (body[:1].islower() or next_is_due)
+        goes_on = (
+            i == 0 and last is not None and (body[:1].islower() or next_is_due or unreferenced)
+        )
         if not match and (i < skip or goes_on):
             texts.append(note)
             numbers.append(None)
@@ -75,7 +114,11 @@ def number_notes(
             number = read if read is not None else (refs[k] if k < len(refs) else None)
         # A read "1" alone is no new count (note 13 came as "1"): that needs the page's
         # references to start from 1 too (expected is then 1).
-        elif read is not None and expected <= read <= expected + _MAX_SKIPPED:
+        elif read is not None and (
+            expected <= read <= expected + _MAX_SKIPPED or (read > expected and read in refs)
+        ):
+            # Further ahead only when the text has that reference too: notes 30-32
+            # missed, "33." with ³³ in the text is still 33 (Copleston p. 25).
             number = read
         else:
             number = expected
@@ -102,20 +145,25 @@ def fix_refs(
     words = [(b, m) for b, text in enumerate(texts) for m in re.finditer(r"\S+", text)]
     found = []  # (word, number read)
     bare = set()  # words that are a due note's number in plain digits: "número 27."
+    glued = set()  # words with a due note's number glued on: "constricción”.5"
     for g, (_, m) in enumerate(words):
         ref = SUPERSCRIPT_RE.search(m.group())
         plain = _BARE_REF_RE.fullmatch(m.group())
+        stuck = _GLUED_REF_RE.fullmatch(m.group())
         if ref:
             found.append((g, from_sup(ref.group())))
         elif g and plain and int(plain.group(1)) in wanted:
             found.append((g, int(plain.group(1))))
             bare.add(g)
+        elif stuck and int(stuck.group(2)) in wanted:
+            found.append((g, int(stuck.group(2))))
+            glued.add(g)
     anchors = []  # (word, number): references whose number fits
     places: dict[int, int] = {}  # word -> strength of the evidence for a reference
     for g, n in found:
         if n in wanted and (not anchors or n > anchors[-1][1]):
             anchors.append((g, n))
-        elif g not in bare:  # a plain number out of order is just a number
+        elif g not in bare | glued:  # a plain number out of order is just a number
             places[g] = _PADDLE
     for g, strength in _stray_marks([m.group() for _, m in words], scan_words):
         if g not in places and g not in {a[0] for a in anchors}:
@@ -132,7 +180,7 @@ def fix_refs(
                 assigned.update(zip(gap, missing, strict=True))
                 break
     for g, n in anchors:
-        if g in bare:
+        if g in bare | glued:
             assigned[g] = n
     out = list(texts)
     for g in sorted(assigned, reverse=True):  # back to front: spans stay valid
@@ -144,6 +192,11 @@ def fix_refs(
             if words[g - 1][0] == b:
                 before = before.rstrip()
             out[b] = before + sup(assigned[g]) + tail + out[b][m.end() :]
+            continue
+        if g in glued:  # "constricción”.5" -> "constricción”.⁵"
+            parts = _GLUED_REF_RE.fullmatch(word)
+            word = parts.group(1) + sup(assigned[g]) + parts.group(3)
+            out[b] = out[b][: m.start()] + word + out[b][m.end() :]
             continue
         if SUPERSCRIPT_RE.search(word):
             word = SUPERSCRIPT_RE.sub(sup(assigned[g]), word, count=1)

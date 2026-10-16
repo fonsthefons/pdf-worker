@@ -9,6 +9,7 @@ from conftest import REPO_ROOT
 
 from pdf_worker import paddle_ocr
 from pdf_worker.layout import SUPERSCRIPT, page_lines
+from pdf_worker.margin_refs import PageScan, ScanWord
 from pdf_worker.ocr import OcrEngineMissingError, OcrError, ocr_pdf
 
 pytest.importorskip("pymupdf_fonts")
@@ -35,7 +36,7 @@ def test_blocks_become_an_invisible_text_layer():
     page = doc.new_page()
     page.insert_font(fontname="notos", fontbuffer=pymupdf.Font("notos").buffer)
 
-    written, last_note = paddle_ocr.write_blocks(page, ROW, macrons=True)
+    written, last_note, _ = paddle_ocr.write_blocks(page, ROW, macrons=True)
 
     text = page.get_text()
     assert written == 3  # the image block has no text
@@ -124,10 +125,100 @@ def test_clean_text_turns_latex_superscripts_into_references():
     assert paddle_ocr.clean_text("Tome 2<sup>e</sup>, M.$^{A}$") == "Tome 2e, M.A"
     # Note 28 misread as "2k": the digits stay a reference, renumbered later.
     assert paddle_ocr.clean_text("o eristicamente^{2k}.") == "o eristicamente²."
+    # "¹²⁶?" read as one number: the "?" became a 7.
+    assert paddle_ocr.clean_text("los que son filósofos^{1267}") == "los que son filósofos¹²⁶?"
+
+
+def test_made_up_vietnamese_is_replaced_by_tesseracts_words():
+    words = [
+        ScanWord("iōn", 0, False, (10, 10, 30, 20)),
+        ScanWord("de", 0, False, (32, 10, 40, 20)),
+        ScanWord("autōn", 0, False, (42, 10, 70, 20)),
+        ScanWord("Otra", 1, False, (10, 50, 30, 60)),
+    ]
+    scan = PageScan(words, [])
+    assert paddle_ocr._foreign_script("R1 (lỗi) đến (để) đến, sức gắn (số) los códices.")
+    assert not paddle_ocr._foreign_script("SốC. — Pues bien, Protarco, dime qué opinas.")
+    assert paddle_ocr._scan_text(scan, pymupdf.Rect(0, 0, 100, 30)) == "iōn de autōn"
+
+
+def test_mixed_script_keeps_the_more_confident_reading_of_each_word():
+    from pdf_worker.mixed_script import Word, merge_readings
+
+    line = ("1", "1", "1")
+    spanish = [
+        Word((0, 0, 40, 10), 90, "21b1", line),
+        Word((50, 0, 70, 10), 20, "tà", line),
+        Word((75, 0, 120, 10), 30, "šèovta", line),
+        Word((130, 0, 190, 10), 85, "Badham", line),
+    ]
+    greek = [
+        Word((0, 0, 40, 10), 40, "210]", line),
+        Word((50, 0, 70, 10), 88, "τὰ", line),
+        Word((76, 0, 121, 10), 80, "δέοντα", line),
+        Word((130, 0, 190, 10), 30, "Βδάδβιο", line),
+    ]
+    assert merge_readings(spanish, greek) == ["21b1 τὰ δέοντα Badham"]
+
+
+def test_a_note_the_model_skipped_comes_from_tesseracts_lines():
+    words = [
+        ScanWord("Body", 0, False, (10, 100, 40, 110)),
+        ScanWord("43.", 5, False, (10, 500, 20, 510)),
+        ScanWord("Ibid.,", 5, False, (25, 500, 50, 510)),
+        ScanWord("44.", 6, False, (10, 512, 20, 522)),
+        ScanWord("Ibid.", 6, False, (25, 512, 50, 522)),
+        ScanWord("y", 7, False, (25, 524, 30, 534)),
+        ScanWord("45.", 8, False, (10, 536, 20, 546)),
+    ]
+    found = paddle_ocr._recover_notes(PageScan(words, []), [43, 44, 45], [43, 45], 495)
+    assert found == [(44, "Ibid. y")]
+    # The page's first note skipped; nothing before the previous page's last note.
+    found = paddle_ocr._recover_notes(PageScan(words, []), [43, 44, 45], [44, 45], 495, 42)
+    assert found == [(43, "Ibid.,")]
+    assert paddle_ocr._recover_notes(PageScan(words, []), [43, 44, 45], [44, 45], 495, 43) == []
+    # No note seen on the page at all: the ones due after the last one.
+    found = paddle_ocr._recover_notes(PageScan(words, []), [44], [], 495, 43)
+    assert found == [(44, "Ibid. y")]
+
+
+def test_a_printers_signature_is_no_note_but_a_short_note_is():
+    for signature in ("160. — 18", "160. -4", "160. ~2", "160. - S"):
+        assert paddle_ocr._SIGNATURE_RE.match(signature)
+    for note in ("31. 7.", "30. I, 7.", "36. 13.", "²¹ Cf. Tym. 2Sa-b."):
+        assert not paddle_ocr._SIGNATURE_RE.match(note)
+
+
+def test_running_heads_and_notes_paddle_mislabels():
+    number = [799, 126, 832, 153]
+    head = {"label": "paragraph_title", "bbox": [435, 131, 517, 156]}
+    title = {"label": "paragraph_title", "bbox": [400, 500, 800, 560]}
+    note = {"label": "footer", "bbox": [149, 1351, 356, 1379]}
+    sign = {"label": "footer", "bbox": [149, 1351, 356, 1379]}
+    assert paddle_ocr._relabel(head, "FILEBO", number) == "header"
+    assert paddle_ocr._relabel(title, "FILEBO", number) == "paragraph_title"
+    assert paddle_ocr._relabel(note, "11D Cf. Leyes 863a-c.", number) == "footnote"
+    assert paddle_ocr._relabel(note, "16. De l'esprit des lois, XI, 6.", number) == "footnote"
+    assert paddle_ocr._relabel(note, "15. C.S., III, 15, 83.", number) == "footnote"
+    assert paddle_ocr._relabel(sign, "160. - S", number) == "footer"
+    assert paddle_ocr._relabel(sign, "160. — 18", number) == "footer"
+
+
+def test_a_few_made_up_chinese_letters_take_tesseracts_words():
+    paddle = "de su posibilidad. Análogamente,均匀可可可可可可可可可, el espíritu todos los estados"
+    tess = "de su posibilidad. Análogamente puedo cancelar con el espíritu todos los estados"
+    assert paddle_ocr._patch_foreign(paddle, tess) == (
+        "de su posibilidad. Análogamente puedo cancelar con el espíritu todos los estados"
+    )
 
 
 def test_clean_text_removes_latex_wrappers():
     assert paddle_ocr.clean_text("in $ \\text{Āfricā} $ est") == "in Āfricā est"
+    assert paddle_ocr.clean_text("1. \\underline{\\text{Creación de los seres}} (30c)") == (
+        "1. Creación de los seres (30c)"
+    )
+    assert paddle_ocr.clean_text("T_{M\\cdot} - x") == "TM - x"
+    assert paddle_ocr.clean_text("S_i saga. {Cuéntasela") == "Si saga. Cuéntasela"
 
 
 def test_clean_text_flattens_tables():

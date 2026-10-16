@@ -22,6 +22,7 @@ from pathlib import Path
 import pymupdf
 
 from pdf_worker.html_export import write_html
+from pdf_worker.inline import ESTIMATED
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.structure import Block
 
@@ -52,11 +53,12 @@ _LINK_TAG_RE = re.compile(r"</?a\b[^>]*>")
 _BACK_RE = re.compile(r' <a class="back"[^>]*>[^<]*</a>')
 _REF_ID_RE = re.compile(r"r(\d+)(?:-\d+)?")
 # A margin reference from the EPUB writer, and the word after it.
-_MREF_RE = re.compile(r'<span class="mref" id="(m\d+)">([^<]*)</span>(\s*)([^\s<]*)')
+_MREF_RE = re.compile(r'<span class="mref[^"]*" id="(m\d+)">([^<]*)</span>(\s*)([^\s<]*)')
 _MREF_ID_RE = re.compile(r"m\d+")
 _MREF_GAP = 6  # points between the text column and a margin reference
 _MREF_SIZE = 7.5
 _MREF_COLOR = (0.18, 0.49, 0.2)  # green, as in the EPUB
+_MREF_ESTIMATED_COLOR = (0.85, 0.11, 0.38)  # pink, as in the EPUB
 
 
 def write_pdf(
@@ -204,8 +206,9 @@ def _place_margin_refs(doc: pymupdf.Document, marks, labels: dict[str, str]) -> 
         if last[0] == page_no and abs(last[1] - baseline) < 2:
             start = last[2] + 3  # two on one line: side by side
         page = doc[page_no]
+        color = _MREF_ESTIMATED_COLOR if label.startswith(ESTIMATED) else _MREF_COLOR
         page.insert_text(
-            (start, baseline), label, fontname="hebo", fontsize=_MREF_SIZE, color=_MREF_COLOR
+            (start, baseline), label, fontname="hebo", fontsize=_MREF_SIZE, color=color
         )
         width = pymupdf.get_text_length(label, fontname="hebo", fontsize=_MREF_SIZE)
         last = (page_no, baseline, start + width)

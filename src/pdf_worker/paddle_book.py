@@ -14,17 +14,25 @@ introduction's notes, then the dialogue's) is a new part, as in the printed book
 
 import contextlib
 import re
-from collections.abc import Iterator
+import unicodedata
+from collections import Counter
+from collections.abc import Callable, Iterator
 
 import pymupdf
 
 from pdf_worker import missing_refs
 from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
-from pdf_worker.margin_refs import next_label
-from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup
+from pdf_worker.margin_refs import assign_labels
+from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
-from pdf_worker.paddle_ocr import page_scanner, prepare_blocks, text_settings
+from pdf_worker.paddle_ocr import (
+    clean_text,
+    mixed_reader,
+    page_scanner,
+    prepare_blocks,
+    text_settings,
+)
 from pdf_worker.structure import Block, Gloss, Heading, Image, Note, Paragraph
 
 _SENTENCE_END = tuple('.!?»"”’)]:;')
@@ -37,13 +45,62 @@ _SPEAKER_RE = re.compile(
     r"([A-ZÁÉÍÓÚÑỐ][A-Za-záéíóúñốÁÉÍÓÚÑỐ]{1,11})\s*\.?\s*[—–-]\s*"
 )
 # The model's second reading of a note's own number: "³⁵ 5 ¿Eco", "²⁷ ? Sobre".
-_NOTE_JUNK_RE = re.compile(r"^(?:\d{1,3}\)?|[?*'])\s+")
+_NOTE_JUNK_RE = re.compile(r"^(?:\d{1,3}[.)]?|[?*'])\s+")
 # Front matter: the leading pages with fewer words than this (title pages, credits).
 _FRONT_WORDS = 60
 _HEAD_ZONE = 0.15  # a "header" lower on the page is a centred line (dramatis personae)
 _PICTURE_LABELS = {"image", "figure", "chart"}
 _MIN_PICTURE_SHARE = 0.02  # of the page area: smaller ones are ornaments or specks
 _DROP = {"header", "number", "footer", "formula_number"}
+# Spanish "¿" misread as a letter or digit glued to the question's first word ("iY
+# bien?", "lPor qué?", "2El qué?", "ipodrías ...?"), or apart ("L Cómo no?"): group 1
+# is the misread mark, group 2 that word.
+_LOST_QUESTION_RE = re.compile(r"(?<![\w¿¡])([iIlℓ12|!ủé]|[iIlLℓ12] )(?=(\w+)[^.!?¿]*\?)")
+# Vietnamese letters in a Spanish book are misreads of Spanish ones ("Sốc." "Sị"):
+# only an acute, a tilde or a diaeresis are kept.
+_VIETNAMESE_RE = re.compile(r"[Ạ-ỹ]")
+_SPANISH_MARKS = {"́", "̃", "̈"}
+_COMMON = 3  # a word seen this often in the book is a real one
+# shortcut: Spanish's one-letter words are vowels and "y"; set per language if a
+# book in another language uses margin references.
+_LONE_CONSONANT_RE = re.compile(r"[b-df-hj-np-tv-xzB-DF-HJ-NP-TV-XZ]")
+# Printed page numbers further apart than this: pages are missing from the scan (a
+# misread page number rarely jumps forward by little).
+_PAGE_JUMP = 1
+
+
+def _is_mark_word(word: str, label: str) -> bool:
+    """A margin mark read into the text: its letter or number, or a lone consonant."""
+    return word in (label[-1], label[:-1]) or bool(_LONE_CONSONANT_RE.fullmatch(word))
+
+
+def restore_question_marks(text: str, counts: Counter) -> str:
+    """Put back the "¿" that Paddle read as "i", "l", "2" ... before a question's
+    first word. Before a capital it can't be anything else; before a lowercase word
+    only when the book (``counts``: its words, lowercase) knows the word without it
+    and hardly with it ("ipor" -> "¿por", but "idea" stays)."""
+
+    def fix(match: re.Match) -> str:
+        mark, word = match.groups()
+        if word[0].isupper():
+            return "¿"
+        glued = (mark + word).lower()
+        if " " not in mark and counts[glued] <= 1 and counts[word.lower()] >= _COMMON:
+            return "¿"
+        return mark
+
+    return _LOST_QUESTION_RE.sub(fix, text)
+
+
+def spanish_letters(text: str) -> str:
+    """ "Sốc." -> "Sóc.", "Sị" -> "Sí": a Vietnamese letter keeps its Spanish accent."""
+
+    def fix(match: re.Match) -> str:
+        parts = unicodedata.normalize("NFD", match.group())
+        kept = parts[0] + "".join(c for c in parts[1:] if c in _SPANISH_MARKS)
+        return unicodedata.normalize("NFC", kept)
+
+    return _VIETNAMESE_RE.sub(fix, text)
 
 
 def text_sample(rows: list[dict]) -> str:
@@ -56,29 +113,39 @@ def iter_paddle_blocks(
     images: bool = True,
     latin_macrons: bool | None = None,
     restored: list[str] | None = None,
+    on_page: Callable[[int, int], None] | None = None,
+    margin_refs: bool = True,
 ) -> Iterator[Block]:
     """The book's blocks from Paddle's ``rows`` (one per page, as ``paddle_pages``
     returns them) for the scanned ``doc``. References put back by
-    ``pdf_worker.missing_refs`` are told in ``restored``, one line each."""
+    ``pdf_worker.missing_refs`` are told in ``restored``, one line each.
+    ``on_page(done, total)`` is called after each page. Without ``margin_refs`` no
+    margin mark is labelled."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
     scan_of = page_scanner(language)
+    read_mixed = mixed_reader(language)
     clips = missing_refs.PaddleClips()
     tries = [("text layer", missing_refs.text_layer)]
     with contextlib.suppress(OcrEngineMissingError):  # no Tesseract: skip that try
         code = TESSERACT_CODES.get(language, DEFAULT_LANGUAGE)
         tries.append(("Tesseract", missing_refs.tesseract_try(tesseract_path(), code)))
     tries.append(("Paddle crop", clips))
-    book = _Book()
-    last_note = None
+    # Pages are prepared first and the book is built after: margin marks are labelled
+    # all at once (``assign_labels``), which needs every reading.
+    prepared = []  # (page mark, row, blocks, anchors); blocks None for front matter
+    last_note, last_open = None, False
+    printed = None  # the previous page's printed number
     front = True
     try:
-        for row in sorted(rows, key=lambda r: r["page"]):
+        for done, row in enumerate(sorted(rows, key=lambda r: r["page"])):
+            if on_page:
+                on_page(done, len(rows))
             page = doc.load_page(row["page"])
             number = next(
                 (b["text"].strip() for b in row["blocks"] if b.get("label") == "number"), ""
             )
             label = number if number.isdigit() else str(row["page"] + 1)
-            book.marks.append(page_mark(row["page"], label))
+            mark = page_mark(row["page"], label)
             if front:
                 words = sum(
                     len(b.get("text", "").split())
@@ -86,29 +153,84 @@ def iter_paddle_blocks(
                     if b.get("label") in ("text", "footnote")
                 )
                 if words < _FRONT_WORDS:
-                    continue  # title pages: the cover and the metadata stand for them
+                    # title pages: the cover and the metadata stand for them
+                    prepared.append((mark, row, None, None))
+                    continue
                 front = False
+            if any(b.get("label") == "content" for b in row["blocks"]):
+                # A printed table of contents ("ROUSSEAU.—I ..... 6"): the book's own
+                # navigation stands for it, as in the text-layer path.
+                prepared.append((mark, row, None, None))
+                continue
+            if number.isdigit() and printed is not None and int(number) - printed > _PAGE_JUMP:
+                # Pages missing from the scan (279 -> 282): their notes are gone too, so
+                # the count goes on from this page's first reference, not from the last.
+                refs = [
+                    from_sup(r)
+                    for b in row["blocks"]
+                    if b.get("label") != "footnote"
+                    for r in SUPERSCRIPT_RE.findall(clean_text(b.get("text", "")))
+                ]
+                if refs and last_note is not None and min(refs) > last_note:
+                    last_note, last_open = min(refs) - 1, False
+            printed = int(number) if number.isdigit() else None
             blocks, anchors, last_note = prepare_blocks(
-                page, row, macrons, latin_default, rivals, scan_of(page), last_note
+                page,
+                row,
+                macrons,
+                latin_default,
+                rivals,
+                scan_of(page),
+                last_note,
+                last_open,
+                read_mixed,
             )
+            last_open = left_open(blocks)
             for n, source in missing_refs.restore(page, blocks, tries):
                 if restored is not None:
                     restored.append(f"note {n} reference restored from {source}, page {label}")
-            yield from book.add_page(page, row, blocks, anchors, images)
-        yield from book.flush()
+            prepared.append((mark, row, blocks, anchors))
+        if on_page:
+            on_page(len(rows), len(rows))
     finally:
         clips.close()
 
+    def build(book: _Book, pictures: bool) -> Iterator[Block]:
+        for mark, row, blocks, anchors in prepared:
+            book.marks.append(mark)
+            book.page = row["page"]
+            if blocks is not None:
+                yield from book.add_page(doc.load_page(row["page"]), row, blocks, anchors, pictures)
+        yield from book.flush()
+
+    if margin_refs:
+        readings: list[tuple[int, str | None]] = []
+        dry = _Book(lambda reading: readings.append((dry.page, reading)))
+        for block in build(dry, False):
+            if isinstance(block, Heading):
+                readings.append((dry.page, None))  # a new section: the marks count anew
+        labels = iter(assign_labels(readings))
+        book = _Book(lambda reading: next(labels))
+    else:
+        book = _Book(lambda reading: None)
+    if language == "es":
+        book.counts = Counter(
+            w.lower() for row in rows for b in row["blocks"] for w in re.findall(r"\w+", b["text"])
+        )
+    yield from build(book, images)
+
 
 class _Book:
-    def __init__(self) -> None:
+    def __init__(self, label_of: Callable[[str], str | None]) -> None:
+        self.label_of = label_of  # a margin mark's reading -> its label (None: no mark)
+        self.page = 0  # the page being added (0-based)
+        self.counts: Counter | None = None  # a Spanish book's words: "¿" is put back
         self.para: str | None = None  # the paragraph in progress (may run on a page)
         self.pending: list[Block] = []  # notes, glosses and pictures after it
         self.marks: list[str] = []  # page starts not yet placed in the text
         self.part = 0
         self.notes_seen = False
         self.last_note: str | None = None
-        self.margin_label: str | None = None
 
     def flush(self) -> Iterator[Block]:
         if self.para is not None:
@@ -136,6 +258,11 @@ class _Book:
                 continue
             if label == "aside_text":
                 self.pending.append(Gloss(tuple(text.splitlines())))
+                continue
+            if label == "algorithm":  # a table of variants: one small line each
+                yield from self.flush()
+                for line in text.splitlines():
+                    yield Paragraph(line, small=True)
                 continue
             if label in ("doc_title", "paragraph_title"):
                 yield from self.flush()
@@ -170,17 +297,26 @@ class _Book:
         """Margin references at their words, note references as ``[^label]``."""
         words = text.split()
         for k, reading in sorted(marks):
-            label = next_label(self.margin_label, reading)
+            label = self.label_of(reading)
             if label and k < len(words):
-                self.margin_label = label
+                # The mark itself read as a word beside its line's first: "[26b] b SÓC.",
+                # "niño. b [17b] PRO.", "26 [26a]" (a lone consonant is no word).
+                if k > 0 and _is_mark_word(words[k - 1], label):
+                    words[k - 1] = ""
+                if _is_mark_word(words[k], label) and k + 1 < len(words):
+                    words[k], k = "", k + 1
                 words[k] = margin_ref(label) + words[k]
-        text = _BROKEN_WORD_RE.sub(r"\1", " ".join(words))
+        text = _BROKEN_WORD_RE.sub(r"\1", " ".join(w for w in words if w))
+        if self.counts is not None:
+            text = spanish_letters(restore_question_marks(text, self.counts))
         text = _SPEAKER_RE.sub(
             lambda m: m.group(1) + m.group(3).upper().replace("Ố", "Ó") + ". — ", text
         )
         return SUPERSCRIPT_RE.sub(lambda m: f"[^c{self.part}-{from_sup(m.group())}]", text)
 
     def _add_note(self, text: str) -> None:
+        if self.counts is not None:
+            text = spanish_letters(text)
         match = SUPERSCRIPT_RE.match(text)
         if match:
             self.last_note = f"c{self.part}-{from_sup(match.group())}"

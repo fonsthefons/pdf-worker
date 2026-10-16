@@ -6,9 +6,18 @@ from pdf_worker import pdf_export
 from pdf_worker.convert import convert_pdf
 from pdf_worker.epub import write_epub
 from pdf_worker.footnotes import BodyLine
-from pdf_worker.inline import margin_ref, plain
+from pdf_worker.inline import MarginRef, margin_ref, pieces, plain
 from pdf_worker.layout import DocumentProfile, Line
-from pdf_worker.margin_refs import PageScan, ScanMark, ScanWord, mark_paddle_blocks, next_label
+from pdf_worker.margin_estimates import estimate_margin_refs
+from pdf_worker.margin_refs import (
+    PageScan,
+    ScanMark,
+    ScanWord,
+    assign_labels,
+    mark_paddle_blocks,
+    next_label,
+    outer_marks,
+)
 from pdf_worker.output import Metadata
 from pdf_worker.structure import Heading, Note, Paragraph, _State
 from pdf_worker.text_export import write_text
@@ -33,6 +42,39 @@ def test_labels_follow_the_section_order_whatever_was_read():
     assert labels == ["22a", "22b", "22c", "22d", "22e", "23a", "23c", "23d"]
     assert next_label(None, "b") == "b"  # no number yet: as printed
     assert next_label(None, "?") is None
+
+
+def test_a_whole_run_of_marks_is_labelled_together():
+    # Platón bad pp. 41-43: a misread "23", then a stray "e" and two pencil blots
+    # among 23d and 23e; the greedy reading ran one label ahead from there on.
+    pages = [41] * 3 + [42] * 5 + [43] * 4 + [44] * 2
+    reads = ["22", "b", "c", "e", "d", "?", "?", "e", "24", "?", "c", "?", "e", "25"]
+    labels = assign_labels(list(zip(pages, reads, strict=True)))
+    assert labels[3:9] == [None, "23d", None, None, "23e", "24a"]
+    assert labels[-1] == "25a" and labels[0] == "23a"
+    # A heading starts a new run; one with no number read labels nothing (pencil
+    # marks in an introduction).
+    run = [(1, r) for r in ("66", "?", "c", "d", "e", "67", "b")]
+    run += [(2, None), (3, "c"), (3, "?")]
+    assert assign_labels(run) == ["66a", "66b", "66c", "66d", "66e", "67a", "67b", None, None]
+    # Nor one where no page number of two digits is read where it is labelled.
+    assert assign_labels([(5, "2"), (5, "?"), (5, "12"), (6, "2"), (6, "3")]) == [None] * 5
+    # A long gap (an introduction) starts the next dialogue's count.
+    filebo_end = [(1, r) for r in ("66", "b", "c", "d", "e", "67", "b")]
+    timeo_start = [(20, r) for r in ("17", "b", "c", "d", "e", "18", "b")]
+    labels = assign_labels(filebo_end + timeo_start)
+    assert labels[5:9] == ["67a", "67b", "17a", "17b"]
+
+
+def test_marks_on_the_spine_side_are_the_scanners_shadow():
+    scan = PageScan(
+        [], [ScanMark("c", 1, "left"), ScanMark("d", 5, "right"), ScanMark("a", 9, "left")]
+    )
+    assert [m.reading for m in outer_marks(scan, "right").marks] == ["d"]
+    # No readable mark outside: nothing to go by, all stay.
+    assert outer_marks(PageScan([], [ScanMark("?", 2, "right")]), "right").marks == [
+        ScanMark("?", 2, "right")
+    ]
 
 
 def test_line_numbers_are_not_section_references():
@@ -115,6 +157,56 @@ def test_text_and_epub_show_margin_references_apart_from_footnotes(tmp_path):
     with pymupdf.open(tmp_path / "book.epub") as doc:
         html = "".join(page.get_text("html") for page in doc)
     assert stats.margin_refs == 1 and "22a" in html
+
+
+def test_labels_lost_between_two_found_ones_are_estimated_evenly():
+    words = [f"w{i}" for i in range(30)]
+    text = margin_ref("23b") + " ".join(words[:15]) + " " + margin_ref("23e") + " ".join(words[15:])
+    blocks = [
+        Paragraph(margin_ref("22e") + "start"),
+        Paragraph(text),
+        Heading("TIMEO", 1),
+        Paragraph(margin_ref("17a") + "nuevo " + margin_ref("17d") + "fin"),  # no room between
+        Paragraph(margin_ref("9b") + "otro"),  # numbers going down: no anchor pair
+    ]
+
+    out = list(estimate_margin_refs(blocks))
+
+    tokens = out[1].text.split()
+    labels = [p.label for p in pieces(out[1].text) if isinstance(p, MarginRef)]
+    assert labels == ["23b", "~23c", "~23d", "23e"]
+    assert tokens[5].startswith(margin_ref("~23c"))  # 15 words, three shares
+    assert tokens[10].startswith(margin_ref("~23d"))
+    assert plain(out[1].text).split() == words
+    assert out[0] == blocks[0]  # 23a: no word between 22e and 23b to put it on
+    assert out[2:] == blocks[2:]
+
+
+def test_margin_references_are_off_unless_asked_for():
+    from pdf_worker.convert import _without_margin_refs
+
+    blocks = [
+        Heading(margin_ref("22a") + "TIMEO", 1),
+        Paragraph("muchos " + margin_ref("22b") + "honores"),
+    ]
+
+    assert list(_without_margin_refs(blocks)) == [Heading("TIMEO", 1), Paragraph("muchos honores")]
+
+
+def test_estimated_labels_are_pink_in_the_reflowed_pdf(tmp_path):
+    out = tmp_path / "book.pdf"
+    text = margin_ref("22a") + "honores " + " ".join(FULL) + " " + margin_ref("~22b") + "fin"
+
+    pdf_export.write_pdf([Paragraph(text)], out, Metadata("Timeo"))
+
+    with pymupdf.open(out) as doc:
+        colors = {
+            span["text"]: span["color"]
+            for block in doc[0].get_text("dict")["blocks"]
+            for line in block.get("lines", [])
+            for span in line["spans"]
+        }
+    assert colors["22a"] >> 16 < 0x80 < colors["~22b"] >> 16  # green, then pink
 
 
 def test_reflowed_pdf_sets_margin_references_in_the_margin(tmp_path):

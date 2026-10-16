@@ -78,6 +78,146 @@ def next_label(previous: str | None, reading: str) -> str | None:
     return expected
 
 
+# Costs for ``assign_labels``: a mark taken as ink that is no mark (pencil, a smudge),
+# by what it was read as; a label with no mark; readings against labels.
+# An unreadable blob is labelled only where the labels around force it (dropping it
+# would skip a label): past the last page number it is taken for pencil.
+_JUNK = {"unread": 0.4, "letter": 1.0, "number": 1.2}
+_SKIP = 1.0
+_UNREAD, _NEAR_LETTER, _WRONG_LETTER = 0.5, 0.6, 1.0
+_NEAR_NUMBER, _WRONG_NUMBER, _NUMBER_AS_LETTER, _LETTER_AS_NUMBER = 0.8, 1.2, 1.3, 1.0
+_CONFUSED = {frozenset("ce"), frozenset("ad"), frozenset("bh")}
+_MAX_SKIP = 5  # labels in a row without a mark
+_SECTION_GAP = 4  # pages without marks that end a dialogue (an introduction follows)
+
+
+def assign_labels(readings: list[tuple[int, str | None]]) -> list[str | None]:
+    """Labels for a book's marks at once: ``readings`` are (page number, reading) in
+    reading order, a None reading where a heading breaks the text. Returns a label for
+    each mark (breaks left out); None for ink taken for no mark at all.
+
+    One misread can't be judged alone: "e" after "23c" may be 23e (23d missed), 23d
+    misread, or a pencil stroke. So the whole run of marks of a dialogue is labelled
+    together (dynamic programming): labels only go up, each mark is a label or junk,
+    and the sequence that fits the readings at least cost wins. A heading, or marks
+    more than ``_SECTION_GAP`` pages apart, start a new run (the next dialogue counts
+    anew; an introduction's pencil marks, with no page number read, label nothing).
+    """
+    labels: list[str | None] = []
+    run: list[str] = []
+    last_page = None
+    for page, reading in readings:
+        if reading is None or (last_page is not None and page - last_page > _SECTION_GAP):
+            labels += _label_run(run)
+            run = []
+        if reading is not None:
+            run.append(reading)
+            last_page = page
+    return labels + _label_run(run)
+
+
+def _label_run(readings: list[str]) -> list[str | None]:
+    numbers = [int(m.group(1)) for r in readings if (m := _MARK_RE.match(r)) and m.group(1)]
+    # No page number anywhere, nothing to count from. A pencil stroke reads as "1":
+    # shortcut: one-digit pages (Euthyphro 2-9) alone don't start a count; fine for
+    # every dialogue whose run reaches page 10.
+    if not any(n >= 10 for n in numbers):
+        return [None] * len(readings)
+    lo, hi = max(1, min(numbers) - 1) * 5, (max(numbers) + 2) * 5
+    size = hi - lo
+    inf = float("inf")
+    start_cost = 0.0  # cost of the marks so far when all were junk
+    cost = [inf] * size  # cost when the last labelled mark has label lo + s
+    back = []  # per mark: per state, the previous state (-1: start) or None (junk)
+    for reading in readings:
+        junk = _junk_cost(reading)
+        new, came = [inf] * size, [None] * size
+        for s in range(size):
+            emit = _emit_cost(reading, lo + s)
+            # A run starts at a page number ("17"): starting at "17e" skips b to d.
+            best, prev = start_cost + (lo + s) % 5 * _SKIP + emit, -1
+            for gap in range(1, _MAX_SKIP + 2):
+                if s - gap < 0:
+                    break
+                c = cost[s - gap] + (gap - 1) * _SKIP + emit
+                if c < best:
+                    best, prev = c, s - gap
+            if cost[s] + junk < best:
+                best, prev = cost[s] + junk, None
+            new[s], came[s] = best, prev
+        back.append(came)
+        start_cost += junk
+        cost = new
+    # Walk back from the cheapest end.
+    state = min(range(size), key=cost.__getitem__)
+    if start_cost <= cost[state]:
+        return [None] * len(readings)
+    out: list[str | None] = [None] * len(readings)
+    for i in range(len(readings) - 1, -1, -1):
+        prev = back[i][state]
+        if prev is None:
+            continue  # junk: the state stays
+        out[i] = _label(lo + state)
+        if prev == -1:
+            break
+        state = prev
+    # A real run shows its page numbers: two read exactly where the labels put them.
+    # Ink in an introduction (list numbers, pencil) may fit a few labels by chance.
+    confirmed = sum(
+        1
+        for reading, label in zip(readings, out, strict=True)
+        if label and label.endswith("a") and reading == label[:-1] and len(reading) > 1
+    )
+    return out if confirmed >= 2 else [None] * len(readings)
+
+
+def _label(value: int) -> str:
+    return f"{value // 5}{'abcde'[value % 5]}"
+
+
+def _junk_cost(reading: str) -> float:
+    match = _MARK_RE.match(reading)
+    # Section "a" is printed as the page number, so a lone "a" is a pencil stroke.
+    if not match or not reading or reading in (UNREADABLE, "a"):
+        return _JUNK["unread"]
+    return _JUNK["number"] if match.group(1) else _JUNK["letter"]
+
+
+def _emit_cost(reading: str, value: int) -> float:
+    number, letter = divmod(value, 5)
+    letter = "abcde"[letter]
+    match = _MARK_RE.match(reading)
+    if not match or not reading:
+        return _UNREAD
+    digits, read_letter = match.groups()
+    costs = []
+    if read_letter:
+        if letter == "a":  # the "a" line carries the number, not a letter
+            costs.append(_LETTER_AS_NUMBER)
+        elif read_letter == letter:
+            costs.append(0.0)
+        else:
+            near = frozenset((read_letter, letter)) in _CONFUSED
+            costs.append(_NEAR_LETTER if near else _WRONG_LETTER)
+    if digits:
+        if letter != "a":
+            costs.append(_NUMBER_AS_LETTER)
+        elif int(digits) == number:
+            costs.append(0.0)
+        else:
+            costs.append(_NEAR_NUMBER if _one_off(digits, str(number)) else _WRONG_NUMBER)
+    return min(costs)
+
+
+def _one_off(read: str, real: str) -> bool:
+    """Read "22" for 23 or "56" for 36: one more or less, or one digit wrong."""
+    if abs(int(read) - int(real)) == 1:
+        return True
+    if len(read) != len(real):
+        return False
+    return sum(a != b for a, b in zip(read, real, strict=True)) == 1
+
+
 # -- marks stored on the page -------------------------------------------------------------
 
 
@@ -111,12 +251,14 @@ class ScanWord:
     text: str
     line: int  # index of its printed line, top to bottom
     margin: bool  # beside the text column: a mark as Tesseract read it
+    box: tuple[float, float, float, float] | None = None  # in page units
 
 
 @dataclass(frozen=True)
 class ScanMark:
     reading: str  # "22", "b" ..., or UNREADABLE
     line: int
+    side: str = ""  # "left" or "right" of the text column
 
 
 @dataclass
@@ -144,7 +286,9 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
     for index, line in enumerate(lines):
         for x0, y0, x1, y1, text in line:
             margin = not left - _GAP * height < (x0 + x1) / 2 < right + _GAP * height
-            words.append(ScanWord(text, index, margin))
+            to_page = 72 / _DPI
+            box = (x0 * to_page, y0 * to_page, x1 * to_page, y1 * to_page)
+            words.append(ScanWord(text, index, margin, box))
             # A real word past the column's edge is body text, not a mark to read.
             if not margin or sum(c.isalpha() for c in text) >= 3:
                 body_boxes.append((x0, y0, x1, y1))
@@ -152,11 +296,11 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
     bottom = max(w[3] for ln in long_lines for w in ln) + height
     _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
     marks = []
-    for side in (
-        (right + _GAP * height, right + _REACH * height),
-        (left - _REACH * height, left - _GAP * height),
+    for side, xs in (
+        ("right", (right + _GAP * height, right + _REACH * height)),
+        ("left", (left - _REACH * height, left - _GAP * height)),
     ):
-        for box in _blobs(ink, side, (top, bottom), height, body_boxes):
+        for box in _blobs(ink, xs, (top, bottom), height, body_boxes):
             line = _line_of(box, lines, words, height)
             if line is not None:
                 reading = _read(gray, box, height, tesseract)
@@ -165,15 +309,24 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
                         (w[4] for w in lines[line] if _overlaps(w[:4], box) and is_mark(w[4])),
                         reading,
                     )
-                marks.append((line, reading))
+                marks.append((line, reading, side))
     # A mark split into pieces ("1" + "16", "?" + "?") is still one mark: keep the
     # line's best reading. shortcut: two real marks on one line become one; none seen.
-    best: dict[int, str] = {}
-    for line, reading in marks:
+    best: dict[int, tuple[str, str]] = {}
+    for line, reading, side in marks:
         old = best.get(line)
-        if old is None or _rank(reading) > _rank(old):
-            best[line] = reading
-    return PageScan(words, [ScanMark(best[line], line) for line in sorted(best)])
+        if old is None or _rank(reading) > _rank(old[0]):
+            best[line] = (reading, side)
+    return PageScan(words, [ScanMark(best[line][0], line, best[line][1]) for line in sorted(best)])
+
+
+def outer_marks(scan: PageScan, outer: str) -> PageScan:
+    """Only the marks in the outer margin (``outer``: the side the page number is on),
+    when it has a readable one: ink on the spine side is the scanner's gutter shadow."""
+    kept = [m for m in scan.marks if m.side == outer]
+    if any(is_mark(m.reading) for m in kept):
+        return PageScan(scan.words, kept)
+    return scan
 
 
 def _rank(reading: str) -> tuple[bool, int]:

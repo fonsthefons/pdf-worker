@@ -61,6 +61,11 @@ def test_text_layer_finds_a_smaller_number_after_a_word():
         page.insert_text((60, 130), "Frag. 8 y", fontsize=11)  # same size: text, not a reference
         assert missing_refs.text_layer(page, RECT, 8) == "causa"
         assert missing_refs.text_layer(page, RECT, 9) is None
+    # Glued into one span by the layer's OCR (Copleston p. 64).
+    with pymupdf.open() as doc:
+        page = doc.new_page()
+        page.insert_text((60, 100), 'bajo perpetua constricción".5 Todos', fontsize=11)
+        assert missing_refs.text_layer(page, RECT, 5) == 'constricción".'
 
 
 def test_a_reading_shows_the_number_after_a_word():
@@ -68,6 +73,8 @@ def test_a_reading_shows_the_number_after_a_word():
     assert missing_refs._after_word(["y", "causa", "8."], 8) == ["causa"]
     assert missing_refs._after_word(["Frag.", "8"], 8) == []
     assert missing_refs._after_word(["causa8."], 9) == []
+    # A closing quote and a full stop between: Copleston p. 64.
+    assert missing_refs._after_word(["bajo", "constricción”.5"], 5) == ["constricción”."]
 
 
 def test_paddle_crop_reads_the_reference(monkeypatch, tmp_path):
