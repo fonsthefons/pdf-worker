@@ -260,9 +260,8 @@ Steps:
    waits out a 429 using `retry-after`; `api_key()` reads `GROQ_API_KEY` from `.env`.
    `text_correction/backends.py` `BACKENDS["groq"]` sets model, prompt, temperatures
    and chunk sizes (800/1,100 words). Tests fake it in `tests/test_correction.py`.
-   State (2026-10-16): the user said `groq.py` was copied, but no file named *groq*
-   was found in the repo: first thing, check `scratch/groq_client.py` exists; if not,
-   ask the user to copy it there, then wait. `GROQ_API_KEY` is in this repo's `.env` (gitignored; never print or read it into the
+   State (2026-10-16): `scratch/groq_client.py` is in place (5.4 KB, copied by the
+   user, not yet read). `GROQ_API_KEY` is in this repo's `.env` (gitignored; never print or read it into the
    conversation, the client reads it). Model: `GROQ_MODEL = "openai/gpt-oss-120b"`.
    gpt-oss-120b takes text only, no images: the model pass is text only (packet
    context, no crops sent); the crops are for the review page, where the user checks
