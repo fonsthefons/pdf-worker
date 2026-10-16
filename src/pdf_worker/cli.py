@@ -12,6 +12,7 @@ from pathlib import Path
 from pdf_worker import __version__, kindle, ocr
 from pdf_worker import convert as conversion
 from pdf_worker.errors import PdfWorkerError
+from pdf_worker.fixes import default_fixes_path
 from pdf_worker.text_extraction import (
     DEFAULT_PAGE_SEPARATOR,
     default_output_path,
@@ -287,7 +288,7 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         "--no-cover",
         dest="cover",
         action="store_false",
-        help="Don't use the first page as the EPUB cover.",
+        help="Don't add a text cover (title, author, translator) to EPUB, PDF or Word.",
     )
     parser.add_argument(
         "--notes",
@@ -310,6 +311,12 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         "two found ones, spread evenly over the words between them; shown as '[~23c]', "
         "pink where labels are coloured.",
     )
+    parser.add_argument(
+        "--fixes",
+        type=Path,
+        help="Review file of OCR fixes, applied to the text and updated with suspicious "
+        "words, notes and margin references (default: <pdf stem>.fixes.tsv next to the PDF).",
+    )
     _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
 
@@ -325,6 +332,7 @@ def _run_convert(args: argparse.Namespace) -> int:
         notes_at=args.notes,
         margin_refs=args.margin_refs,
         estimate_margin_refs=args.estimate_margin_refs,
+        fixes_path=args.fixes or default_fixes_path(args.pdf),  # not the OCR'd copy's
     )
     if args.ocr in ("redo", "force") and args.engine == "paddle":
         # The book is built from Paddle's blocks themselves, not from a text layer.
@@ -368,6 +376,9 @@ def _print_convert_summary(report: conversion.ConvertReport, output: Path, fmt: 
     )
     for line in report.restored_refs:
         print(line)
+    if report.fixes_path:
+        new = ", ".join(f"{n} {kind}" for kind, n in report.new_fixes.items()) or "none"
+        print(f"Review file {report.fixes_path}: new rows: {new}")
     return 0
 
 

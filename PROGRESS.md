@@ -1,6 +1,6 @@
 # Progress
 
-## REVIEW PLAN (agreed with user 2026-10-16) — START HERE, not started yet
+## REVIEW PLAN (agreed with user 2026-10-16) — in progress, branch `feature/review-plan`
 Goal: every conversion follows one book structure, and the user fixes OCR errors in a
 review file (edited in Cursor) instead of in the output. Cheap after OCR (Paddle is
 cached), so rebuilding often is fine. Decided: no Typst for now (notes go at the end;
@@ -34,6 +34,37 @@ text -> appendices/bibliography/index -> notes. Front matter is fine as is.
 5. Unit tests (apply fixes; merge on rebuild keeps user rows, marks stale). Trial on
    Platón and philosophy: report row counts per kind, esp. Spanish spelling noise, BEFORE
    going further. Log decisions here.
+
+Progress (2026-10-16):
+- [done] 1+2. `cover.py`: text cover (author, title, "Traducción de X") as PDF page 1,
+  Word page 1 (Pandoc title block + raw OpenXML translator line and page break), EPUB
+  cover image (rendered from that page). Translator found on the first 6 pages
+  (Paddle blocks, then text layer): philosophy "Manuel Sacristán", Platón "M. Ángeles
+  Durán y Francisco Lisi". `Metadata.translator`. md/html/txt unchanged (they already
+  open with the title/author). Reflowed PDF: page numbers centred at the foot, = the
+  PDF's own page numbers (cover is 1, unnumbered). `--no-cover` now covers PDF/Word too.
+  Title is still metadata/file name (philosophy shows "philosophy"; use --title).
+- [done] 3. `fixes.py` (`Review`): applies rows, flags, merges, statuses `applied` /
+  `ambiguous` / `stale`; `convert --fixes PATH`; default `<stem>.fixes.tsv` next to the
+  original PDF (CLI and kindle pass it, so OCR temp copies don't get it). Page = printed
+  page label from the page marks. `add` value: `21d before pero`. Words written in a
+  `replace` value are never flagged. Not covered: Gloss and Table text.
+- [done] 5. Unit tests `tests/test_fixes.py`, `tests/test_cover.py`. 187 fast pass.
+- 4. Italics: the block text carries no italics, so "skip italics" can't be done.
+- TRIAL (Platón, `scratch/book_build.py ... txt --margin-refs --estimate-margin-refs`,
+  rows counted with `scratch/fixes_counts.py`): spelling 4943 (!), chars 21, note-no-ref
+  4, ref-no-note 6, margin-est 40, margin-missing 0 (estimates fill the gaps).
+  Spelling is noise: pyspellchecker's Spanish list has 86k words and lacks most
+  inflections ("normas", "sujetos", "explicamos"). A crude stemmer
+  (`scratch/spell_stem.py`) leaves 2214, still mostly valid words (pudiésemos, componen,
+  ignore). Real hits do exist: esla, ban (=han), deberlan, Atcnas, rla, and split words
+  from hyphenation (atribui-mos, intro, dremos). chars: mostly transliterated Greek
+  (thēin, phrónēsin) = noise in a Platón book; real: `$`, `pāg`, `sōphrosyñē`.
+  Philosophy (`book_build.py ... 1-462 scratch/review_trial txt`): spelling 6065 (3126
+  after stemming; 1328 capitalised, mostly bibliography names/German/French titles),
+  chars 6 (all real: volūmenes, ūber, Būtzow, SCHŌNEBAUM, ВоHATEC, Germānicas),
+  note-no-ref 5, ref-no-note 1.
+  STOPPED here for the user's decision on spelling (see report).
 
 ## Done
 

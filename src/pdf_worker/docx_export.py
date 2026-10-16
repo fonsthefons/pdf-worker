@@ -11,7 +11,9 @@ import subprocess
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
+from xml.sax.saxutils import escape
 
+from pdf_worker.cover import translated_by
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.markdown_export import write_markdown
 from pdf_worker.output import Metadata, WriteStats
@@ -29,16 +31,24 @@ def pandoc_path() -> str:
     return path
 
 
-def write_docx(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> WriteStats:
+def write_docx(
+    blocks: Iterable[Block], output_path: Path, meta: Metadata, cover: bool = False
+) -> WriteStats:
+    """``cover``: the title block (Pandoc's, from the metadata) and translator make page 1."""
     pandoc = pandoc_path()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.w."))
     try:
         markdown = work / "book.md"
         stats = write_markdown(blocks, markdown, meta)
+        sources = ["book.md"]
+        if cover:
+            # Pandoc reads book.md's metadata after this, but sets the title block first.
+            (work / "cover.md").write_text(_cover_markdown(meta), encoding="utf-8")
+            sources.insert(0, "cover.md")
         target = work / "book.docx"
         result = subprocess.run(
-            [pandoc, "book.md", "-f", "markdown", "-o", "book.docx", "--resource-path", "."],
+            [pandoc, *sources, "-f", "markdown", "-o", "book.docx", "--resource-path", "."],
             cwd=work,
             capture_output=True,
             text=True,
@@ -50,3 +60,14 @@ def write_docx(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wr
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return stats
+
+
+def _cover_markdown(meta: Metadata) -> str:
+    xml = ""
+    if meta.translator:
+        xml += (
+            '<w:p><w:pPr><w:pStyle w:val="Author"/></w:pPr>'
+            f"<w:r><w:t>{escape(translated_by(meta))}</w:t></w:r></w:p>"
+        )
+    xml += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+    return f"```{{=openxml}}\n{xml}\n```\n"

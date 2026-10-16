@@ -20,6 +20,7 @@ CELL = ""
 _PAGE_OPEN, _PAGE_CLOSE = "", ""
 _LINK_OPEN, _LINK_MID, _LINK_CLOSE = "", "", ""
 _TOKEN_RE = re.compile("(\\d+)\\|([^]*)|([^]*)|")
+PAGE_MARK_RE = re.compile(f"{_PAGE_OPEN}\\d+\\|([^{_PAGE_CLOSE}]*){_PAGE_CLOSE}")
 LEADING_PAGE_MARKS_RE = re.compile("^((?:[^]*)+)(.*)$", re.DOTALL)
 
 

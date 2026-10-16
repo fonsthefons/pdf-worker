@@ -12,13 +12,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from pdf_worker import margin_estimates
+from pdf_worker.cover import cover_jpeg, find_translator
 from pdf_worker.document import open_pdf
 from pdf_worker.docx_export import write_docx
 from pdf_worker.drop_notes import drop_notes
 from pdf_worker.epub import write_epub
 from pdf_worker.errors import PdfWorkerError
+from pdf_worker.fixes import Review, default_fixes_path, read_fixes, write_fixes
 from pdf_worker.html_export import write_html
-from pdf_worker.images import render_cover
 from pdf_worker.inline import MARGIN_REF_RE
 from pdf_worker.layout import analyze_document
 from pdf_worker.markdown_export import write_markdown
@@ -37,6 +38,7 @@ FORMATS = {
 }
 # Where a reflowed PDF sets its footnotes; "none" leaves notes out of every format.
 NOTE_PLACES = ("page", "end", "none")
+_TITLE_PAGES = 6  # searched for a translator's name
 
 # Very common short words per language, for a cheap language guess.
 _STOPWORDS = {
@@ -69,6 +71,8 @@ class ConvertReport:
     metadata: Metadata
     stats: WriteStats
     restored_refs: list[str] = field(default_factory=list)  # see pdf_worker.missing_refs
+    fixes_path: Path | None = None  # the review file, see pdf_worker.fixes
+    new_fixes: dict[str, int] = field(default_factory=dict)  # rows added, per kind
 
 
 def stopword_scores(text: str) -> dict[str, int]:
@@ -113,10 +117,12 @@ def convert_pdf(
     on_page: Callable[[int, int], None] | None = None,
     margin_refs: bool = False,
     estimate_margin_refs: bool = False,
+    fixes_path: str | Path | None = None,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
-    ``images`` keeps the pictures; ``cover`` makes page 1 the EPUB cover; ``notes_at``
+    ``images`` keeps the pictures; ``cover`` adds a text cover (title, author,
+    translator; ``pdf_worker.cover``) to an EPUB, PDF or Word book; ``notes_at``
     ("page" or "end") places a PDF's footnotes, "none" drops the notes and their
     references in every format. With ``paddle_rows`` (PaddleOCR-VL's
     blocks, see ``paddle_ocr.paddle_pages``) the book is built from them instead of the
@@ -125,6 +131,8 @@ def convert_pdf(
     ("22b", ``pdf_worker.margin_refs``); other books have none, and ink in their margins
     would only make false ones. ``estimate_margin_refs`` (implies ``margin_refs``) adds
     those the scan lost between two found ones (``pdf_worker.margin_estimates``).
+    The review file ``fixes_path`` (default ``<pdf stem>.fixes.tsv`` next to the PDF;
+    ``pdf_worker.fixes``) is applied to the text, then updated with what looks wrong.
     """
     margin_refs = margin_refs or estimate_margin_refs
     if fmt not in FORMATS:
@@ -156,31 +164,53 @@ def convert_pdf(
             blocks = iter_blocks(doc, profile, images=keep_images)
             if not margin_refs:
                 blocks = _without_margin_refs(blocks)
-        if estimate_margin_refs:
-            blocks = margin_estimates.estimate_margin_refs(blocks)
-        if notes_at == "none":
-            blocks = drop_notes(blocks)
         meta = Metadata(
             title=title or _title_from(info, pdf_path),
             author=author or (info.get("author") or "").strip(),
             language=language or guess_language(sample),
+            translator=find_translator(_title_page_texts(doc, paddle_rows)),
         )
+        if estimate_margin_refs:
+            blocks = margin_estimates.estimate_margin_refs(blocks)
+        fixes_path = Path(fixes_path) if fixes_path else default_fixes_path(pdf_path)
+        review = Review(read_fixes(fixes_path), meta.language)
+        blocks = review.apply(blocks)
+        if notes_at == "none":
+            blocks = drop_notes(blocks)
         if fmt == "epub":
-            cover_jpeg = render_cover(doc.load_page(0)) if cover and doc.page_count else None
-            stats = write_epub(blocks, output_path, meta, cover=cover_jpeg)
+            stats = write_epub(blocks, output_path, meta, cover=cover_jpeg(meta) if cover else None)
         elif fmt == "pdf":
-            stats = write_pdf(blocks, output_path, meta, notes_at=notes_at)
+            stats = write_pdf(blocks, output_path, meta, notes_at=notes_at, cover=cover)
+        elif fmt == "docx":
+            stats = write_docx(blocks, output_path, meta, cover=cover)
         else:
             writer = {
                 "md": write_markdown,
                 "html": write_html,
                 "txt": write_text,
-                "docx": write_docx,
             }[fmt]
             stats = writer(blocks, output_path, meta)
+    new_fixes = review.finish()
+    if review.fixes:
+        write_fixes(fixes_path, review.fixes)
     return ConvertReport(
-        output_path=output_path, metadata=meta, stats=stats, restored_refs=restored
+        output_path=output_path,
+        metadata=meta,
+        stats=stats,
+        restored_refs=restored,
+        fixes_path=fixes_path if review.fixes else None,
+        new_fixes=new_fixes,
     )
+
+
+def _title_page_texts(doc, paddle_rows: list[dict] | None) -> Iterator[str]:
+    """The text blocks of the first pages, where a translator would be named."""
+    if paddle_rows is not None:
+        for row in sorted(paddle_rows, key=lambda r: r["page"]):
+            if row["page"] < _TITLE_PAGES:
+                yield from (b.get("text", "") for b in row["blocks"])
+    for page_no in range(min(_TITLE_PAGES, doc.page_count)):
+        yield from (b[4] for b in doc.load_page(page_no).get_text("blocks"))
 
 
 def _without_margin_refs(blocks: Iterable[Block]) -> Iterator[Block]:
