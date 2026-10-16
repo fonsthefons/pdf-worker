@@ -223,7 +223,8 @@ Findings:
 State:
 - PR #28 (`feature/spelling-refine`, everything above) was merged by the user on
   2026-10-16. Start new work on a new branch from main.
-- The user is filling in the review files by hand (action/value columns):
+- The user may fill in some rows by hand first (action/value columns); the PLAN below
+  takes over the rest. Review files:
   `test_pdfs/philosophy.fixes.tsv` (653 rows) and
   `test_pdfs/platon_dialogos_vi_bad.fixes.tsv` (482 rows). They are not in git
   (`test_pdfs/` is ignored): don't delete or overwrite them; back them up (copy to
@@ -234,6 +235,56 @@ State:
 - User decided (2026-10-16): forget for now the ocr1-guess ranking, Lazarillo's
   run-together variant notes, and the leftover split words ("Au gusto", "fue re").
   Bilingual editions not supported.
+### PLAN: model-assisted review with a local review page (agreed 2026-10-16, option B)
+Goal: a model (Groq, via the user's existing API code in another repo) proposes a
+decision for each review row; the user accepts/edits/ignores them on a local HTML page
+that shows the scan crop next to the proposal; a script merges the decisions into
+`<stem>.fixes.tsv`. Proposals never go straight into the review file.
+
+Token rules for this work (user asked: as few tokens as possible):
+- Read only this section of PROGRESS.md (grep for "## NEXT SESSION", Read with offset).
+- Never print a review file, packets or proposals. Scripts write details to
+  `scratch/review_ai/` and print a summary of at most ~10 lines (counts only).
+- Try every step on a sample of ~20 rows first, then the full run.
+- No rebuilds or OCR: use the Paddle cache and the txt built this session
+  (`scratch/review_books/book_1-462.txt` philosophy, `scratch/review_books_platon/
+  book_1-293.txt` Platón).
+- The per-row work is done by the Groq model; Claude writes and checks the scripts and
+  spot-checks at most ~10 rows.
+- Background jobs: their output file can't be read; scripts write to `scratch/`.
+
+Steps:
+0. New branch from main. Ask the user for the path of the other repo's Groq code (the
+   one question to ask); reuse its calls (copy the minimal client into `scratch/`, no
+   new dependency unless it needs one: then `.venv/bin/pip install` + pyproject `dev`).
+   Note which Groq model it uses and whether it takes images.
+1. Packets, `scratch/review_packets.py STEM` -> `scratch/review_ai/<stem>/packets.jsonl`
+   + `crops/<id>.png`. Rows: kinds `spelling` and `chars` only (note and margin rows
+   stay for the user: ~50 rows). Per row: id, page, kind, type, find, the pre-filled
+   value, ~300 chars of context (find the row's context in the built txt), and a crop:
+   page label -> PDF page via the Paddle cache's "number" blocks; the Paddle block whose
+   text contains `find` gives the bbox; Tesseract on that block crop gives word boxes;
+   cut the line holding the closest match (~600x60 px); if not found, the whole block.
+2. Model pass, `scratch/review_model.py STEM [--sample N]` -> `proposals.jsonl`: batches
+   of ~40 rows, fixed instructions (the actions and what they mean, from the fixes.py
+   docstring; "propose the printed word, not a plausible one"), answer as JSON per row:
+   id, action, value, confidence (high/medium/low), reason (one line). Crops sent only
+   for `ocr1`/`unknown` rows, and only if the model takes images. Validate: action in
+   the allowed set, replace changes something; invalid -> no proposal.
+   Estimate for both books: ~150-200k input + ~40k output tokens, + crops.
+3. Test before trusting: if the user has already decided rows by hand, run the model on
+   those blind and report agreement per type and confidence (`scratch/review_eval.py`).
+4. Review page, `scratch/review_page.py STEM` -> `scratch/review_ai/<stem>/review.html`
+   (local file, not published: it holds book pages; images by relative path). Per row:
+   crop, context, current value, proposal + reason; buttons accept / ignore / edit;
+   filters by type and confidence; keyboard shortcuts; the user's own existing
+   decisions shown and kept. Choices saved in localStorage; "Export" downloads
+   `decisions.tsv` (id, action, value). One-time build cost ~20-40k tokens.
+5. Merge, `scratch/merge_decisions.py STEM decisions.tsv`: back up the review file to
+   `scratch/review_ai/<stem>/` first; set action/value by id; report counts.
+6. Then continue with the list below (rebuild with the fixes, analysis, reuse, final
+   books). If the page works well, move the scripts into the package later.
+
 Next, when the user says the review files are done:
 1. Back up both files, then rebuild both books from the Paddle cache with the fixes
    (`scratch/book_build.py PDF RANGE OUTDIR pdf epub txt`; Platón with
