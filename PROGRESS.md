@@ -1117,6 +1117,9 @@ done: CronDelete the job and say so in the report.
      Critias pp. 280-281 missing from the scan).
 
 ## Blocked
+- 2026-10-16: `gh pr merge 28 --merge` (feature/spelling-refine) denied by the auto-mode
+  classifier (Merge Without Review); the user merges it. The repo has no CI workflow
+  (no `.github/`), so PRs get no checks.
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.
 - 2026-10-15: committed 9e86cbf (footnote/margin-ref fixes). Denied: committing the
