@@ -17,11 +17,12 @@ Actions (``value`` in brackets):
 - ``move`` [word]: ... and goes before the first ``word`` on the page;
 - ``add`` [``21d before pero``]: a margin reference the scan lost.
 
-Kinds flagged: ``spelling`` (Spanish and English books; words found at most twice in
-the book, unknown to the Hunspell dictionary, and not English words of 5+ letters),
-``chars`` (odd letters: macrons outside Latin, Cyrillic look-alikes, stray ``$``), ``note-no-ref``, ``ref-no-note``,
-``margin-est`` (estimated margin references) and ``margin-missing`` (labels missing
-between two found ones).
+Kinds flagged: ``spelling`` (Spanish and English books, body text only: not notes,
+small print, bibliographies or indexes; words found at most twice in the book, unknown
+to the Hunspell dictionary, and not English words of 5+ letters), ``chars`` (odd
+letters: macrons outside Latin, Cyrillic look-alikes, stray ``$``), ``note-no-ref``,
+``ref-no-note``, ``margin-est`` (estimated margin references) and ``margin-missing``
+(labels missing between two found ones).
 """
 
 import csv
@@ -49,6 +50,10 @@ _LATIN_RE = re.compile(r"[A-Za-zÀ-ɏ]+")
 _MACRON_RE = re.compile("[āēīōūȳĀĒĪŌŪȲ]")
 _CYRILLIC_RE = re.compile("[Ѐ-ӿ]")
 _DOLLAR_RE = re.compile(r"\S*\$\S*")
+_BACK_MATTER_RE = re.compile(r"bibliograf|[íi]ndice|\bindex\b|referencias|references", re.I)
+_AUTHOR_ENTRY_RE = re.compile(r"[A-ZÀ-Þ][A-ZÀ-Þ'\- ]{2,},\s+[A-ZÀ-Þ][a-zà-ÿ]?\.")
+_YEAR_RE = re.compile(r"\b1[5-9]\d\d\b")
+_MAX_REFERENCE = 300  # characters
 _ADD_RE = re.compile(r"(\S+)\s+before\s+(.+)")
 
 
@@ -123,18 +128,31 @@ class Review:
         self.refs: dict[str, str] = {}  # note label -> page of its first reference
         self.notes: dict[str, str] = {}
         self.labels: list[tuple[str, str] | None] = []  # margin labels; None: a heading
+        self.back: int | None = None  # level of the bibliography/index heading we're under
+        self.body = True  # spelling is checked in the body text only
 
     def apply(self, blocks: Iterable[Block]) -> Iterator[Block]:
         for block in blocks:
             if isinstance(block, Heading | Paragraph | Note):
                 if isinstance(block, Heading):
                     self.labels.append(None)
+                    self._section(block)
+                self.body = self.back is None and not isinstance(block, Note)
+                self.body = self.body and not getattr(block, "small", False)
+                self.body = self.body and not _is_reference(block)
                 text = self._text(block.text)
                 if isinstance(block, Note):
                     self.notes.setdefault(block.label, self.page)
                 if text != block.text:
                     block = replace(block, text=text)
             yield block
+
+    def _section(self, heading: Heading) -> None:
+        """A bibliography or index lasts until a heading of its level or higher."""
+        if _BACK_MATTER_RE.search(plain(heading.text)):
+            self.back = heading.level if self.back is None else min(self.back, heading.level)
+        elif self.back is not None and heading.level <= self.back:
+            self.back = None
 
     def _text(self, text: str) -> str:
         parts = _SPLIT_RE.split(text)  # text, mark, label, text, mark, label, ...
@@ -210,7 +228,7 @@ class Review:
             word = match.group()
             if self.check_chars and (_MACRON_RE.search(word) or _CYRILLIC_RE.search(word)):
                 self._flag("chars", word, words, match)
-            elif self.spell and len(word) > 2 and _LATIN_RE.fullmatch(word):
+            elif self.body and self.spell and len(word) > 2 and _LATIN_RE.fullmatch(word):
                 key = word.lower()
                 if key not in self.known:
                     self.known[key] = _knows(self.spell, word) or (
@@ -276,6 +294,17 @@ class Review:
                 found.append(Fix("", previous[1], "margin-missing", span))
             previous = (value, entry[1])
         return found
+
+
+def _is_reference(block: Block) -> bool:
+    """A bibliography entry: "MAIGRON, L., Le roman ...", or a short line with a year and
+    several commas ("Gesammelte Schriften, 6 vols., Halle, 1775")."""
+    if not isinstance(block, Paragraph):
+        return False
+    text = plain(block.text).strip()
+    if _AUTHOR_ENTRY_RE.match(text):
+        return True
+    return len(text) < _MAX_REFERENCE and bool(_YEAR_RE.search(text)) and text.count(",") >= 3
 
 
 def _knows(dictionary, word: str) -> bool:

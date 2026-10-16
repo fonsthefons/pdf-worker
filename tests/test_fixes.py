@@ -93,6 +93,25 @@ def test_spelling_knows_inflections_and_long_english_words():
     assert {f.find for f in review.fixes if f.kind == "spelling"} == {"ban", "becho"}
 
 
+def test_spelling_only_in_the_body():
+    blocks = [
+        Heading("Capítulo", 1),
+        Paragraph(page_mark(0, "1") + "Texto becho."),
+        Note("1", "Nota cfecto."),
+        Paragraph("Letra pequeña dcdicaban.", small=True),
+        Heading("Bibliografía", 1),
+        Heading("Ediciones", 2),
+        Paragraph("Philologie Būtzow."),
+        Heading("Diálogo", 1),
+        Paragraph("Otra vez mendaba."),
+        Paragraph("MAIGRON, L., Le roman historique, París, 1898."),
+        Paragraph("Gesammelte kleinere Schriften, 6 vols., Halle, 1775."),
+    ]
+    _, _, review = _run([], blocks)
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho", "mendaba"}
+    assert ("chars", "Būtzow") in {(f.kind, f.find) for f in review.fixes}
+
+
 def test_no_spelling_check_for_other_languages():
     _, added, _ = _run([], language="la")
     assert "spelling" not in added and "chars" not in added  # macrons are Latin

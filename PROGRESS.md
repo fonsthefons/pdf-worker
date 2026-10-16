@@ -74,6 +74,13 @@ Progress (2026-10-16):
   logico), fragments of words split at line ends (niciones, tamiento, apli), and
   names/German/French/Greek transliterations (best silenced with `* ignore` rows).
   Capitalised words are kept: they include real errors (CuaI, Fúlebo).
+- User: spelling only in the body text. Now skipped: notes, small print, sections under
+  a Bibliografía/Índice/Index/Referencias heading (until a heading of the same or higher
+  level), and paragraphs that look like entries ("MAIGRON, L., ..."; or < 300 chars with
+  a year and 3+ commas): philosophy's "BREVE BIBLIOGRAFIA" has subheadings of its own
+  level. Measured with `scratch/body_spelling.py`: Platón 541 rows (notes had 708),
+  philosophy 1303 (was ~2100); what's left in philosophy is mostly German/French/Latin
+  quoted in the text, plus real errors (veemos, teniendolo, Jámás, presu).
 
 ## Done
 
