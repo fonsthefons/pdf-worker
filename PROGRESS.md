@@ -81,6 +81,53 @@ Progress (2026-10-16):
   level. Measured with `scratch/body_spelling.py`: Platón 541 rows (notes had 708),
   philosophy 1303 (was ~2100); what's left in philosophy is mostly German/French/Latin
   quoted in the text, plus real errors (veemos, teniendolo, Jámás, presu).
+- Dictionary fix: es_ES lists which pronouns each verb takes, so "basarlo", "evitarle"
+  were flagged. `_knows` now also accepts infinitive/gerund + 1-2 enclitics when the bare
+  verb is known (Spanish only). ("averiguemos" stays flagged: correct is "averigüemos".)
+- Error analysis (`scratch/classify_spelling.py PDF RANGE [--margin-refs]`, from cached
+  OCR; de/fr/it/la dicts in `scratch/dicts` from wooorm/dictionaries, analysis only).
+  Buckets by priority: hyphen (joins with neighbour word), foreign, accent (one accent
+  toggle), ocr1 (one edit), name (Capitalised), unknown. 20 random rows per bucket
+  hand-checked (precision = share that are real errors):
+  | bucket | philosophy rows | real | Platón rows | real |
+  | hyphen | 21 | ~90% | 16 | ~100% |
+  | accent | 47 | ~100% | 54 | ~85% |
+  | ocr1 | 219 | ~65% | 221 | ~90% |
+  | foreign | 635 | ~5% | 105 | ~20% |
+  | name | 116 | ~5% | 51 | ~20% |
+  | unknown | 241 | ~15% | 80 | ~55% |
+  Estimated real errors: philosophy ~280 of 1279, Platón ~335 of 527.
+  Seen: words split at paragraph/page starts (tieron, gún, cidad, dencia, mientos),
+  old orthography (atribuído, solicitásteis), dictionary gaps (rehúye, Considerémoslo,
+  capitación, inherencia). ocr1 suggestions often wrong (lan→la, should be tan).
+
+## NEXT SESSION — start here (written 2026-10-16)
+Spelling work is merged to main (PR from `feature/review-plan`). Start a new branch from
+main. Do these in order; rebuild + re-measure with `scratch/classify_spelling.py` after
+each (it re-checks from the cached OCR, no re-OCR needed):
+1. Hide foreign words (user decided 2026-10-16): in `fixes.py`, a word the de/fr/it/la
+   dictionary knows is not flagged (like the English rule; keep the 5+ letter minimum).
+   Copy de/fr/it/la .aff/.dic from `scratch/dicts` (source: wooorm/dictionaries) into
+   `src/pdf_worker/dictionaries/` with licence files; check each licence allows bundling
+   first (if not: note under Blocked, skip). Accepted cost: ~5% of those rows were real
+   errors (analiticamente, afin, mite). Note for later, not now: keep a foreign word
+   flagged when the accent/one-edit check finds a Spanish word.
+2. Words split by line breaks, fixed when the text is built (not as review rows):
+   in-paragraph hyphen kept (`enciclo-pedistas`, `alre-dedor`) and words broken at a
+   page/paragraph start (`tieron`, `gún`, `cidad`, `dencia`). Sample examples first
+   (`scratch/classify_*.tsv`, bucket `hyphen`, plus `ocr1`/`unknown` rows that are
+   fragments) to find where blocks are joined, then fix the root cause.
+3. Review file: add the error type (hyphen/accent/ocr1/foreign/name/unknown, logic in
+   `scratch/classify_spelling.py`) per spelling row, sort reliable types first;
+   pre-fill `value` for accent rows (action left empty, user confirms); one-edit
+   suggestions only as a hint. Speed: the one-edit search is slow (~10 min for
+   philosophy); limit it or cache lookups.
+4. Small word list for dictionary gaps (rehúye, inherencia, capitación,
+   Considerémoslo, superlatives like correctísima).
+Open question for the user (ask when you get there): old spellings in the original
+(atribuído, solicitásteis): keep, or flag?
+Test books: `test_pdfs/philosophy.pdf 1-462`, `test_pdfs/platon_dialogos_vi_bad.pdf
+1-293 --margin-refs`. Stale trial `.fixes.tsv` files in `test_pdfs/` can be deleted.
 
 ## Done
 

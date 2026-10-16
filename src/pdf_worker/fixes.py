@@ -55,6 +55,9 @@ _AUTHOR_ENTRY_RE = re.compile(r"[A-ZÀ-Þ][A-ZÀ-Þ'\- ]{2,},\s+[A-ZÀ-Þ][a-zà
 _YEAR_RE = re.compile(r"\b1[5-9]\d\d\b")
 _MAX_REFERENCE = 300  # characters
 _ADD_RE = re.compile(r"(\S+)\s+before\s+(.+)")
+# Infinitive or gerund + one or two pronouns: basarlo, evitarle, basándoselo.
+_ENCLITIC_RE = re.compile(r"(.+(?:r|ndo))(?:[mts]e|nos|os|l[aeo]s?){1,2}")
+_UNACCENT = str.maketrans("áéíóú", "aeiou")
 
 
 @dataclass
@@ -113,6 +116,7 @@ class Review:
             # Quoted English titles are common in bibliographies; short words stay
             # checked, they may be misreadings ("ban" for "han").
             self.english = Dictionary.from_files(str(_DICTIONARIES / "en"))
+        self.enclitics = language == "es"
         self.check_chars = language != "la"  # macrons are Latin
         self.page = ""
         self.hits = [0] * len(fixes)  # occurrences of each fix's target on its page
@@ -231,7 +235,7 @@ class Review:
             elif self.body and self.spell and len(word) > 2 and _LATIN_RE.fullmatch(word):
                 key = word.lower()
                 if key not in self.known:
-                    self.known[key] = _knows(self.spell, word) or (
+                    self.known[key] = _knows(self.spell, word, self.enclitics) or (
                         len(word) >= _MIN_ENGLISH and _knows(self.english, word)
                     )
                 if not self.known[key]:
@@ -307,8 +311,12 @@ def _is_reference(block: Block) -> bool:
     return len(text) < _MAX_REFERENCE and bool(_YEAR_RE.search(text)) and text.count(",") >= 3
 
 
-def _knows(dictionary, word: str) -> bool:
-    return dictionary.lookup(word) or dictionary.lookup(word.lower())
+def _knows(dictionary, word: str, enclitics: bool = False) -> bool:
+    if dictionary.lookup(word) or dictionary.lookup(word.lower()):
+        return True
+    # es_ES lists which pronouns each verb takes ("basarlo" is missing); books needn't agree.
+    verb = enclitics and _ENCLITIC_RE.fullmatch(word.lower())
+    return bool(verb) and any(dictionary.lookup(v) for v in (verb[1], verb[1].translate(_UNACCENT)))
 
 
 def _word_pattern(text: str) -> re.Pattern:

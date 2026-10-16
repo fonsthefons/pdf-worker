@@ -88,9 +88,12 @@ def test_ambiguous_find_changes_only_the_first():
 
 
 def test_spelling_knows_inflections_and_long_english_words():
-    text = "Si pudiésemos explicaras diciéndoselo: no ban sido, he abandoned becho."
+    text = (
+        "Si pudiésemos explicaras diciéndoselo: no ban sido, he abandoned becho. "
+        "Basarlo, evitarle, basándoselo; averiguemos."
+    )
     _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
-    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"ban", "becho"}
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"ban", "becho", "averiguemos"}
 
 
 def test_spelling_only_in_the_body():
