@@ -1,6 +1,6 @@
 # Progress
 
-## REVIEW PLAN (agreed with user 2026-10-16) — START HERE, not started yet
+## REVIEW PLAN (agreed with user 2026-10-16) — in progress, branch `feature/review-plan`
 Goal: every conversion follows one book structure, and the user fixes OCR errors in a
 review file (edited in Cursor) instead of in the output. Cheap after OCR (Paddle is
 cached), so rebuilding often is fine. Decided: no Typst for now (notes go at the end;
@@ -34,6 +34,100 @@ text -> appendices/bibliography/index -> notes. Front matter is fine as is.
 5. Unit tests (apply fixes; merge on rebuild keeps user rows, marks stale). Trial on
    Platón and philosophy: report row counts per kind, esp. Spanish spelling noise, BEFORE
    going further. Log decisions here.
+
+Progress (2026-10-16):
+- [done] 1+2. `cover.py`: text cover (author, title, "Traducción de X") as PDF page 1,
+  Word page 1 (Pandoc title block + raw OpenXML translator line and page break), EPUB
+  cover image (rendered from that page). Translator found on the first 6 pages
+  (Paddle blocks, then text layer): philosophy "Manuel Sacristán", Platón "M. Ángeles
+  Durán y Francisco Lisi". `Metadata.translator`. md/html/txt unchanged (they already
+  open with the title/author). Reflowed PDF: page numbers centred at the foot, = the
+  PDF's own page numbers (cover is 1, unnumbered). `--no-cover` now covers PDF/Word too.
+  Title is still metadata/file name (philosophy shows "philosophy"; use --title).
+- [done] 3. `fixes.py` (`Review`): applies rows, flags, merges, statuses `applied` /
+  `ambiguous` / `stale`; `convert --fixes PATH`; default `<stem>.fixes.tsv` next to the
+  original PDF (CLI and kindle pass it, so OCR temp copies don't get it). Page = printed
+  page label from the page marks. `add` value: `21d before pero`. Words written in a
+  `replace` value are never flagged. Not covered: Gloss and Table text.
+- [done] 5. Unit tests `tests/test_fixes.py`, `tests/test_cover.py`. 187 fast pass.
+- 4. Italics: the block text carries no italics, so "skip italics" can't be done.
+- TRIAL (Platón, `scratch/book_build.py ... txt --margin-refs --estimate-margin-refs`,
+  rows counted with `scratch/fixes_counts.py`): spelling 4943 (!), chars 21, note-no-ref
+  4, ref-no-note 6, margin-est 40, margin-missing 0 (estimates fill the gaps).
+  Spelling is noise: pyspellchecker's Spanish list has 86k words and lacks most
+  inflections ("normas", "sujetos", "explicamos"). A crude stemmer
+  (`scratch/spell_stem.py`) leaves 2214, still mostly valid words (pudiésemos, componen,
+  ignore). Real hits do exist: esla, ban (=han), deberlan, Atcnas, rla, and split words
+  from hyphenation (atribui-mos, intro, dremos). chars: mostly transliterated Greek
+  (thēin, phrónēsin) = noise in a Platón book; real: `$`, `pāg`, `sōphrosyñē`.
+  Philosophy (`book_build.py ... 1-462 scratch/review_trial txt`): spelling 6065 (3126
+  after stemming; 1328 capitalised, mostly bibliography names/German/French titles),
+  chars 6 (all real: volūmenes, ūber, Būtzow, SCHŌNEBAUM, ВоHATEC, Germānicas),
+  note-no-ref 5, ref-no-note 1.
+- User chose a full-form dictionary. Now: LibreOffice Hunspell dictionaries (es_ES,
+  en_US; licence notes alongside) in `src/pdf_worker/dictionaries/`, read by `spylls`
+  (pure Python, 0.1 ms/word; replaces pyspellchecker in pyproject). Words of 5+ letters
+  the English dictionary knows are excused (bibliography titles); shorter ones stay
+  ("ban" for "han"). Re-trial: Platón spelling 1315 (was 4943); philosophy ~2100 (was
+  6065; 2500 before the English filter, of which 412 English). What's left: real
+  misreadings (becho, dcdicaban, Icyenda, Posiblc), missing accents (pudieramos,
+  logico), fragments of words split at line ends (niciones, tamiento, apli), and
+  names/German/French/Greek transliterations (best silenced with `* ignore` rows).
+  Capitalised words are kept: they include real errors (CuaI, Fúlebo).
+- User: spelling only in the body text. Now skipped: notes, small print, sections under
+  a Bibliografía/Índice/Index/Referencias heading (until a heading of the same or higher
+  level), and paragraphs that look like entries ("MAIGRON, L., ..."; or < 300 chars with
+  a year and 3+ commas): philosophy's "BREVE BIBLIOGRAFIA" has subheadings of its own
+  level. Measured with `scratch/body_spelling.py`: Platón 541 rows (notes had 708),
+  philosophy 1303 (was ~2100); what's left in philosophy is mostly German/French/Latin
+  quoted in the text, plus real errors (veemos, teniendolo, Jámás, presu).
+- Dictionary fix: es_ES lists which pronouns each verb takes, so "basarlo", "evitarle"
+  were flagged. `_knows` now also accepts infinitive/gerund + 1-2 enclitics when the bare
+  verb is known (Spanish only). ("averiguemos" stays flagged: correct is "averigüemos".)
+- Error analysis (`scratch/classify_spelling.py PDF RANGE [--margin-refs]`, from cached
+  OCR; de/fr/it/la dicts in `scratch/dicts` from wooorm/dictionaries, analysis only).
+  Buckets by priority: hyphen (joins with neighbour word), foreign, accent (one accent
+  toggle), ocr1 (one edit), name (Capitalised), unknown. 20 random rows per bucket
+  hand-checked (precision = share that are real errors):
+  | bucket | philosophy rows | real | Platón rows | real |
+  | hyphen | 21 | ~90% | 16 | ~100% |
+  | accent | 47 | ~100% | 54 | ~85% |
+  | ocr1 | 219 | ~65% | 221 | ~90% |
+  | foreign | 635 | ~5% | 105 | ~20% |
+  | name | 116 | ~5% | 51 | ~20% |
+  | unknown | 241 | ~15% | 80 | ~55% |
+  Estimated real errors: philosophy ~280 of 1279, Platón ~335 of 527.
+  Seen: words split at paragraph/page starts (tieron, gún, cidad, dencia, mientos),
+  old orthography (atribuído, solicitásteis), dictionary gaps (rehúye, Considerémoslo,
+  capitación, inherencia). ocr1 suggestions often wrong (lan→la, should be tan).
+
+## NEXT SESSION — start here (written 2026-10-16)
+Spelling work is merged to main (PR from `feature/review-plan`). Start a new branch from
+main. Do these in order; rebuild + re-measure with `scratch/classify_spelling.py` after
+each (it re-checks from the cached OCR, no re-OCR needed):
+1. Hide foreign words (user decided 2026-10-16): in `fixes.py`, a word the de/fr/it/la
+   dictionary knows is not flagged (like the English rule; keep the 5+ letter minimum).
+   Copy de/fr/it/la .aff/.dic from `scratch/dicts` (source: wooorm/dictionaries) into
+   `src/pdf_worker/dictionaries/` with licence files; check each licence allows bundling
+   first (if not: note under Blocked, skip). Accepted cost: ~5% of those rows were real
+   errors (analiticamente, afin, mite). Note for later, not now: keep a foreign word
+   flagged when the accent/one-edit check finds a Spanish word.
+2. Words split by line breaks, fixed when the text is built (not as review rows):
+   in-paragraph hyphen kept (`enciclo-pedistas`, `alre-dedor`) and words broken at a
+   page/paragraph start (`tieron`, `gún`, `cidad`, `dencia`). Sample examples first
+   (`scratch/classify_*.tsv`, bucket `hyphen`, plus `ocr1`/`unknown` rows that are
+   fragments) to find where blocks are joined, then fix the root cause.
+3. Review file: add the error type (hyphen/accent/ocr1/foreign/name/unknown, logic in
+   `scratch/classify_spelling.py`) per spelling row, sort reliable types first;
+   pre-fill `value` for accent rows (action left empty, user confirms); one-edit
+   suggestions only as a hint. Speed: the one-edit search is slow (~10 min for
+   philosophy); limit it or cache lookups.
+4. Small word list for dictionary gaps (rehúye, inherencia, capitación,
+   Considerémoslo, superlatives like correctísima).
+Open question for the user (ask when you get there): old spellings in the original
+(atribuído, solicitásteis): keep, or flag?
+Test books: `test_pdfs/philosophy.pdf 1-462`, `test_pdfs/platon_dialogos_vi_bad.pdf
+1-293 --margin-refs`. Stale trial `.fixes.tsv` files in `test_pdfs/` can be deleted.
 
 ## Done
 

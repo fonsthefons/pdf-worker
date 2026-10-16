@@ -85,7 +85,11 @@ def test_reflowed_pdf_puts_footnotes_at_the_foot_of_their_page(make_layout_pdf, 
         page_no = next(i for i, t in enumerate(texts) if "A claim" in t)
         page = doc[page_no]
         note = page.search_for("The footnote text.")[0]
-        body = [b for b in page.get_text("blocks") if "footnote" not in b[4]]
+        body = [
+            b
+            for b in page.get_text("blocks")
+            if "footnote" not in b[4] and not b[4].strip().isdigit()  # nor the page number
+        ]
         goto = [link for link in page.get_links() if link["kind"] == pymupdf.LINK_GOTO]
     assert max(b[3] for b in body) < note.y0  # under the text, on the page that refers to it
     assert sum("The footnote text." in t for t in texts) == 1  # not repeated at the end

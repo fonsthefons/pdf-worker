@@ -32,9 +32,14 @@ def estimate_margin_refs(blocks: Iterable[Block]) -> Iterator[Block]:
     yield from _estimate(section)
 
 
-def _value(label: str) -> int | None:
+def label_value(label: str) -> int | None:
+    """``"22b"`` -> 111: consecutive labels have consecutive values."""
     match = _LABEL_RE.fullmatch(label)
     return int(match.group(1)) * 5 + "abcde".index(match.group(2)) if match else None
+
+
+def value_label(value: int) -> str:
+    return f"{value // 5}{'abcde'[value % 5]}"
 
 
 def _estimate(section: list[Block]) -> list[Block]:
@@ -47,7 +52,7 @@ def _estimate(section: list[Block]) -> list[Block]:
             continue
         for token in re.finditer(r"\S+", block.text):
             for label in MARGIN_REF_RE.findall(token.group()):
-                if (value := _value(label)) is not None:
+                if (value := label_value(label)) is not None:
                     found.append((value, len(words)))
             if plain(token.group()).strip():
                 words.append((b, token.start()))
@@ -60,8 +65,8 @@ def _estimate(section: list[Block]) -> list[Block]:
             w = w1 + round((w2 - w1) * k / (missing + 1))
             if w1 < w < w2:
                 b, at = words[w]
-                label = f"{(v1 + k) // 5}{'abcde'[(v1 + k) % 5]}"
-                inserts.setdefault(b, []).append((at, margin_ref(ESTIMATED + label)))
+                label = ESTIMATED + value_label(v1 + k)
+                inserts.setdefault(b, []).append((at, margin_ref(label)))
     out = list(section)
     for b, marks in inserts.items():
         text = out[b].text

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from pdf_worker import consensus, convert, ocr
 from pdf_worker.document import open_pdf
+from pdf_worker.fixes import default_fixes_path
 from pdf_worker.ocr_check import TextLayerReport, assess_text_layer
 
 # Send to Kindle by e-mail accepts files up to 50 MB.
@@ -84,7 +85,13 @@ def make_kindle_book(
             if vote_report.pages:
                 source = voted
         conversion = convert.convert_pdf(
-            source, output_path, "epub", title=title, author=author, language=language
+            source,
+            output_path,
+            "epub",
+            title=title,
+            author=author,
+            language=language,
+            fixes_path=default_fixes_path(pdf_path),  # the source may be a temporary copy
         )
     return KindleReport(
         output_path=output_path,

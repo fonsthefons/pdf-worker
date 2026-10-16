@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pymupdf
 
+from pdf_worker.cover import add_cover_page
 from pdf_worker.html_export import write_html
 from pdf_worker.inline import ESTIMATED
 from pdf_worker.output import Metadata, WriteStats
@@ -59,13 +60,20 @@ _MREF_GAP = 6  # points between the text column and a margin reference
 _MREF_SIZE = 7.5
 _MREF_COLOR = (0.18, 0.49, 0.2)  # green, as in the EPUB
 _MREF_ESTIMATED_COLOR = (0.85, 0.11, 0.38)  # pink, as in the EPUB
+_FOLIO_SIZE = 9
 
 
 def write_pdf(
-    blocks: Iterable[Block], output_path: Path, meta: Metadata, notes_at: str = "page"
+    blocks: Iterable[Block],
+    output_path: Path,
+    meta: Metadata,
+    notes_at: str = "page",
+    cover: bool = False,
 ) -> WriteStats:
     """Lay the book out as an A5 PDF. ``notes_at``: "page" sets each footnote at the foot
-    of the page that refers to it, "end" keeps them all in the notes section."""
+    of the page that refers to it, "end" keeps them all in the notes section. ``cover``
+    adds a text cover (``pdf_worker.cover``) as page 1. Pages are numbered at the foot
+    with the PDF's own page numbers, the cover unnumbered."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.w."))
     fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.")
@@ -91,6 +99,9 @@ def write_pdf(
         with doc:
             _place_notes(doc, refs, notes)
             _place_margin_refs(doc, marks, labels)
+            _number_pages(doc, first=2 if cover else 1)
+            if cover:
+                add_cover_page(doc, meta)
             doc.set_metadata({"title": meta.title, "author": meta.author, "producer": "pdf-worker"})
             doc.save(tmp_name, garbage=3, deflate=True)
             stats.chapters = doc.page_count  # pages, for the summary
@@ -212,6 +223,18 @@ def _place_margin_refs(doc: pymupdf.Document, marks, labels: dict[str, str]) -> 
         )
         width = pymupdf.get_text_length(label, fontname="hebo", fontsize=_MREF_SIZE)
         last = (page_no, baseline, start + width)
+
+
+def _number_pages(doc: pymupdf.Document, first: int) -> None:
+    for number, page in enumerate(doc, first):
+        label = str(number)
+        width = pymupdf.get_text_length(label, fontname="tiro", fontsize=_FOLIO_SIZE)
+        page.insert_text(
+            ((PAGE.width - width) / 2, PAGE.height - MARGIN / 2),
+            label,
+            fontname="tiro",
+            fontsize=_FOLIO_SIZE,
+        )
 
 
 def _page_notes(refs, notes) -> dict[int, list[str]]:

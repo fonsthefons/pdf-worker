@@ -79,7 +79,7 @@ def page_images(
 
 
 def render_cover(page: pymupdf.Page) -> bytes:
-    """The first page as a JPEG cover, about ``COVER_HEIGHT_PX`` tall."""
+    """The page as a JPEG cover, about ``COVER_HEIGHT_PX`` tall."""
     zoom = COVER_HEIGHT_PX / max(page.rect.height, 1.0)
     pixmap = page.get_pixmap(
         matrix=pymupdf.Matrix(zoom, zoom), colorspace=pymupdf.csRGB, annots=False

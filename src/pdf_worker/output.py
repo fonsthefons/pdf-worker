@@ -8,6 +8,7 @@ class Metadata:
     title: str
     author: str = ""
     language: str = "en"  # BCP 47 code, e.g. "es"
+    translator: str = ""
 
 
 @dataclass
