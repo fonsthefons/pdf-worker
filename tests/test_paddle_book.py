@@ -9,7 +9,7 @@ import pytest
 
 from pdf_worker import paddle_ocr
 from pdf_worker.convert import convert_pdf
-from pdf_worker.inline import margin_ref, plain
+from pdf_worker.inline import margin_ref, page_mark, plain
 from pdf_worker.paddle_book import (
     _Book,
     iter_paddle_blocks,
@@ -213,6 +213,20 @@ def test_a_margin_mark_read_into_the_text_goes():
     # A vowel is a word: "e" stays.
     book = _Book(lambda reading: "40b")
     assert plain(book._body_text("e iba", [(1, "?")])) == "e iba"
+    # On a word broken at the line end, the reference goes before the whole word.
+    book = _Book(lambda reading: "108d")
+    assert (
+        book._body_text("e invo- car, junto", [(2, "d")])
+        == "e " + margin_ref("108d") + "invocar, junto"
+    )
+
+
+def test_a_word_broken_across_pages_keeps_the_page_mark_before_it():
+    book = _Book(lambda reading: None)
+    list(book.add_page(None, {}, [("text", None, "además, some-")], {}, False))
+    book.marks.append(page_mark(140, "145"))
+    list(book.add_page(None, {}, [("text", None, "tieron a crítica")], {}, False))
+    assert book.para == "además, " + page_mark(140, "145") + "sometieron a crítica"
 
 
 def test_a_question_mark_read_as_a_letter_is_put_back():

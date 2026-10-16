@@ -87,13 +87,46 @@ def test_ambiguous_find_changes_only_the_first():
     assert review.fixes[0].status == "ambiguous"
 
 
-def test_spelling_knows_inflections_and_long_english_words():
+def test_spelling_knows_inflections_and_long_foreign_words():
     text = (
         "Si pudiésemos explicaras diciéndoselo: no ban sido, he abandoned becho. "
-        "Basarlo, evitarle, basándoselo; averiguemos."
+        "Basarlo, evitarle, basándoselo; averiguemos. Weltanschauung, pensiero, veritas, "
+        "connaissance. Rehúye la inherencia, correctísima y riquísimos; considerémoslo."
     )
     _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
     assert {f.find for f in review.fixes if f.kind == "spelling"} == {"ban", "becho", "averiguemos"}
+
+
+def test_joins_words_split_at_line_breaks():
+    text = (
+        "la inmor-talidad e invo- "
+        + margin_ref("108d")
+        + "car por ciones al "
+        + page_mark(1, "2")
+        + "gún; cosa-en-sí, físico-químico, sino que, Jean-Jacques."
+    )
+    out, _, _ = _run([], [Paragraph(page_mark(0, "1") + text)])
+    assert out[0].text == page_mark(0, "1") + (
+        "la inmortalidad e "
+        + margin_ref("108d")
+        + "invocar porciones "
+        + page_mark(1, "2")
+        + "algún; cosa-en-sí, físico-químico, sino que, Jean-Jacques."
+    )
+
+
+def test_spelling_rows_say_the_likely_error_reliable_first():
+    text = "Zqxwrt dijo Eutifrón: si pudieramos, Posiblc. Una nota[^c1-1] en Būtzow."
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
+    rows = [(f.kind, f.type, f.find, f.value) for f in review.fixes]
+    assert rows[:2] == [("chars", "", "Būtzow", ""), ("ref-no-note", "", "c1-1", "")]
+    assert rows[2:] == [
+        ("spelling", "accent", "pudieramos", "pudiéramos"),
+        ("spelling", "ocr1: posible?", "Posiblc", ""),
+        ("spelling", "name", "Zqxwrt", ""),
+        ("spelling", "name", "Eutifrón", ""),
+    ]
+    assert not any(f.action for f in review.fixes)
 
 
 def test_spelling_only_in_the_body():

@@ -36,6 +36,7 @@ from pdf_worker.paddle_ocr import (
 from pdf_worker.structure import Block, Gloss, Heading, Image, Note, Paragraph
 
 _SENTENCE_END = tuple('.!?»"”’)]:;')
+_LEADING_REFS_RE = re.compile(f"(?:{MARGIN_REF_RE.pattern})*")
 # Paddle keeps a line-break hyphen with a space: "Pro- tarco".
 # shortcut: also joins a real "físico- químico"; rare in prose, check on other books.
 _BROKEN_WORD_RE = re.compile(r"(\w)- (?=[a-záéíóúñü])")
@@ -269,9 +270,8 @@ class _Book:
                 yield Heading(" ".join(text.split()), 1 if label == "doc_title" else 2)
                 continue
             text = self._body_text(text, anchors.get(i, []))
-            if self.marks:
-                text = "".join(self.marks) + text
-                self.marks = []
+            lead = "".join(self.marks)
+            self.marks = []
             # The page's first text block goes on with the previous page's paragraph
             # when that one ended mid-sentence or this one starts in lowercase.
             plain_start = plain(text).lstrip()
@@ -284,12 +284,16 @@ class _Book:
             if continues:
                 end = self.para.rstrip()
                 if re.search(r"\w-$", end) and plain_start[:1].islower():
-                    self.para = end[:-1] + text
+                    # The page mark (and a margin reference) goes before the whole word
+                    # ("some-" + "tieron").
+                    refs = _LEADING_REFS_RE.match(text).group()
+                    cut = end.rfind(" ") + 1
+                    self.para = end[:cut] + lead + refs + end[cut:-1] + text[len(refs) :]
                 else:
-                    self.para = end + " " + text
+                    self.para = end + " " + lead + text
                 continue
             yield from self.flush()
-            self.para = text
+            self.para = lead + text
         if images:
             self.pending += _pictures(page, row)
 
@@ -305,6 +309,8 @@ class _Book:
                     words[k - 1] = ""
                 if _is_mark_word(words[k], label) and k + 1 < len(words):
                     words[k], k = "", k + 1
+                if k > 0 and re.search(r"\w-$", words[k - 1]):  # before "invo- car"
+                    k -= 1
                 words[k] = margin_ref(label) + words[k]
         text = _BROKEN_WORD_RE.sub(r"\1", " ".join(w for w in words if w))
         if self.counts is not None:
