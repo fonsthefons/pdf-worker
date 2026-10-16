@@ -260,13 +260,15 @@ Steps:
    waits out a 429 using `retry-after`; `api_key()` reads `GROQ_API_KEY` from `.env`.
    `text_correction/backends.py` `BACKENDS["groq"]` sets model, prompt, temperatures
    and chunk sizes (800/1,100 words). Tests fake it in `tests/test_correction.py`.
-   Before the session the user copies `groq.py` into `scratch/groq_client.py` and puts
-   `GROQ_API_KEY=...` in this repo's `.env` (gitignored since 2026-10-16), and says
-   which model `BACKENDS["groq"]` uses. If they haven't: ask, then wait. Read
-   `scratch/groq_client.py` once; adapt only what's needed (prompt/JSON per row). No
-   new dependency unless it needs one (then `.venv/bin/pip install` + pyproject `dev`).
-   Check whether the model takes images; if not, the model pass is text only and the
-   crops are for the review page only.
+   State (2026-10-16): the user said `groq.py` was copied, but no file named *groq*
+   was found in the repo: first thing, check `scratch/groq_client.py` exists; if not,
+   ask the user to copy it there, then wait. `GROQ_API_KEY` is in this repo's `.env` (gitignored; never print or read it into the
+   conversation, the client reads it). Model: `GROQ_MODEL = "openai/gpt-oss-120b"`.
+   gpt-oss-120b takes text only, no images: the model pass is text only (packet
+   context, no crops sent); the crops are for the review page, where the user checks
+   them. Read `scratch/groq_client.py` once; adapt only what's needed (prompt/JSON per
+   row). No new dependency unless it needs one (then `.venv/bin/pip install` +
+   pyproject `dev`).
 1. Packets, `scratch/review_packets.py STEM` -> `scratch/review_ai/<stem>/packets.jsonl`
    + `crops/<id>.png`. Rows: kinds `spelling` and `chars` only (note and margin rows
    stay for the user: ~50 rows). Per row: id, page, kind, type, find, the pre-filled
@@ -277,10 +279,11 @@ Steps:
 2. Model pass, `scratch/review_model.py STEM [--sample N]` -> `proposals.jsonl`: batches
    of ~40 rows, fixed instructions (the actions and what they mean, from the fixes.py
    docstring; "propose the printed word, not a plausible one"), answer as JSON per row:
-   id, action, value, confidence (high/medium/low), reason (one line). Crops sent only
-   for `ocr1`/`unknown` rows, and only if the model takes images. Validate: action in
-   the allowed set, replace changes something; invalid -> no proposal.
-   Estimate for both books: ~150-200k input + ~40k output tokens, + crops.
+   id, action, value, confidence (high/medium/low), reason (one line). Model
+   `openai/gpt-oss-120b`: text only, no crops sent. Without the scan it can't tell
+   "Gual" from "cual": tell it to give low confidence when the context doesn't decide.
+   Validate: action in the allowed set, replace changes something; invalid -> no
+   proposal. Estimate for both books: ~150-200k input + ~40k output Groq tokens.
 3. Test before trusting: if the user has already decided rows by hand, run the model on
    those blind and report agreement per type and confidence (`scratch/review_eval.py`).
 4. Review page, `scratch/review_page.py STEM` -> `scratch/review_ai/<stem>/review.html`
