@@ -201,15 +201,33 @@ Findings:
   15 pages: letters with long paragraphs, plausible but unverified); headings were
   counted only (Sombrero 8, Perfecta 6 in 15 pages: short chapters).
 
+### User decisions (2026-10-16) and what was done
+- Old spellings are not flagged (commit 4d59f0e). An edition is old when its body has
+  at least 5 "á"/"ó"/"é" as words or "vn"/"vna", and at least 2 per 1000 words. There,
+  a spelling row is dropped when the word is one accent off a known word (ponia, vió)
+  or known after modernising its letters (`_MODERN_LETTERS`: ç->z, ss->s, x->j, u
+  between vowels->v, initial v+consonant->u, -ava->-aba, z+e/i->c, y->i, ff->f,
+  sc+e/i->c, ct->t; also v->b, and "de" run into the next word: dellas). Modern books
+  keep their accent rows (there they are misreadings). Niebla (1914) isn't detected as
+  old. Spelling rows per 15 pages: Lazarillo 354 -> 128, Gaviota 79 -> 43, Marianela 85
+  -> 59, Sombrero 65 -> 50, Pepita 36 -> 30, Barraca 31 -> 23, Perfecta 56 -> 46.
+  Lazarillo's rest: real misreadings plus old forms the rules miss (fuyme, vuiera).
+- `¡` read as i/j/l/; before an exclamation is put back like `¿`
+  (`restore_question_marks` does both now). Niebla WER 1.6% -> 1.3%.
+- Bilingual editions (Timeo-Platón) are not supported for now.
+- Review files regenerated with the final code: `test_pdfs/philosophy.fixes.tsv`
+  (1-462) and `test_pdfs/platon_dialogos_vi_bad.fixes.tsv` (1-293, --margin-refs
+  --estimate-margin-refs), via `scratch/book_build.py`.
+
 ## NEXT SESSION — start here (written 2026-10-16)
-Branch `feature/spelling-refine` (not pushed): steps 1-5 below are done, results above.
-Next, in order:
-1. Ask the user: old spellings in the original (atribuído, solicitásteis, ponia, vió,
-   and 16th-c. vn/dixo): keep and don't flag, or flag? Lazarillo/Gaviota/Marianela show
-   the cost (above). Then open a PR.
-2. `¡` misread as j/i/; at the start of a word (see findings), like `¿` already.
-3. Structure: variant notes run together in one line (Lazarillo); bilingual facing
-   pages (Timeo-Platón): keep the Greek pages out of the Spanish paragraphs.
+Branch `feature/spelling-refine` (not pushed), results above. Proposed next, in order:
+1. Open the PR for `feature/spelling-refine`.
+2. The user reviews the philosophy/Platón review files; adjust from their feedback.
+3. `ocr1` guesses: prefer candidates the book itself uses often ("lan" -> "tan", not
+   "la"), so the hint is right more often.
+4. Variant notes run together in one line (Lazarillo: "1. Bu. la — 2. Bu. ...").
+5. Split words still left: capitalised ("Au gusto"), and a space join whose second half
+   is a word ("fue re").
 
 Done (2026-10-16), the list as it was:
 1. Hide foreign words (user decided 2026-10-16): in `fixes.py`, a word the de/fr/it/la
