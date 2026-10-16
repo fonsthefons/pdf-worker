@@ -9,7 +9,7 @@ import pytest
 
 from pdf_worker import paddle_ocr
 from pdf_worker.convert import convert_pdf
-from pdf_worker.inline import margin_ref, plain
+from pdf_worker.inline import margin_ref, page_mark, plain
 from pdf_worker.paddle_book import (
     _Book,
     iter_paddle_blocks,
@@ -213,6 +213,20 @@ def test_a_margin_mark_read_into_the_text_goes():
     # A vowel is a word: "e" stays.
     book = _Book(lambda reading: "40b")
     assert plain(book._body_text("e iba", [(1, "?")])) == "e iba"
+    # On a word broken at the line end, the reference goes before the whole word.
+    book = _Book(lambda reading: "108d")
+    assert (
+        book._body_text("e invo- car, junto", [(2, "d")])
+        == "e " + margin_ref("108d") + "invocar, junto"
+    )
+
+
+def test_a_word_broken_across_pages_keeps_the_page_mark_before_it():
+    book = _Book(lambda reading: None)
+    list(book.add_page(None, {}, [("text", None, "además, some-")], {}, False))
+    book.marks.append(page_mark(140, "145"))
+    list(book.add_page(None, {}, [("text", None, "tieron a crítica")], {}, False))
+    assert book.para == "además, " + page_mark(140, "145") + "sometieron a crítica"
 
 
 def test_a_question_mark_read_as_a_letter_is_put_back():
@@ -223,11 +237,18 @@ def test_a_question_mark_read_as_a_letter_is_put_back():
     assert restore_question_marks("Y ipor qué?", counts) == "Y ¿por qué?"
     assert restore_question_marks("PRO. — L Cómo no?", counts) == "PRO. — ¿Cómo no?"
     assert restore_question_marks("de l por qué?", counts) == "de l por qué?"
-    assert spanish_letters("Sốc. — Sị; aún así, ñandú") == "Sóc. — Si; aún así, ñandú"
-    # A real word stays, and so does anything outside a question.
-    assert restore_question_marks("¿Tienes idea? Isla grande. iY bien!", counts) == (
-        "¿Tienes idea? Isla grande. iY bien!"
+    counts.update({"tú": 9, "venga": 4, "jaque": 0, "ijaque": 0})
+    assert restore_question_marks("—jtú! ivenga ya! ;Tendría que ver! iY bien!", counts) == (
+        "—¡tú! ¡venga ya! ¡Tendría que ver! ¡Y bien!"
     )
+    # A word that starts with the letter stays: "jaque!" is no "¡aque!".
+    assert restore_question_marks("Y jaque mate!", counts) == "Y jaque mate!"
+    assert spanish_letters("Sốc. — Sị; aún así, ñandú") == "Sóc. — Si; aún así, ñandú"
+    # A real word stays, and so does anything outside a question or exclamation.
+    assert restore_question_marks("¿Tienes idea? Isla grande. iY bien!", counts) == (
+        "¿Tienes idea? Isla grande. ¡Y bien!"
+    )
+    assert restore_question_marks("Isla grande. iY bien.", counts) == "Isla grande. iY bien."
 
 
 def test_book_pages_are_counted(scan_pdf):

@@ -87,13 +87,56 @@ def test_ambiguous_find_changes_only_the_first():
     assert review.fixes[0].status == "ambiguous"
 
 
-def test_spelling_knows_inflections_and_long_english_words():
+def test_spelling_knows_inflections_and_long_foreign_words():
     text = (
         "Si pudiésemos explicaras diciéndoselo: no ban sido, he abandoned becho. "
-        "Basarlo, evitarle, basándoselo; averiguemos."
+        "Basarlo, evitarle, basándoselo; averiguemos. Weltanschauung, pensiero, veritas, "
+        "connaissance. Rehúye la inherencia, correctísima y riquísimos; considerémoslo."
     )
     _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
     assert {f.find for f in review.fixes if f.kind == "spelling"} == {"ban", "becho", "averiguemos"}
+
+
+def test_joins_words_split_at_line_breaks():
+    text = (
+        "la inmor-talidad y place-res e invo- "
+        + margin_ref("108d")
+        + "car por ciones al "
+        + page_mark(1, "2")
+        + "gún; cosa-en-sí, físico-químico, sino que, Jean-Jacques, acallar á Don, confies en."
+    )
+    out, _, _ = _run([], [Paragraph(page_mark(0, "1") + text)])
+    assert out[0].text == page_mark(0, "1") + (
+        "la inmortalidad y placeres e "
+        + margin_ref("108d")
+        + "invocar porciones "
+        + page_mark(1, "2")
+        + "algún; cosa-en-sí, físico-químico, sino que, Jean-Jacques, acallar á Don, confies en."
+    )
+
+
+def test_spelling_rows_say_the_likely_error_reliable_first():
+    text = "Zqxwrt dijo Eutifrón: si pudieramos, Posiblc. Una nota[^c1-1] en Būtzow."
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
+    rows = [(f.kind, f.type, f.find, f.value) for f in review.fixes]
+    assert rows[:2] == [("chars", "", "Būtzow", ""), ("ref-no-note", "", "c1-1", "")]
+    assert rows[2:] == [
+        ("spelling", "accent", "pudieramos", "pudiéramos"),
+        ("spelling", "ocr1: posible?", "Posiblc", ""),
+        ("spelling", "name", "Zqxwrt", ""),
+        ("spelling", "name", "Eutifrón", ""),
+    ]
+    assert not any(f.action for f in review.fixes)
+
+
+def test_old_spelling_is_not_flagged_in_an_old_edition():
+    words = "Ponia lleuauamos, dezir cabeça; dixo seys veces, yglesia, tauerna, dellas. Fué becho. "
+    old = "Vino á casa ó á la plaza, á pie y á caballo. " * 2
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + old + words)])
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
+    # A modern book keeps them: there they are misreadings.
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + words)])
+    assert {f.find for f in review.fixes if f.kind == "spelling"} >= {"Ponia", "dezir", "becho"}
 
 
 def test_spelling_only_in_the_body():

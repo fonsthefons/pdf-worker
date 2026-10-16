@@ -101,10 +101,135 @@ Progress (2026-10-16):
   old orthography (atribuído, solicitásteis), dictionary gaps (rehúye, Considerémoslo,
   capitación, inherencia). ocr1 suggestions often wrong (lan→la, should be tan).
 
+## Spelling refinements (2026-10-16, branch `feature/spelling-refine`)
+Steps 1-4 of the list below are done (commits bbfc11f, 9b6834d, 8e1ed08); step 5 below.
+Blocked: nothing. Background job output files (outside the repo) can't be read, so the
+scratch scripts write their reports into `scratch/`.
+- 1. Foreign words: de/fr/it/la Hunspell dictionaries from wooorm/dictionaries copied to
+  `src/pdf_worker/dictionaries/` with their licence files (de: GPL-2.0 OR GPL-3.0, fr:
+  MPL-2.0, it: GPL-3.0, la: GPL-2.0; all allow redistributing the files with the
+  licence). `FOREIGN_LANGUAGES = en, de, fr, it, la`; words of 5+ letters any of them
+  knows aren't flagged. Loaded on first use (`Review.foreign`, cached_property): loading
+  all four takes ~3 s, which every unit test paid before.
+  Result (`classify_spelling.py`): philosophy 1279 -> 708 rows, Platón 527 -> 446.
+- 2. Split words. Causes found by sampling the raw Paddle rows (`scratch/raw_breaks.py`,
+  `raw_chars.py`, `built_around.py`):
+  - Paddle writes most line-break hyphens with no space ("inmor-talidad"); the old
+    `_BROKEN_WORD_RE` only handled "Pro- tarco".
+  - Words broken across pages ("some-" + "tieron") were joined with the page mark in
+    the middle ("some⟨mark⟩tieron"), and `Review` splits text at page marks, so both
+    halves were checked as words. Same for a margin reference on the second half
+    ("invo- ⟨108d⟩car").
+  - Some breaks lost the hyphen ("por ciones", "año ranza", "Durante al" + "gún").
+  Fixes: `paddle_book` puts the page mark (and a leading margin reference) before the
+  whole word, and `_body_text` puts a margin reference before "invo-". `Review` joins
+  with the dictionary (`_join_split`, before applying fixes): a hyphen pair when the
+  joined word is known ("place-res" too, both halves being words); across a space only
+  when the second part is a fragment (unknown, 2+ letters) and the joined word is known.
+  Checked on all joins in both books (`scratch/hyphen_joins.py`): the hyphen rule also
+  joins prefixes RAE writes joined (auto-impuestas, tras-fondo, ex-votos, a-moral: the
+  last may be the author's own hyphen). Rejected after checking: joining across a space
+  when the first part is unknown ("confies en" -> confiesen, should be "confíes en";
+  "conclusion es"; "per la"), and joining old "acallar á" -> "acallará".
+  "cosa-en-sí", "físico-químico", "Jean-Jacques" stay.
+- 3. Review file: new column `type` (after `kind`, so the order is `id, page, kind,
+  type, find, context, action, value, status`; old files read fine). Spelling types:
+  `accent` (value pre-filled with the one-accent fix, action left empty), `ocr1: <word>?`
+  (one edit or a common misreading such as rn/m: a guess only), `name`, `unknown`. The
+  hyphen and foreign buckets went (steps 1-2). New rows are sorted: other kinds first,
+  then spelling by type, page order within. The one-edit search uses plain dictionary
+  lookups and runs only for flagged rows: 8 s for Platón, 24 s for philosophy (was ~10
+  min in the classify script). Sample: accent fixes mostly right (aqui, incluias,
+  necesitarias), some wrong (leno -> leño, should be lleno); ocr1 guesses often wrong.
+- 4. `dictionaries/es.extra.txt` (capitación, considerémoslo, inherencia(s),
+  rehúye(n)), and Spanish superlatives (correctísima, larguísimo, riquísimos) in `_knows`.
+- Measured after 1-4 (`scratch/measure_review.py`, from the cached OCR, no margin
+  estimates): Platón 409 spelling rows (accent 62, ocr1 215, name 52, unknown 80);
+  philosophy 640 (accent 50, ocr1 218, name 126, unknown 246). Build time is the same
+  with and without `Review` (500 vs 530 s for Platón).
+
+### Step 5: the pipeline on new books (2026-10-16)
+Eight public-domain Spanish scans from Internet Archive, each with a Project Gutenberg
+text, plus `Timeo-Platón.pdf` from `test_pdfs/` (no reference) and the bad Platón scan
+against `platon_dialogos_vi_good.pdf` (a Lectulandia ebook of the same Gredos volume).
+Scans in `test_pdfs/<name>_<year>.pdf`, PG texts in `test_pdfs/refs/pg<id>.txt`,
+15-page excerpts in `test_pdfs/excerpts/` (none committed).
+How: `scratch/run_excerpts.py` cuts the excerpt and runs `convert --to txt --ocr force
+--ocr-engine paddle` (210-350 s per 15 pages); `scratch/rebuild_excerpts.py` rebuilds
+all from the Paddle cache with the current code into `scratch/excerpts_build/` (fresh
+review files, `summary.txt`); `scratch/wer.py` / `wer_all.py` find the excerpt's span in
+the reference from shared 4-word runs, compare body words only (note lines `[n] ...`
+dropped) and also count leftover split words (`wer.txt`, `wer_<name>.diff`).
+WER counts edition differences as errors: "accents off" ignores accents, which removes
+the 19th-c. `á`/`ó` prepositions that PG modernised.
+
+| book (IA id, pages) | kind of scan | WER | accents off | spelling rows/page | split words |
+| Sombrero 1907 Holt (elsombrerodetre00alar, 41-55) | footnoted school ed., handwritten English glosses between the lines | 6.3% | 3.3% | 4.3 | 1 |
+| La Barraca 1901 Sempere (labarracanovela00blas, 41-55) | clean; PG is a revised edition (whole phrases differ, checked on the scan) | 10.1% | 9.0% | 2.1 | 2 |
+| Niebla 1914 (nieblanivola00unam, 41-55) | clean | 1.6% | 1.1% | 2.2 | 2 |
+| Pepita Jiménez 1901 Fé (pepitajimnez1901vale, 41-55) | clean; PG is the 1874 ed. | 4.0% | 1.6% | 2.4 | 2 |
+| Marianela 1888 (marianela00prez, 41-55) | clean; PG is the 1878 ed. | 4.7% | 2.5% | 5.7 | 3 |
+| La Gaviota 1856 (lagaviotanovelao01caba, 61-75) | old print, old accents | 7.4% | 3.2% | 5.3 | 0 |
+| Lazarillo 1900 L'Avenç (lavidadelazaril00tormgoog, 30-44) | Google scan, 1554 spelling, variant notes | 25.3% | 17.0% | 23.6 | 1 |
+| Doña Perfecta 1897 Ginn (doaperfectanove01galdgoog, 60-74) | Google scan, same edition as PG | 3.6% | 1.4% | 3.7 | 0 |
+| Platón bad (60-74, cached OCR) vs good ebook | bad scan | 4.7% | 4.4% | - | 1 |
+| Timeo-Platón (241-255) | bilingual Greek/Spanish | - | - | 0.3 | - |
+
+Spelling types (accent/ocr1/name/unknown): Sombrero 15/33/2/15, Barraca 8/10/2/11,
+Niebla 4/17/4/8, Pepita 6/18/1/11, Marianela 25/37/8/15, Gaviota 35/30/3/11, Lazarillo
+42/226/6/80, Perfecta 10/23/7/16.
+Findings:
+- OCR is good on clean scans: 1-2.5% with accents off where the edition matches.
+  Lazarillo's 17% is the edition (1554 spelling: vn, dixo, cabeça; PG modernises), the
+  OCR matches the page (checked on the scan).
+- Old orthography floods the review file: Gaviota and Marianela's accent rows are
+  mostly the edition's own accents (ponia, oian, vió, lábios), Lazarillo has 354 rows.
+  This is the open question below.
+- `¡` read as a letter: "jtú", "ivenga", "ijaque" (Niebla), ";Tendria", "iY" (Gaviota).
+  `restore_question_marks` does this for `¿` only.
+- Lazarillo: the edition's variant notes are printed run together in one line ("1. Bu.
+  la — 2. Bu. de aqueste — 3. ..."): they are not split, so 116 ref-no-note rows.
+- Timeo-Platón: a bilingual edition (Greek left page, Spanish right). Each page goes on
+  from the last mid-sentence, so Greek and Spanish are joined into 7 paragraphs over 15
+  pages; its endnote references give 62 ref-no-note rows. Stephanus numbers ([47d]) are
+  printed in the text.
+- Sombrero: handwritten interlinear glosses become words ("handsome", "especially the")
+  and corrupt the words they cross; printed line numbers are dropped (9 glosses).
+- Split words left after the fixes: 0-3 per 15 pages, mostly capitalised ("Au gusto")
+  or a space join with a known second half ("fue re").
+- Not checked: paragraph counts against the references (Pepita has 23 paragraphs in
+  15 pages: letters with long paragraphs, plausible but unverified); headings were
+  counted only (Sombrero 8, Perfecta 6 in 15 pages: short chapters).
+
+### User decisions (2026-10-16) and what was done
+- Old spellings are not flagged (commit 4d59f0e). An edition is old when its body has
+  at least 5 "á"/"ó"/"é" as words or "vn"/"vna", and at least 2 per 1000 words. There,
+  a spelling row is dropped when the word is one accent off a known word (ponia, vió)
+  or known after modernising its letters (`_MODERN_LETTERS`: ç->z, ss->s, x->j, u
+  between vowels->v, initial v+consonant->u, -ava->-aba, z+e/i->c, y->i, ff->f,
+  sc+e/i->c, ct->t; also v->b, and "de" run into the next word: dellas). Modern books
+  keep their accent rows (there they are misreadings). Niebla (1914) isn't detected as
+  old. Spelling rows per 15 pages: Lazarillo 354 -> 128, Gaviota 79 -> 43, Marianela 85
+  -> 59, Sombrero 65 -> 50, Pepita 36 -> 30, Barraca 31 -> 23, Perfecta 56 -> 46.
+  Lazarillo's rest: real misreadings plus old forms the rules miss (fuyme, vuiera).
+- `¡` read as i/j/l/; before an exclamation is put back like `¿`
+  (`restore_question_marks` does both now). Niebla WER 1.6% -> 1.3%.
+- Bilingual editions (Timeo-Platón) are not supported for now.
+- Review files regenerated with the final code: `test_pdfs/philosophy.fixes.tsv`
+  (1-462) and `test_pdfs/platon_dialogos_vi_bad.fixes.tsv` (1-293, --margin-refs
+  --estimate-margin-refs), via `scratch/book_build.py`.
+
 ## NEXT SESSION — start here (written 2026-10-16)
-Spelling work is merged to main (PR from `feature/review-plan`). Start a new branch from
-main. Do these in order; rebuild + re-measure with `scratch/classify_spelling.py` after
-each (it re-checks from the cached OCR, no re-OCR needed):
+Branch `feature/spelling-refine` (not pushed), results above. Proposed next, in order:
+1. Open the PR for `feature/spelling-refine`.
+2. The user reviews the philosophy/Platón review files; adjust from their feedback.
+3. `ocr1` guesses: prefer candidates the book itself uses often ("lan" -> "tan", not
+   "la"), so the hint is right more often.
+4. Variant notes run together in one line (Lazarillo: "1. Bu. la — 2. Bu. ...").
+5. Split words still left: capitalised ("Au gusto"), and a space join whose second half
+   is a word ("fue re").
+
+Done (2026-10-16), the list as it was:
 1. Hide foreign words (user decided 2026-10-16): in `fixes.py`, a word the de/fr/it/la
    dictionary knows is not flagged (like the English rule; keep the 5+ letter minimum).
    Copy de/fr/it/la .aff/.dic from `scratch/dicts` (source: wooorm/dictionaries) into
@@ -124,17 +249,15 @@ each (it re-checks from the cached OCR, no re-OCR needed):
    philosophy); limit it or cache lookups.
 4. Small word list for dictionary gaps (rehúye, inherencia, capitación,
    Considerémoslo, superlatives like correctísima).
-5. Measure the pipeline on new books (user request, 2026-10-16). Find Spanish scanned
+5. Measure the pipeline on new books (user request, 2026-10-16). There are some pdfs in test_pdfs but also find Spanish scanned (about 10 or so)
    PDFs on the internet that are public domain or freely licensed, ideally ones with a
    trusted text version to compare against (e.g. an Internet Archive scan of a book that
    is also on Project Gutenberg or Biblioteca Virtual Miguel de Cervantes). Vary them:
-   old print, footnotes, two columns, poor scans. Take ~10-20 pages from each (don't
+   old print, footnotes, poor scans. Take ~10-20 pages from each (don't
    OCR whole books), run the pipeline, and measure: word error rate against the
    reference text, spelling rows per page and their type mix (`classify_spelling.py`),
    and structure problems (headings, notes, split words). Keep downloads in
    `test_pdfs/` and don't commit them. Write the results per book in this file.
-Open question for the user (ask when you get there): old spellings in the original
-(atribuído, solicitásteis): keep, or flag?
 Test books: `test_pdfs/philosophy.pdf 1-462`, `test_pdfs/platon_dialogos_vi_bad.pdf
 1-293 --margin-refs`. Stale trial `.fixes.tsv` files in `test_pdfs/` can be deleted.
 
@@ -994,6 +1117,9 @@ done: CronDelete the job and say so in the report.
      Critias pp. 280-281 missing from the scan).
 
 ## Blocked
+- 2026-10-16: `gh pr merge 28 --merge` (feature/spelling-refine) denied by the auto-mode
+  classifier (Merge Without Review); the user merges it. The repo has no CI workflow
+  (no `.github/`), so PRs get no checks.
 - 2026-10-15: `gh pr merge 23 --merge` denied by the auto-mode classifier (Merge Without
   Review); PRs #23 and #19 still open.
 - 2026-10-15: committed 9e86cbf (footnote/margin-ref fixes). Denied: committing the

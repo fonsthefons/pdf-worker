@@ -36,6 +36,7 @@ from pdf_worker.paddle_ocr import (
 from pdf_worker.structure import Block, Gloss, Heading, Image, Note, Paragraph
 
 _SENTENCE_END = tuple('.!?»"”’)]:;')
+_LEADING_REFS_RE = re.compile(f"(?:{MARGIN_REF_RE.pattern})*")
 # Paddle keeps a line-break hyphen with a space: "Pro- tarco".
 # shortcut: also joins a real "físico- químico"; rare in prose, check on other books.
 _BROKEN_WORD_RE = re.compile(r"(\w)- (?=[a-záéíóúñü])")
@@ -56,6 +57,8 @@ _DROP = {"header", "number", "footer", "formula_number"}
 # bien?", "lPor qué?", "2El qué?", "ipodrías ...?"), or apart ("L Cómo no?"): group 1
 # is the misread mark, group 2 that word.
 _LOST_QUESTION_RE = re.compile(r"(?<![\w¿¡])([iIlℓ12|!ủé]|[iIlLℓ12] )(?=(\w+)[^.!?¿]*\?)")
+# The same for "¡" ("jtú!", "ivenga!", ";Tendría que ver!", "iY si es un ladrón!").
+_LOST_EXCLAMATION_RE = re.compile(r"(?<![\w¿¡])([iIlj;1|]|[iIl] )(?=(\w+)[^.?!¿¡]*!)")
 # Vietnamese letters in a Spanish book are misreads of Spanish ones ("Sốc." "Sị"):
 # only an acute, a tilde or a diaeresis are kept.
 _VIETNAMESE_RE = re.compile(r"[Ạ-ỹ]")
@@ -78,18 +81,22 @@ def restore_question_marks(text: str, counts: Counter) -> str:
     """Put back the "¿" that Paddle read as "i", "l", "2" ... before a question's
     first word. Before a capital it can't be anything else; before a lowercase word
     only when the book (``counts``: its words, lowercase) knows the word without it
-    and hardly with it ("ipor" -> "¿por", but "idea" stays)."""
+    and hardly with it ("ipor" -> "¿por", but "idea" stays). The same for "¡"."""
 
-    def fix(match: re.Match) -> str:
-        mark, word = match.groups()
-        if word[0].isupper():
-            return "¿"
-        glued = (mark + word).lower()
-        if " " not in mark and counts[glued] <= 1 and counts[word.lower()] >= _COMMON:
-            return "¿"
-        return mark
+    def fixer(opening: str) -> Callable[[re.Match], str]:
+        def fix(match: re.Match) -> str:
+            mark, word = match.groups()
+            if word[0].isupper():
+                return opening
+            glued = (mark + word).lower()
+            if " " not in mark and counts[glued] <= 1 and counts[word.lower()] >= _COMMON:
+                return opening
+            return mark
 
-    return _LOST_QUESTION_RE.sub(fix, text)
+        return fix
+
+    text = _LOST_QUESTION_RE.sub(fixer("¿"), text)
+    return _LOST_EXCLAMATION_RE.sub(fixer("¡"), text)
 
 
 def spanish_letters(text: str) -> str:
@@ -269,9 +276,8 @@ class _Book:
                 yield Heading(" ".join(text.split()), 1 if label == "doc_title" else 2)
                 continue
             text = self._body_text(text, anchors.get(i, []))
-            if self.marks:
-                text = "".join(self.marks) + text
-                self.marks = []
+            lead = "".join(self.marks)
+            self.marks = []
             # The page's first text block goes on with the previous page's paragraph
             # when that one ended mid-sentence or this one starts in lowercase.
             plain_start = plain(text).lstrip()
@@ -284,12 +290,16 @@ class _Book:
             if continues:
                 end = self.para.rstrip()
                 if re.search(r"\w-$", end) and plain_start[:1].islower():
-                    self.para = end[:-1] + text
+                    # The page mark (and a margin reference) goes before the whole word
+                    # ("some-" + "tieron").
+                    refs = _LEADING_REFS_RE.match(text).group()
+                    cut = end.rfind(" ") + 1
+                    self.para = end[:cut] + lead + refs + end[cut:-1] + text[len(refs) :]
                 else:
-                    self.para = end + " " + text
+                    self.para = end + " " + lead + text
                 continue
             yield from self.flush()
-            self.para = text
+            self.para = lead + text
         if images:
             self.pending += _pictures(page, row)
 
@@ -305,6 +315,8 @@ class _Book:
                     words[k - 1] = ""
                 if _is_mark_word(words[k], label) and k + 1 < len(words):
                     words[k], k = "", k + 1
+                if k > 0 and re.search(r"\w-$", words[k - 1]):  # before "invo- car"
+                    k -= 1
                 words[k] = margin_ref(label) + words[k]
         text = _BROKEN_WORD_RE.sub(r"\1", " ".join(w for w in words if w))
         if self.counts is not None:
