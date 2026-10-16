@@ -342,6 +342,14 @@ Progress (2026-10-16, evening, branch `feature/review-model`):
   outside the repo: the user moves it into `scratch/review_ai/<stem>/` first).
 
 Next, when the user says the review files are done:
+0. Fewer spelling rows (user decided 2026-10-16), in `fixes.py`, with tests, before
+   the rebuild:
+   - name rows: a capitalised unknown word that occurs 2+ times in the book with the
+     same spelling is not flagged, unless it is one or two edits from a more frequent
+     name (`Bohatcc` beside many `Bohatec`): then flag it, with that name as the hint.
+     Count names over the whole book first (two passes or a pre-count), not per page.
+   - a word in ALL CAPS is never a review row (spelling or chars).
+   Count how many rows each rule removes in both books and report it.
 1. Back up both files, then rebuild both books from the Paddle cache with the fixes
    (`scratch/book_build.py PDF RANGE OUTDIR pdf epub txt`; Platón with
    `--margin-refs --estimate-margin-refs`; it uses `<stem>.fixes.tsv` next to the PDF).
