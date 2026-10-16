@@ -332,6 +332,10 @@ Progress (2026-10-16, evening, branch `feature/review-model`):
   already skipped them); notes still get chars checks. Existing such rows in the review
   files go `stale` on the next build. Review pages: images now embedded (base64): the
   user's viewer didn't load the relative `crops/` paths.
+- Split words ("def niciones", model says "fragment", ~23 rows): the page has a "find"
+  box next to the value; widen it to "def niciones" and replace with "definiciones".
+  decisions.tsv gets a 4th column `find`; merge sets the row's find (replace only).
+  Test `test_replace_spans_a_split_word` confirms a two-word find applies.
 - Pages built: `scratch/review_ai/philosophy/review.html`,
   `scratch/review_ai/platon_dialogos_vi_bad/review.html`. WAITING FOR THE USER to
   review and Export; then `merge_decisions.py STEM ~/Downloads/decisions.tsv` (path

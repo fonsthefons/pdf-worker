@@ -58,6 +58,14 @@ def test_applies_actions():
     assert ("margin-missing", "21d") in new
 
 
+def test_replace_spans_a_split_word():
+    blocks = [Paragraph(page_mark(0, "1") + "Más que def niciones de diccionario.")]
+    fix = Fix("1", "1", "spelling", "def niciones", action="replace", value="definiciones")
+    out, _, review = _run([fix], blocks)
+    assert "Más que definiciones de diccionario." in plain(out[0].text)
+    assert review.fixes[0].status == "applied"
+
+
 def test_rebuild_keeps_user_rows_and_marks_stale(tmp_path):
     path = default_fixes_path(tmp_path / "book.ocr.pdf")
     assert path.name == "book.fixes.tsv"
