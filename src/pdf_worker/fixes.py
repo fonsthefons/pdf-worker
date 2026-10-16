@@ -59,7 +59,7 @@ _SPLIT_RE = re.compile(f"({PAGE_MARK_RE.pattern})")
 # A word, a line-break hyphen or space, marks; the next word is only looked at, so it can
 # pair with the one after it in turn.
 _SPLIT_WORD_RE = re.compile(
-    r"(?<![\w-])(?P<first>[^\W\d_]+)(?:- ?| )"
+    r"(?<![\w-])(?P<first>[^\W\d_]+)(?P<sep>- ?| )"
     f"(?P<marks>(?:{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern})*)"
     r"(?=(?P<second>[^\W\d_]+)(?![\w-]))"
 )
@@ -185,9 +185,10 @@ class Review:
 
         def join(match: re.Match) -> str:
             first, second = match["first"], match["second"]
+            # Two words with a space between stay apart ("sino que"); a hyphen is a break.
             if (
                 second[0].islower()
-                and not (self._spelled(first) and self._spelled(second))
+                and ("-" in match["sep"] or not (self._spelled(first) and self._spelled(second)))
                 and self._spelled(first + second)
             ):
                 return match["marks"] + first

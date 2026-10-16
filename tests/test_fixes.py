@@ -99,7 +99,7 @@ def test_spelling_knows_inflections_and_long_foreign_words():
 
 def test_joins_words_split_at_line_breaks():
     text = (
-        "la inmor-talidad e invo- "
+        "la inmor-talidad y place-res e invo- "
         + margin_ref("108d")
         + "car por ciones al "
         + page_mark(1, "2")
@@ -107,7 +107,7 @@ def test_joins_words_split_at_line_breaks():
     )
     out, _, _ = _run([], [Paragraph(page_mark(0, "1") + text)])
     assert out[0].text == page_mark(0, "1") + (
-        "la inmortalidad e "
+        "la inmortalidad y placeres e "
         + margin_ref("108d")
         + "invocar porciones "
         + page_mark(1, "2")
