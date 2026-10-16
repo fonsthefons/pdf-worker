@@ -1,5 +1,40 @@
 # Progress
 
+## REVIEW PLAN (agreed with user 2026-10-16) — START HERE, not started yet
+Goal: every conversion follows one book structure, and the user fixes OCR errors in a
+review file (edited in Cursor) instead of in the output. Cheap after OCR (Paddle is
+cached), so rebuilding often is fine. Decided: no Typst for now (notes go at the end;
+MuPDF layout is enough); no index/bibliography work (kept as plain text); margin refs
+accuracy (Platón 645/714 right line, 38 wrong, 31 missing, 5 extra) is good enough.
+Book order: cover -> book's own title/edition pages -> generated contents -> preface ->
+text -> appendices/bibliography/index -> notes. Front matter is fine as is.
+1. Text cover, all formats: title + author (+ translator if metadata/title page gives
+   one) in big type, replacing the page-1 scan. PDF/docx: first page. EPUB: that page
+   rendered to an image (Kindle needs an image for the library thumbnail).
+2. Reflowed PDF: the new PDF's own page numbers, centred at the foot, not on the cover.
+   (Printed edition's page numbers not wanted in the PDF.)
+3. One file `<pdf stem>.fixes.tsv` next to the PDF (`--fixes PATH` overrides). Columns:
+   `id, page, kind, find, context, action, value, status`. Each build: applies rows with
+   an action to the blocks before any writer (so writers stay unchanged); appends new
+   suspicious items with empty action; keeps user rows; marks rows whose `find` vanished
+   `stale`. Written atomically. Actions: replace, ignore, attach, drop, accept, move, add.
+   `find` = exact text on that page (page `*` = whole book); if it occurs twice, apply to
+   the first and flag as ambiguous. Examples:
+   - `27 spelling ipodrias replace ¿podrías` (that page only)
+   - `* spelling Eutifrón ignore` (never flagged again)
+   - `* chars Būtzow replace Bützow` (whole book)
+   - `804 note-no-ref c3-6 attach Herder` (superscript inserted after "Herder")
+   - `285 ref-no-note c9-2 drop` (orphan superscript removed)
+   - `27 margin-est ~21b accept` / `move Sócrates` (estimate -> normal / moved)
+   - `31 margin-missing 21c..21e add "21d before pero"`
+4. Kinds flagged: spelling (es/en only, `pyspellchecker` into .venv + pyproject; only
+   words occurring <= 2 times in the book; skip italics and Greek; other languages: no
+   spelling check), odd chars (ū for ü, Cyrillic look-alikes, stray `$`), note-no-ref,
+   ref-no-note, margin-est, margin-missing. Wrong-line margin refs can't be detected.
+5. Unit tests (apply fixes; merge on rebuild keeps user rows, marks stale). Trial on
+   Platón and philosophy: report row counts per kind, esp. Spanish spelling noise, BEFORE
+   going further. Log decisions here.
+
 ## Done
 
 ### Feature 1: PDF text extraction (2026-10-11)
