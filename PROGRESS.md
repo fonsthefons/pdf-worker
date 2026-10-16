@@ -340,6 +340,7 @@ Progress (2026-10-16, evening, branch `feature/review-model`):
   `scratch/review_ai/platon_dialogos_vi_bad/review.html`. WAITING FOR THE USER to
   review and Export; then `merge_decisions.py STEM ~/Downloads/decisions.tsv` (path
   outside the repo: the user moves it into `scratch/review_ai/<stem>/` first).
+  Pages now sort rows by kind, type, then the model's action (user request).
 
 Next, when the user says the review files are done:
 0. Fewer spelling rows (user decided 2026-10-16), in `fixes.py`, with tests, before
