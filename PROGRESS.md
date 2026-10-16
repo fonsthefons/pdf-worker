@@ -254,10 +254,19 @@ Token rules for this work (user asked: as few tokens as possible):
 - Background jobs: their output file can't be read; scripts write to `scratch/`.
 
 Steps:
-0. New branch from main. Ask the user for the path of the other repo's Groq code (the
-   one question to ask); reuse its calls (copy the minimal client into `scratch/`, no
-   new dependency unless it needs one: then `.venv/bin/pip install` + pyproject `dev`).
-   Note which Groq model it uses and whether it takes images.
+0. New branch from main. The Groq code is in the user's `transcribe` repo (outside this
+   repo: Claude may not read it, see the working rules). There:
+   `text_correction/groq.py` holds the only HTTP call: `generate()` sends a chunk and
+   waits out a 429 using `retry-after`; `api_key()` reads `GROQ_API_KEY` from `.env`.
+   `text_correction/backends.py` `BACKENDS["groq"]` sets model, prompt, temperatures
+   and chunk sizes (800/1,100 words). Tests fake it in `tests/test_correction.py`.
+   Before the session the user copies `groq.py` into `scratch/groq_client.py` and puts
+   `GROQ_API_KEY=...` in this repo's `.env` (gitignored since 2026-10-16), and says
+   which model `BACKENDS["groq"]` uses. If they haven't: ask, then wait. Read
+   `scratch/groq_client.py` once; adapt only what's needed (prompt/JSON per row). No
+   new dependency unless it needs one (then `.venv/bin/pip install` + pyproject `dev`).
+   Check whether the model takes images; if not, the model pass is text only and the
+   crops are for the review page only.
 1. Packets, `scratch/review_packets.py STEM` -> `scratch/review_ai/<stem>/packets.jsonl`
    + `crops/<id>.png`. Rows: kinds `spelling` and `chars` only (note and margin rows
    stay for the user: ~50 rows). Per row: id, page, kind, type, find, the pre-filled

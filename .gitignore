@@ -8,6 +8,8 @@ __pycache__/
 dist/
 build/
 .DS_Store
+# API keys (GROQ_API_KEY for the model-assisted review).
+.env
 output/
 scratch/
 # Sample PDFs are large and copyrighted; keep them local only.
