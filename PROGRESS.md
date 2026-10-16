@@ -219,15 +219,39 @@ Findings:
   (1-462) and `test_pdfs/platon_dialogos_vi_bad.fixes.tsv` (1-293, --margin-refs
   --estimate-margin-refs), via `scratch/book_build.py`.
 
-## NEXT SESSION — start here (written 2026-10-16)
-Branch `feature/spelling-refine` (not pushed), results above. Proposed next, in order:
-1. Open the PR for `feature/spelling-refine`.
-2. The user reviews the philosophy/Platón review files; adjust from their feedback.
-3. `ocr1` guesses: prefer candidates the book itself uses often ("lan" -> "tan", not
-   "la"), so the hint is right more often.
-4. Variant notes run together in one line (Lazarillo: "1. Bu. la — 2. Bu. ...").
-5. Split words still left: capitalised ("Au gusto"), and a space join whose second half
-   is a word ("fue re").
+## NEXT SESSION — start here (written 2026-10-16, end of session)
+State:
+- PR #28 (`feature/spelling-refine`, everything above) is open and pushed. Merging was
+  denied to Claude (see Blocked): the user merges it. If it is merged, work from main;
+  if not, ask the user.
+- The user is filling in the review files by hand (action/value columns):
+  `test_pdfs/philosophy.fixes.tsv` (653 rows) and
+  `test_pdfs/platon_dialogos_vi_bad.fixes.tsv` (482 rows). They are not in git
+  (`test_pdfs/` is ignored): don't delete or overwrite them; back them up (copy to
+  `scratch/`) before the first rebuild.
+- Latest clean PDFs are from the morning of 2026-10-16, before this session's changes:
+  `scratch/philo/book_1-462.pdf`, `scratch/platon_full/book_1-293.pdf`. Not rebuilt on
+  purpose: one rebuild with the user's fixes instead.
+- User decided (2026-10-16): forget for now the ocr1-guess ranking, Lazarillo's
+  run-together variant notes, and the leftover split words ("Au gusto", "fue re").
+  Bilingual editions not supported.
+Next, when the user says the review files are done:
+1. Back up both files, then rebuild both books from the Paddle cache with the fixes
+   (`scratch/book_build.py PDF RANGE OUTDIR pdf epub txt`; Platón with
+   `--margin-refs --estimate-margin-refs`; it uses `<stem>.fixes.tsv` next to the PDF).
+   Report statuses (applied / ambiguous / stale) and anything that didn't apply.
+2. Analyse the user's decisions (agreed with the user as the next step):
+   - per spelling type: share replaced vs ignored (precision) -> hide or reorder types;
+   - replace pairs, letter by letter: recurring misreadings -> candidate auto-fixes or
+     better ocr1 guesses; test any auto-fix on the 8 reference excerpts (WER must drop,
+     `scratch/rebuild_excerpts.py` + `wer_all.py`) before adopting it;
+   - ignored words grouped (names, rare words, foreign, old forms);
+   - attach/drop note rows: why references were missed.
+3. Then decide with the user on reuse across books (discussed, not decided): a shared
+   per-language list from whole-book `ignore` rows (words of 5+ letters only), and past
+   `replace` rows offered as pre-filled suggestions (never applied automatically).
+4. Produce the final EPUB/PDF of both books with the fixes; the user checks on device.
+Later (user's choice): book profile for notes; Greek in Paddle books.
 
 Done (2026-10-16), the list as it was:
 1. Hide foreign words (user decided 2026-10-16): in `fixes.py`, a word the de/fr/it/la
