@@ -129,6 +129,16 @@ def test_spelling_rows_say_the_likely_error_reliable_first():
     assert not any(f.action for f in review.fixes)
 
 
+def test_old_spelling_is_not_flagged_in_an_old_edition():
+    words = "Ponia lleuauamos, dezir cabeça; dixo seys veces, yglesia, tauerna, dellas. Fué becho. "
+    old = "Vino á casa ó á la plaza, á pie y á caballo. " * 2
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + old + words)])
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
+    # A modern book keeps them: there they are misreadings.
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + words)])
+    assert {f.find for f in review.fixes if f.kind == "spelling"} >= {"Ponia", "dezir", "becho"}
+
+
 def test_spelling_only_in_the_body():
     blocks = [
         Heading("Capítulo", 1),

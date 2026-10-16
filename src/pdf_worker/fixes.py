@@ -28,8 +28,10 @@ macrons outside Latin, Cyrillic look-alikes, stray ``$``), ``note-no-ref``,
 A spelling row's ``type`` is its likely error, most reliable first (new rows are sorted
 so): ``accent`` (one accent off; the fix is pre-filled as ``value``, set the action to
 confirm it), ``ocr1: <word>?`` (one letter off: a guess), ``name`` (capitalised) or
-``unknown``. Words split at a line break ("inmor-talidad", "por ciones") are joined
-before the check when the joined word is known.
+``unknown``. In an old edition (many "á"/"ó" as words, or "vn") a word in old spelling
+is not flagged ("ponia", "vió", "dixo", "cabeça"). Words split at a line break
+("inmor-talidad", "por ciones") are joined before the check when the joined word is
+known.
 """
 
 import csv
@@ -77,6 +79,30 @@ _ADD_RE = re.compile(r"(\S+)\s+before\s+(.+)")
 _ENCLITIC_RE = re.compile(r"(.+(?:r|ndo))(?:[mts]e|nos|os|l[aeo]s?){1,2}")
 _UNACCENT = str.maketrans("áéíóú", "aeiou")
 _SUPERLATIVE_RE = re.compile(r"(.+)ísim[oa]s?")
+# Old editions: "á"/"ó"/"é" as words (19th c.), "vn" (16th c.). With this many (at least
+# _MIN_OLD_MARKS, and this share of the body words), a word in old spelling isn't flagged.
+_OLD_MARKS = {"á", "ó", "é", "vn", "vna"}
+_MIN_OLD_MARKS = 5
+_OLD_SHARE = 0.002
+_V = "aeiouáéíóú"
+# Old letters to modern ones, in order: cabeça, passo, dixo, lleuaua, vn, llevava, dezir, seys.
+_MODERN_LETTERS = [
+    (re.compile(p), new)
+    for p, new in (
+        ("ç", "z"),
+        ("ss", "s"),
+        ("x", "j"),
+        (f"(?<=[{_V}])u(?=[{_V}])", "v"),
+        (f"^v(?=[^{_V}])", "u"),
+        ("(?<=a)v(?=a(?:s|n|mos|is)?$)", "b"),
+        ("z(?=[ei])", "c"),
+        (f"(?<=[{_V}])y(?=[^{_V}])", "i"),
+        (f"^y(?=[^{_V}])", "i"),
+        ("ff", "f"),
+        ("sc(?=[ei])", "c"),
+        ("ct", "t"),
+    )
+]
 # Words es_ES lacks that books use (lowercase, one per line).
 _SPANISH_EXTRA = set((_DICTIONARIES / "es.extra.txt").read_text(encoding="utf-8").lower().split())
 _ACCENTS = {"a": "á", "e": "é", "i": "í", "o": "ó", "u": "úü", "n": "ñ"}
@@ -161,6 +187,8 @@ class Review:
         self.labels: list[tuple[str, str] | None] = []  # margin labels; None: a heading
         self.back: int | None = None  # level of the bibliography/index heading we're under
         self.body = True  # spelling is checked in the body text only
+        self.body_words = 0
+        self.old_marks = 0  # body words only old spelling uses ("á" alone, "vn")
 
     def apply(self, blocks: Iterable[Block]) -> Iterator[Block]:
         for block in blocks:
@@ -278,6 +306,9 @@ class Review:
             self._flag("chars", match.group(), words, match)
         for match in _WORD_RE.finditer(words):
             word = match.group()
+            if self.body:
+                self.body_words += 1
+                self.old_marks += word.lower() in _OLD_MARKS
             if self.check_chars and (_MACRON_RE.search(word) or _CYRILLIC_RE.search(word)):
                 self._flag("chars", word, words, match)
             elif self.body and self.spell and len(word) > 2 and _LATIN_RE.fullmatch(word):
@@ -335,9 +366,12 @@ class Review:
 
     def _found(self) -> list[Fix]:
         found = []
+        old = self.old_marks >= _MIN_OLD_MARKS and self.old_marks >= self.body_words * _OLD_SHARE
         for (kind, _), (count, page, find, context) in self.words.items():
             if kind == "spelling" and count > _MAX_SPELLING_COUNT:
                 continue
+            if kind == "spelling" and old and self._old_spelling(find):
+                continue  # the edition's own spelling is kept, not flagged
             fix = Fix("", page, kind, find, f"×{count} {context}" if count > 1 else context)
             if kind == "spelling":
                 fix.type, fix.value = self._spelling_type(find)
@@ -363,6 +397,21 @@ class Review:
         # Spelling rows last, the likeliest errors first; page order within each.
         return sorted(
             found, key=lambda f: SPELLING_TYPES.index(f.type.split(":")[0]) + 1 if f.type else 0
+        )
+
+    def _old_spelling(self, word: str) -> bool:
+        """A known word in old spelling: other accents ("ponia", "vió"), old letters
+        ("lleuauamos", "dezir", "cabeça", "dixo", "tauerna": v for b) or "de" run
+        into the next word ("dellas")."""
+        low = word.lower()
+        modern = low
+        for pattern, new in _MODERN_LETTERS:
+            modern = pattern.sub(new, modern)
+        forms = {low, modern, modern.replace("v", "b")}
+        if low.startswith("de") and len(low) > 4:  # d + ellas, estas, ello
+            forms.add(low[1:])
+        return any(
+            self._spelled(w) or any(self._spelled(v) for v in _accent_variants(w)) for w in forms
         )
 
     def _spelling_type(self, word: str) -> tuple[str, str]:
