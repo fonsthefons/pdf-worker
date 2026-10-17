@@ -18,16 +18,20 @@ Actions (``value`` in brackets):
 - ``add`` [``21d before pero``]: a margin reference the scan lost.
 
 Kinds flagged: ``spelling`` (Spanish and English books, body text only: not notes,
-small print, bibliographies or indexes; words found at most twice in the book, unknown
+small print, bibliographies or indexes; never a word in ALL CAPS; words found at most
+twice in the book (a capitalised one only once, unless a more frequent name is one or two
+edits away: then it is flagged with that name as a guess, ``name: Bohatec?``), unknown
 to the Hunspell dictionary (and to ``dictionaries/es.extra.txt``), and not
 English/German/French/Italian/Latin words of 5+ letters), ``chars`` (odd letters:
-macrons outside Latin, Cyrillic look-alikes, stray ``$``), ``note-no-ref``,
+macrons outside Latin, Cyrillic look-alikes, stray ``$``; not in bibliographies,
+indexes or ALL CAPS words), ``note-no-ref``,
 ``ref-no-note``, ``margin-est`` (estimated margin references) and ``margin-missing``
 (labels missing between two found ones).
 
 A spelling row's ``type`` is its likely error, most reliable first (new rows are sorted
 so): ``accent`` (one accent off; the fix is pre-filled as ``value``, set the action to
-confirm it), ``ocr1: <word>?`` (one letter off: a guess), ``name`` (capitalised) or
+confirm it), ``swap`` (b read for h or c for e, "becho", "comcr": pre-filled too),
+``ocr1: <word>?`` (one letter off: a guess), ``name`` (capitalised) or
 ``unknown``. In an old edition (many "á"/"ó" as words, or "vn") a word in old spelling
 is not flagged ("ponia", "vió", "dixo", "cabeça"). Words split at a line break
 ("inmor-talidad", "por ciones") are joined before the check when the joined word is
@@ -41,6 +45,7 @@ import tempfile
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
 from functools import cached_property
+from itertools import combinations
 from pathlib import Path
 
 from pdf_worker.inline import ESTIMATED, MARGIN_REF_RE, PAGE_MARK_RE, margin_ref, plain
@@ -58,6 +63,7 @@ _MIN_FOREIGN = 5  # letters: shorter words aren't excused by the foreign diction
 _MAX_MISSING = 10  # more margin labels lost in a row: the found ones are suspect
 _CONTEXT = 30  # characters each side
 _SPLIT_RE = re.compile(f"({PAGE_MARK_RE.pattern})")
+_MARKS_RE = re.compile(f"{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern}")
 # A word, a line-break hyphen or space, marks; the next word is only looked at, so it can
 # pair with the one after it in turn.
 _SPLIT_WORD_RE = re.compile(
@@ -110,6 +116,7 @@ _ACCENTS |= {v: k for k, vs in _ACCENTS.items() for v in vs}  # and back
 _LETTERS = "abcdefghijklmnopqrstuvwxyzáéíóúüñ"
 # OCR misreadings of letter shapes ("rn" for "m"), tried before the one-letter edits.
 _CONFUSIONS = (("rn", "m"), ("m", "rn"), ("cl", "d"), ("li", "h"), ("ni", "m"), ("in", "m"))
+_SWAPS = {"b": "h", "c": "e"}  # common misreadings, often more than one per word
 
 
 @dataclass
@@ -126,7 +133,7 @@ class Fix:
 
 
 COLUMNS = ("id", "page", "kind", "type", "find", "context", "action", "value", "status")
-SPELLING_TYPES = ("accent", "ocr1", "name", "unknown")  # most reliable first
+SPELLING_TYPES = ("accent", "swap", "ocr1", "name", "unknown")  # most reliable first
 
 
 def default_fixes_path(pdf_path: str | Path) -> Path:
@@ -187,6 +194,7 @@ class Review:
         self.labels: list[tuple[str, str] | None] = []  # margin labels; None: a heading
         self.back: int | None = None  # level of the bibliography/index heading we're under
         self.body = True  # spelling is checked in the body text only
+        self.reference = False  # bibliography/index: nothing is checked
         self.body_words = 0
         self.old_marks = 0  # body words only old spelling uses ("á" alone, "vn")
 
@@ -196,15 +204,41 @@ class Review:
                 if isinstance(block, Heading):
                     self.labels.append(None)
                     self._section(block)
-                self.body = self.back is None and not isinstance(block, Note)
+                self.reference = self.back is not None or _is_reference(block)
+                self.body = not self.reference and not isinstance(block, Note)
                 self.body = self.body and not getattr(block, "small", False)
-                self.body = self.body and not _is_reference(block)
-                text = self._text(self._join_split(block.text) if self.spell else block.text)
+                text = self._join_split(block.text) if self.spell else block.text
+                text = self._text(self._across_pages(text))
                 if isinstance(block, Note):
                     self.notes.setdefault(block.label, self.page)
                 if text != block.text:
                     block = replace(block, text=text)
             yield block
+
+    def _across_pages(self, text: str) -> str:
+        """A two-word find split by a page break ("def <page>niciones"), on the row's page
+        or the one before: replaced here, as the pages are fixed one at a time later. The
+        marks go before the new text."""
+        if not PAGE_MARK_RE.search(text):
+            return text
+        for rows in self.by_page.values():
+            for i in rows:
+                fix = self.fixes[i]
+                if fix.action != "replace" or " " not in fix.find or self.done[i]:
+                    continue
+                for m in _word_pattern(fix.find, pages=True).finditer(text):
+                    mark = PAGE_MARK_RE.search(m.group())
+                    before = PAGE_MARK_RE.findall(text[: m.start()])
+                    if mark and fix.page in (
+                        "*",
+                        mark.group(1),
+                        before[-1] if before else self.page,
+                    ):
+                        self.hits[i] += 1
+                        self.done[i] = True
+                        text = text[: m.start()] + _marks(m) + fix.value + text[m.end() :]
+                        break
+        return text
 
     def _join_split(self, text: str) -> str:
         """Join a word the OCR split at a line break ("inmor-talidad", "invo- car",
@@ -263,7 +297,8 @@ class Review:
                 self.done[i] = self.done[i] or bool(found)
                 return text
             self.done[i] = True
-            return pattern.sub(lambda _: fix.value, text, count=0 if everywhere else 1)
+            # Margin references inside a two-word find go before the new text.
+            return pattern.sub(lambda m: _marks(m) + fix.value, text, count=0 if everywhere else 1)
         if action == "drop":
             return self._remove(i, text, f"[^{fix.find}]", "", everywhere)
         if action == "accept":
@@ -302,13 +337,15 @@ class Review:
         for label in MARGIN_REF_RE.findall(text):
             self.labels.append((label, self.page))
         words = REF_RE.sub("", plain(text))
-        for match in _DOLLAR_RE.finditer(words):
+        for match in _DOLLAR_RE.finditer(words if not self.reference else ""):
             self._flag("chars", match.group(), words, match)
         for match in _WORD_RE.finditer(words):
             word = match.group()
             if self.body:
                 self.body_words += 1
                 self.old_marks += word.lower() in _OLD_MARKS
+            if self.reference or (len(word) > 1 and word.isupper()):
+                continue  # ALL CAPS (headings, small caps) is never flagged: user's choice
             if self.check_chars and (_MACRON_RE.search(word) or _CYRILLIC_RE.search(word)):
                 self._flag("chars", word, words, match)
             elif self.body and self.spell and len(word) > 2 and _LATIN_RE.fullmatch(word):
@@ -367,14 +404,25 @@ class Review:
     def _found(self) -> list[Fix]:
         found = []
         old = self.old_marks >= _MIN_OLD_MARKS and self.old_marks >= self.body_words * _OLD_SHARE
+        # Capitalised unknown words with their count over the whole book.
+        names = {
+            e[2]: e[0]
+            for (kind, _), e in self.words.items()
+            if kind == "spelling" and _is_name(e[2])
+        }
         for (kind, _), (count, page, find, context) in self.words.items():
             if kind == "spelling" and count > _MAX_SPELLING_COUNT:
                 continue
             if kind == "spelling" and old and self._old_spelling(find):
                 continue  # the edition's own spelling is kept, not flagged
+            near = _near_name(find, count, names) if find in names else ""
+            if find in names and count > 1 and not near and not self._accent_fix(find):
+                continue  # a name the book repeats is spelled as printed
             fix = Fix("", page, kind, find, f"×{count} {context}" if count > 1 else context)
             if kind == "spelling":
                 fix.type, fix.value = self._spelling_type(find)
+                if near and fix.type == "name":
+                    fix.type = f"name: {near}?"
             found.append(fix)
         found += [Fix("", p, "note-no-ref", n) for n, p in self.notes.items() if n not in self.refs]
         found += [Fix("", p, "ref-no-note", r) for r, p in self.refs.items() if r not in self.notes]
@@ -418,16 +466,22 @@ class Review:
         """``(type, value)``: a one-accent fix is pre-filled as the value (the user still
         sets the action); a one-edit word is only a guess, given in the type."""
         low = word.lower()
-        fix = next((w for w in _accent_variants(low) if self._spelled(w)), "")
-        if fix:
-            return "accent", fix[0].upper() + fix[1:] if word[0].isupper() else fix
+        cased = lambda w: w[0].upper() + w[1:] if word[0].isupper() else w  # noqa: E731
+        if fix := self._accent_fix(word):
+            return "accent", cased(fix)
+        # b read for h, c for e (bervir, comcr): right 37 times in 40 in the user's review.
+        if fix := next((w for w in _swaps(low) if self._spelled(w)), ""):
+            return "swap", cased(fix)
         # Plain lookups: this tries hundreds of words.
         fix = next((w for w in _one_edits(low) if self.spell.lookup(w)), "")
         if fix:
             return f"ocr1: {fix}?", ""
-        if word[0].isupper() and word[1:].islower():
+        if _is_name(word):
             return "name", ""
         return "unknown", ""
+
+    def _accent_fix(self, word: str) -> str:
+        return next((w for w in _accent_variants(word.lower()) if self._spelled(w)), "")
 
 
 def _is_reference(block: Block) -> bool:
@@ -468,6 +522,42 @@ def _accent_variants(word: str) -> Iterator[str]:
             yield word[:i] + alt + word[i + 1 :]
 
 
+def _is_name(word: str) -> bool:
+    return word[0].isupper() and word[1:].islower()
+
+
+def _near_name(word: str, count: int, names: dict[str, int]) -> str:
+    """A more frequent name one edit away (two from 5 letters): "Bohatcc" -> "Bohatec"."""
+    most = 1 if len(word) < 5 else 2
+    # shortcut: same first letter only (keeps this fast), misses a misread first letter.
+    near = [
+        n
+        for n, c in names.items()
+        if c > count
+        and n[0] == word[0]
+        and abs(len(n) - len(word)) <= most
+        and _distance(word, n) <= most
+    ]
+    return max(near, key=names.get, default="")
+
+
+def _distance(a: str, b: str) -> int:
+    row = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        prev, row[0] = row[0], i
+        for j, y in enumerate(b, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (x != y))
+    return row[-1]
+
+
+def _swaps(word: str) -> Iterator[str]:
+    """``word`` with b read back as h, c as e, at one or two places."""
+    spots = [i for i, c in enumerate(word) if c in _SWAPS]
+    for n in (1, 2):
+        for combo in combinations(spots, n):
+            yield "".join(_SWAPS[c] if i in combo else c for i, c in enumerate(word))
+
+
 def _one_edits(word: str) -> Iterator[str]:
     """``word`` with one letter dropped, changed or added, or a common misreading undone."""
     for x, y in _CONFUSIONS:
@@ -481,8 +571,15 @@ def _one_edits(word: str) -> Iterator[str]:
         yield from (a + c + b for c in _LETTERS)
 
 
-def _word_pattern(text: str) -> re.Pattern:
-    """``text`` as written, not inside a longer word."""
+def _word_pattern(text: str, pages: bool = False) -> re.Pattern:
+    """``text`` as written, not inside a longer word. A margin reference (or with
+    ``pages``, a page mark) may sit between two words ("def <21a>niciones")."""
     start = r"(?<!\w)" if text[:1].isalnum() else ""
     end = r"(?!\w)" if text[-1:].isalnum() else ""
-    return re.compile(start + re.escape(text) + end)
+    gap = f"(?: |{_MARKS_RE.pattern if pages else MARGIN_REF_RE.pattern})+"
+    return re.compile(start + gap.join(map(re.escape, text.split(" "))) + end)
+
+
+def _marks(match: re.Match) -> str:
+    """The page marks and margin references inside a match, to keep before new text."""
+    return "".join(m.group() for m in _MARKS_RE.finditer(match.group()))
