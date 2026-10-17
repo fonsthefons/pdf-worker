@@ -342,6 +342,41 @@ Progress (2026-10-16, evening, branch `feature/review-model`):
   outside the repo: the user moves it into `scratch/review_ai/<stem>/` first).
   Pages now sort rows by kind, type, then the model's action (user request).
 
+Done 2026-10-17 (user reviewed both pages):
+- Merged: philosophy 556 decisions (180 replace, 376 ignore, 24 widened finds), Platón
+  432 (287 replace, 145 ignore, 34 widened). Bibliography rows left undecided on
+  purpose (they go stale). Backups: `scratch/review_ai/<stem>/<stem>.fixes.<time>.tsv`
+  (before merge) and `<stem>.fixes.merged.tsv` (after).
+- User's observations while reviewing, and what was done (measured on the decisions with
+  `scratch/decision_patterns.py` and `scratch/rule_precision.py`, counts only):
+  1. italics are mostly foreign words: no italic information in the OCR output (Paddle
+     gives plain text), so not possible now; the foreign dictionaries cover most.
+  2. ALL CAPS never flagged: done (step 0 below).
+  3./4. b for h, c for e: Platón 13 + 25 replaces (philosophy ~0). New spelling type
+     `swap`, value pre-filled like `accent`: b->h / c->e at one or two places gives a
+     known word. On the decisions it matches the user's value 37 of 40 times.
+  5. ¿/¡ read as i/l: ~10 rows, all with other errors in the same word; a rule
+     ("i"/"l" + known word -> ¿word) matched 0 of 10: not added.
+  6. spaces/hyphens inside words: 16 rows, already flagged and fixed by hand (widened
+     find); `_join_split` already joins fragments. Not changed.
+  7. joined words ("mezclade"): a split-into-two guess matched 3 of 22: not added.
+  8. part of a correct word highlighted ("mezcl" in "mezclado"): the page marked the
+     first substring match; now whole word first (`review_page.py`). Fragment rows from
+     split words (context from the joined txt) go stale on rebuild.
+- Rebuild 1 (outputs `scratch/fixed_philo/`, `scratch/fixed_platon/`): Platón 257
+  replaces applied, 23 stale; philosophy 159 applied, 16 stale. Stale were mostly the
+  user's widened two-word finds: a margin reference or a page mark sat between the
+  halves (`scratch/stale_why.py`, `scratch/split_diag.py`: 8 of 11 Platón ones cross a
+  page). Fixed in `fixes.py`: a multi-word find matches across margin refs, and across
+  a page mark via `Review._across_pages` (whole block, before the per-page pass; row on
+  either page); marks go before the new text. Tests in `test_replace_spans_a_split_word`.
+  New rules on philosophy: 9 ALL CAPS + 1 name undecided rows went stale.
+- Rebuild 2 (same outputs, with the fix): Platón 271 applied / 9 stale (6 of them: value
+  already in the text; 3 to look at), philosophy 170 applied / 5 stale (all: value in the
+  text). Ignores all applied. Still waiting: philosophy 77 undecided spelling rows
+  (still flagged: not all bibliography), Platón 50 note/margin rows. New rows from the
+  rebuild: philosophy 24, Platón 34 (incl. 1 `swap`).
+
 Next, when the user says the review files are done:
 0. Fewer spelling rows (user decided 2026-10-16), in `fixes.py`, with tests, before
    the rebuild:
@@ -351,6 +386,10 @@ Next, when the user says the review files are done:
      Count names over the whole book first (two passes or a pre-count), not per page.
    - a word in ALL CAPS is never a review row (spelling or chars).
    Count how many rows each rule removes in both books and report it.
+   DONE 2026-10-17: `fixes.py` (`_is_name`, `_near_name`, `_distance`, `_swaps`;
+   recurring names kept when an accent fix exists; near-name search only among names
+   with the same first letter), tests `test_no_rows_for_all_caps_or_names_the_book_repeats`
+   and the updated type-order test.
 1. Back up both files, then rebuild both books from the Paddle cache with the fixes
    (`scratch/book_build.py PDF RANGE OUTDIR pdf epub txt`; Platón with
    `--margin-refs --estimate-margin-refs`; it uses `<stem>.fixes.tsv` next to the PDF).

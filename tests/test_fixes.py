@@ -64,6 +64,21 @@ def test_replace_spans_a_split_word():
     out, _, review = _run([fix], blocks)
     assert "Más que definiciones de diccionario." in plain(out[0].text)
     assert review.fixes[0].status == "applied"
+    # A margin reference or note mark between the halves stays, before the word.
+    text = "Más que def " + margin_ref("21a") + "niciones[^3] de nada."
+    out, _, review = _run([fix], [Paragraph(page_mark(0, "1") + text)])
+    assert (
+        out[0].text
+        == page_mark(0, "1") + "Más que " + margin_ref("21a") + "definiciones[^3] de nada."
+    )
+    assert review.fixes[0].status == "applied"
+    # Split by a page break: the row is on the page before (or after) the break.
+    text = page_mark(0, "1") + "Más que def " + page_mark(1, "2") + "niciones de nada."
+    out, _, review = _run([fix], [Paragraph(text)])
+    assert (
+        out[0].text == page_mark(0, "1") + "Más que " + page_mark(1, "2") + "definiciones de nada."
+    )
+    assert review.fixes[0].status == "applied"
 
 
 def test_rebuild_keeps_user_rows_and_marks_stale(tmp_path):
@@ -124,17 +139,28 @@ def test_joins_words_split_at_line_breaks():
 
 
 def test_spelling_rows_say_the_likely_error_reliable_first():
-    text = "Zqxwrt dijo Eutifrón: si pudieramos, Posiblc. Una nota[^c1-1] en Būtzow."
+    text = "Zqxwrt dijo Eutifrón: si pudieramos, Pusible, Bcrvir. Una nota[^c1-1] en Būtzow."
     _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
     rows = [(f.kind, f.type, f.find, f.value) for f in review.fixes]
     assert rows[:2] == [("chars", "", "Būtzow", ""), ("ref-no-note", "", "c1-1", "")]
     assert rows[2:] == [
         ("spelling", "accent", "pudieramos", "pudiéramos"),
-        ("spelling", "ocr1: posible?", "Posiblc", ""),
+        ("spelling", "swap", "Bcrvir", "Hervir"),
+        ("spelling", "ocr1: fusible?", "Pusible", ""),
         ("spelling", "name", "Zqxwrt", ""),
         ("spelling", "name", "Eutifrón", ""),
     ]
     assert not any(f.action for f in review.fixes)
+
+
+def test_no_rows_for_all_caps_or_names_the_book_repeats():
+    text = (
+        "Según MEZCLADO y SCHŌNEBAUM, Zqxwrt y Zqxwrt; Bohatec, Bohatec, Bohatec y Bohatcc. "
+        "Pudieramos. Pudieramos."
+    )
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
+    rows = {(f.kind, f.find): f.type for f in review.fixes}
+    assert rows == {("spelling", "Bohatcc"): "name: Bohatec?", ("spelling", "Pudieramos"): "accent"}
 
 
 def test_old_spelling_is_not_flagged_in_an_old_edition():
