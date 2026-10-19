@@ -143,18 +143,19 @@ described in detail under [Features](#features).
 
 
 ════════════════════════════════════════════════════════════════════════════════════
- 3. CORRECTION LOOP                       (scratch/ scripts, not in the package yet)
+ 3. CORRECTION LOOP                       pdf-worker review book.pdf
 ════════════════════════════════════════════════════════════════════════════════════
 
-  book.fixes.tsv ──► review_packets.py  (context + line crop from the scan)
-                 ──► review_model.py    (gpt-oss-120b via Groq: action, value,
-                                         confidence, reason)
-                 ──► review_page.py     → review.html (accept / ignore / edit,
-                                         j/k a i e c, filters) → Export decisions.tsv
-                 ──► merge_decisions.py (backs up first, sets action/value by id)
+  book.fixes.tsv ──► open spelling/chars rows (undecided, or a replace that went stale)
+                 ──► scan line of each word (Paddle cache + Tesseract) → book.review/crops
+                 ──► gpt-oss-120b via Groq (GROQ_API_KEY; text only; rows asked once,
+                     kept in book.review/proposals.jsonl; --no-model to skip)
+                 ──► page on http://127.0.0.1:8765 (accept / ignore / edit, j/k a i e c,
+                     filters) → "Save decisions" → merged into book.fixes.tsv
+                     (backup in book.review/)
                           │
                           └──► run CONVERT again → fixes applied, new flags added
-                               (repeat until clean)
+                               (repeat until clean; note and margin rows: edit the TSV)
 
 
 ════════════════════════════════════════════════════════════════════════════════════
@@ -176,7 +177,7 @@ Typical routes to a clean PDF and EPUB:
 - **A real EPUB was found:** `ebook-to-pdf`. Done.
 - **Born-digital PDF:** `convert --to epub`, then `convert --to pdf`.
 - **Scan:** `ocr --mode redo` (or `--engine paddle` for Latin or Greek), then `convert`,
-  then the correction loop, then `convert` again.
+  then `review`, then `convert` again.
 
 ### Sources `find-book` searches
 

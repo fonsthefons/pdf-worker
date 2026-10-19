@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review __TITLE__</title>
+<style>
+:root { --bg:#fafaf8; --fg:#1d1d1b; --muted:#6b6b66; --line:#ddd; --card:#fff;
+  --hi:#fff1a8; --sel:#2b6cb0; --ok:#2f855a; --no:#9b2c2c; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161615; --fg:#e8e8e3; --muted:#9a9a92;
+  --line:#333; --card:#1f1f1d; --hi:#5c5020; --sel:#63b3ed; --ok:#68d391; --no:#fc8181; } }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, sans-serif; }
+header { position:sticky; top:0; background:var(--bg); border-bottom:1px solid var(--line);
+  padding:8px 16px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; z-index:1; }
+header select, header button { font:inherit; }
+main { max-width:980px; margin:0 auto; padding:8px 16px 80px; }
+.row { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:10px 12px;
+  margin:8px 0; }
+.row.cur { outline:2px solid var(--sel); }
+.row img { max-width:100%; display:block; margin:6px 0; background:#fff; }
+.meta { color:var(--muted); font-size:13px; }
+.ctx mark { background:var(--hi); color:inherit; }
+.prop { margin-top:4px; }
+.low { color:var(--no); } .high { color:var(--ok); }
+.done { font-weight:600; }
+.controls { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; align-items:center; }
+.controls input { font:inherit; padding:2px 6px; min-width:12em; }
+.help { color:var(--muted); font-size:13px; }
+</style></head><body>
+<header>
+  <strong>__TITLE__</strong>
+  <label>Type <select id="ftype"><option value="">all</option></select></label>
+  <label>Confidence <select id="fconf"><option value="">all</option>
+    <option>high</option><option>medium</option><option>low</option><option value="none">none</option></select></label>
+  <label><input type="checkbox" id="fopen"> undecided only</label>
+  <span id="count"></span>
+  <button id="export">Save decisions</button>
+  <span class="help">j/k move · a accept · i ignore · e edit (Enter = replace) · c clear ·
+    split word: widen the left box to "def niciones", type "definiciones" on the right</span>
+</header>
+<main id="list"></main>
+<script>
+const STEM = __STEM_JSON__;
+const ROWS = __ROWS__;
+const KEY = "review:" + STEM;
+let saved = {};
+try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+for (const r of ROWS) if (r.action && !saved[r.id]) saved[r.id] = {action: r.action, value: r.value, user: true};
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {} };
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const group = t => (t || "-").split(":")[0];
+// Same type together, then the model's action, so similar rows come in a run.
+const order = r => [r.kind, group(r.type), r.proposal_action || "~", r.type || ""].join("\u0001");
+ROWS.sort((a, b) => order(a).localeCompare(order(b)) || (+a.id - +b.id));
+const ftype = document.getElementById("ftype"), fconf = document.getElementById("fconf"),
+  fopen = document.getElementById("fopen"), list = document.getElementById("list");
+for (const g of [...new Set(ROWS.map(r => r.kind + " " + group(r.type)))].sort())
+  ftype.insertAdjacentHTML("beforeend", `<option>${esc(g)}</option>`);
+let shown = [], cur = 0;
+
+function decision(r) {
+  const d = saved[r.id];
+  return d ? `<span class="done">${d.find ? esc(d.find) + ": " : ""}${esc(d.action)}${d.value ? " → " + esc(d.value) : ""}</span>` : "undecided";
+}
+function render() {
+  shown = ROWS.filter(r => (!ftype.value || r.kind + " " + group(r.type) === ftype.value)
+    && (!fconf.value || (fconf.value === "none" ? !r.confidence : r.confidence === fconf.value))
+    && (!fopen.checked || !saved[r.id]));
+  cur = Math.min(cur, Math.max(shown.length - 1, 0));
+  const decided = ROWS.filter(r => saved[r.id]).length;
+  document.getElementById("count").textContent = `${shown.length} shown · ${decided}/${ROWS.length} decided`;
+  list.innerHTML = shown.map((r, n) => {
+    // Whole word first: "mezcl" must not be marked inside an earlier "mezclado".
+    const whole = new RegExp("(?<![\\p{L}])" + r.find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![\\p{L}])", "u").exec(r.context);
+    const at = whole ? whole.index : r.context.indexOf(r.find);
+    const ctx = at < 0 ? esc(r.context) : esc(r.context.slice(0, at)) + "<mark>" + esc(r.find)
+      + "</mark>" + esc(r.context.slice(at + r.find.length));
+    const prop = r.proposal_action ? `<div class="prop">Model: <b>${esc(r.proposal_action)}${r.proposal_value ? " → " + esc(r.proposal_value) : ""}</b>
+      <span class="${r.confidence}">(${esc(r.confidence)})</span> <span class="meta">${esc(r.reason)}</span></div>`
+      : `<div class="prop meta">No model suggestion${r.reason ? ": " + esc(r.reason) : ""}</div>`;
+    return `<div class="row${n === cur ? " cur" : ""}" data-n="${n}">
+      <div class="meta">#${esc(r.id)} · p. ${esc(r.page)} · ${esc(r.kind)} · ${esc(r.type || "")}${r.prefill ? " · prefill: " + esc(r.prefill) : ""}</div>
+      ${r.crop ? `<img src="${esc(r.crop)}" alt="scan of the line with ${esc(r.find)}">` : '<div class="meta">no scan crop</div>'}
+      <div class="ctx">…${ctx}…</div>${prop}
+      <div class="controls">
+        <button data-do="accept" ${r.proposal_action ? "" : "disabled"}>Accept</button>
+        <button data-do="ignore">Ignore</button>
+        <input class="find" value="${esc(saved[r.id]?.find || r.find)}" aria-label="text to replace" title="text to replace: widen it for a split word (def niciones)">
+        →
+        <input class="value" value="${esc(saved[r.id]?.value || r.proposal_value || r.prefill || r.find)}" aria-label="replacement for ${esc(r.find)}">
+        <button data-do="replace">Replace</button>
+        <button data-do="clear">Clear</button>
+        <span>${decision(r)}</span>
+      </div></div>`;
+  }).join("");
+}
+function act(n, what) {
+  const r = shown[n]; if (!r) return;
+  const input = list.querySelector(`.row[data-n="${n}"] input.value`);
+  const find = list.querySelector(`.row[data-n="${n}"] input.find`).value.trim() || r.find;
+  if (what === "accept" && r.proposal_action) saved[r.id] = {action: r.proposal_action, value: r.proposal_value};
+  if (what === "ignore") saved[r.id] = {action: "ignore", value: ""};
+  if (what === "replace" && input.value.trim() && input.value.trim() !== find)
+    saved[r.id] = {action: "replace", value: input.value.trim(), find: find !== r.find ? find : ""};
+  if (what === "clear") delete saved[r.id];
+  save(); cur = n; const y = window.scrollY; render(); window.scrollTo(0, y);
+}
+list.addEventListener("click", e => {
+  const b = e.target.closest("button[data-do]"); if (!b) return;
+  act(+b.closest(".row").dataset.n, b.dataset.do);
+});
+list.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.key === "Enter") act(+e.target.closest(".row").dataset.n, "replace");
+  if (e.target.tagName === "INPUT" && e.key === "Escape") e.target.blur();
+});
+function move(d) {
+  cur = Math.max(0, Math.min(shown.length - 1, cur + d)); render();
+  list.querySelector(".row.cur")?.scrollIntoView({block: "center"});
+}
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey) return;
+  const keys = {j: () => move(1), k: () => move(-1), a: () => { act(cur, "accept"); move(1); },
+    i: () => { act(cur, "ignore"); move(1); }, c: () => act(cur, "clear"),
+    e: () => { const i = list.querySelector(".row.cur input.value"); i?.focus(); i?.select(); }};
+  if (keys[e.key]) { e.preventDefault(); keys[e.key](); }
+});
+for (const el of [ftype, fconf, fopen]) el.addEventListener("change", () => { cur = 0; render(); });
+document.getElementById("export").addEventListener("click", async () => {
+  const clean = s => (s || "").replace(/[\t\n]/g, " ");
+  const lines = ["id\taction\tvalue\tfind", ...ROWS.filter(r => saved[r.id] && !saved[r.id].user)
+    .map(r => [r.id, saved[r.id].action, clean(saved[r.id].value), clean(saved[r.id].find)].join("\t"))];
+  try {
+    const r = await fetch("/decisions.tsv", {method: "POST", body: lines.join("\n") + "\n"});
+    alert(r.ok ? await r.text() : `Not saved: the server answered ${r.status}.`);
+  } catch (e) {
+    alert("Not saved: the review server isn't running. Start it again with pdf-worker review; your choices are kept in this browser.");
+  }
+});
+render();
+</script></body></html>

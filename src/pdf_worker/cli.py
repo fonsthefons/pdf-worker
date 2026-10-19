@@ -7,14 +7,15 @@ import re
 import shlex
 import sys
 import time
+import webbrowser
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-from pdf_worker import __version__, ebook_to_pdf, find_book, kindle, ocr
+from pdf_worker import __version__, ebook_to_pdf, find_book, groq, kindle, ocr, review
 from pdf_worker import convert as conversion
 from pdf_worker.errors import PdfWorkerError
-from pdf_worker.fixes import default_fixes_path
+from pdf_worker.fixes import default_fixes_path, read_fixes
 from pdf_worker.text_extraction import (
     DEFAULT_PAGE_SEPARATOR,
     default_output_path,
@@ -646,6 +647,86 @@ def _run_ebook_to_pdf(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_review_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "review",
+        help="Review a book's suspicious words on a local web page.",
+        description="Show the spelling and odd-character rows of the review file still to "
+        "decide on a local web page, each with its scan line and a model's suggestion "
+        "(Groq: needs GROQ_API_KEY in the environment or in .env; only text is sent). "
+        "'Save decisions' writes them into the review file; convert the PDF again to "
+        "apply them.",
+    )
+    parser.add_argument("pdf", type=Path, help="The PDF given to convert (paddle engine).")
+    parser.add_argument(
+        "--fixes", type=Path, help="Review file (default: <pdf stem>.fixes.tsv next to the PDF)."
+    )
+    parser.add_argument("--no-model", action="store_true", help="Don't ask the model.")
+    parser.add_argument("--port", type=int, default=review.PORT, help="Local port of the page.")
+    parser.add_argument(
+        "--paddle-cache",
+        type=Path,
+        help="Folder of PaddleOCR-VL's files, as given to convert (default: "
+        "~/.cache/pdf-worker/paddle).",
+    )
+    parser.set_defaults(handler=_run_review)
+
+
+def _run_review(args: argparse.Namespace) -> int:
+    _apply_engine_options(args)
+    fixes_path = args.fixes or default_fixes_path(args.pdf)
+    if not fixes_path.exists():
+        raise PdfWorkerError(f"No review file {fixes_path}: convert the PDF first.")
+    rows = review.open_rows(read_fixes(fixes_path))
+    if not rows:
+        print(f"Nothing to review in {fixes_path}.")
+        return 0
+    folder = review.review_folder(args.pdf)
+    print(f"{len(rows)} rows to review; cutting their scan lines...")
+    packets = review.packets(args.pdf, rows, folder)
+    proposals = folder / "proposals.jsonl"
+    key = "" if args.no_model else groq.api_key()
+    if key:
+        print(f"Asking {groq.MODEL} on Groq (the rows' text is sent to api.groq.com)...")
+        try:
+            counts = review.propose(
+                packets,
+                proposals,
+                lambda system, user: groq.generate(system, user, key),
+                _progress("Model"),
+            )
+            print(f"Model: {dict(counts) or 'nothing new to ask'}")
+        except groq.GroqError as exc:
+            print(f"Model stopped: {exc} (the suggestions so far are kept)")
+    elif not args.no_model:
+        print("No GROQ_API_KEY: no model suggestions.")
+    stem = fixes_path.name.removesuffix(".fixes.tsv")
+    page = review.page_html(stem, packets, review.read_proposals(proposals))
+
+    def on_decisions(tsv: str) -> str:
+        counts = review.merge(fixes_path, tsv, folder)
+        print(f"Saved into {fixes_path}: {dict(counts)}")
+        return (
+            f"Saved {sum(counts.values()) - counts['skipped']} decisions into {fixes_path.name}. "
+            f"To apply them, convert {args.pdf.name} again."
+        )
+
+    try:
+        server = review.serve(page, on_decisions, args.port)
+    except OSError as exc:
+        raise PdfWorkerError(f"Port {args.port} is busy ({exc}); try --port.") from exc
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"Review page: {url} (Ctrl+C to stop when you have saved)")
+    webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 # The cheat sheet printed by `pdf-worker help`: (section, [(command, what it does)]).
 CHEAT_SHEET = [
     (
@@ -676,6 +757,7 @@ CHEAT_SHEET = [
             ("pdf-worker convert book.pdf --to docx", "Word, with footnotes (needs Pandoc)"),
             ("pdf-worker convert book.pdf --to pdf", "New A5 PDF, easy to read on a tablet"),
             ("pdf-worker convert scan.pdf --ocr redo", "Redo a scan's bad OCR, then convert"),
+            ("pdf-worker review scan.pdf", "Fix the OCR's suspicious words on a web page"),
         ],
     ),
     (
@@ -754,6 +836,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_kindle_command(subparsers)
     _add_find_book_command(subparsers)
     _add_ebook_to_pdf_command(subparsers)
+    _add_review_command(subparsers)
     _add_help_command(subparsers)
     return parser
 
