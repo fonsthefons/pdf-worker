@@ -26,6 +26,7 @@ from pdf_worker.inline import (
     LinkOpen,
     MarginRef,
     PageMark,
+    Style,
     parse_page_target,
     pieces,
     plain,
@@ -261,6 +262,7 @@ class _EpubBuilder:
         file = file or self.current_file
         out = []
         open_links = 0
+        styles = {True: False, False: False}  # italic, bold: on at this point
         items = list(pieces(text))
         for position, piece in enumerate(items):
             if isinstance(piece, PageMark):
@@ -288,17 +290,26 @@ class _EpubBuilder:
                 kind = "mref est" if piece.label.startswith(ESTIMATED) else "mref"
                 mark_id = f"m{self.stats.margin_refs}"
                 out.append(f'<span class="{kind}" id="{mark_id}">{_esc(piece.label)}</span>')
+            elif isinstance(piece, Style):
+                styles[piece.italic] = piece.on
             else:
+                part = []
                 last = 0
                 for match in REF_RE.finditer(piece):
-                    out.append(_esc(piece[last : match.start()]))
+                    part.append(_esc(piece[last : match.start()]))
                     if notes or open_links:
                         # No links inside links: a reference in linked text is plain.
-                        out.append(f"<sup>{_esc(display_marker(match.group(1)))}</sup>")
+                        part.append(f"<sup>{_esc(display_marker(match.group(1)))}</sup>")
                     else:
-                        out.append(self._noteref(match.group(1)))
+                        part.append(self._noteref(match.group(1)))
                     last = match.end()
-                out.append(_esc(piece[last:]))
+                part.append(_esc(piece[last:]))
+                part = "".join(part)
+                if styles[True] and part.strip():
+                    part = f"<i>{part}</i>"
+                if styles[False] and part.strip():
+                    part = f"<b>{part}</b>"
+                out.append(part)
         out.append("</a>" * open_links)
         return "".join(out)
 

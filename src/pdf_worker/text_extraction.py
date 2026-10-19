@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pdf_worker.document import open_pdf
 from pdf_worker.footnotes import render_page
+from pdf_worker.inline import STYLE_RE
 from pdf_worker.layout import analyze_document, page_lines
 
 # Form feed is the conventional page break in plain text (also used by pdftotext).
@@ -63,7 +64,7 @@ def iter_page_texts(pdf_path: str | Path, footnotes: bool = True) -> Iterator[Pa
             previous_label = rendered.trailing_label
             yield PageText(
                 number=index + 1,
-                text=rendered.text,
+                text=STYLE_RE.sub("", rendered.text),  # plain text: no italics
                 footnote_definitions=rendered.definitions,
                 footnote_references=rendered.references,
             )

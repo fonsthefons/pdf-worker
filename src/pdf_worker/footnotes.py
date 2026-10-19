@@ -30,6 +30,7 @@ from pdf_worker.layout import (
     page_lines,
     running_key,
 )
+from pdf_worker.styles import span_text
 
 # Lines this much smaller than the body font count as footnote-sized.
 SMALL_RATIO = 0.92
@@ -373,7 +374,7 @@ def _render_line(
     chapter_refs: dict[int, str] | None = None,
 ) -> str:
     if not marker_labels and not chapter_refs:
-        return line.text
+        return "".join(span_text(span) for span in line.spans)
     parts: list[str] = []
     for span_index, span in enumerate(line.spans):
         text = span["text"]
@@ -399,7 +400,7 @@ def _render_line(
                     parts.append(f"[^{marker_labels[marker]}]")
                     references.append(marker_labels[marker])
                 continue
-        parts.append(text)
+        parts.append(span_text(span))
     return "".join(parts)
 
 

@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterator
 
 import pymupdf
 
-from pdf_worker import missing_refs
+from pdf_worker import missing_refs, styles
 from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
 from pdf_worker.margin_refs import assign_labels
@@ -196,6 +196,10 @@ def iter_paddle_blocks(
             for n, source in missing_refs.restore(page, blocks, tries):
                 if restored is not None:
                     restored.append(f"note {n} reference restored from {source}, page {label}")
+            layer = styles.layer_words(page)
+            for block in blocks:
+                text = styles.markdown_italics(block[2])
+                block[2] = styles.apply_styles(text, styles.words_in(layer, block[1]))
             prepared.append((mark, row, blocks, anchors))
         if on_page:
             on_page(len(rows), len(rows))

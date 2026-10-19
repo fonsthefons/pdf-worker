@@ -1,6 +1,6 @@
 # Progress
 
-## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-1 done, next: phase 2)
+## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-2 done, next: phase 3)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
 PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not
 in one writer. One PR per phase; run the reference score after each.
@@ -75,6 +75,34 @@ Phase 1 results (2026-10-19, branch `feature/epub-quality-1`, on top of phase 0)
   "acompañ a" (one-letter tail), "Mon tesquieu", "Les sing" (names).
 - Seen for phase 2: Paddle writes some italics as Markdown, `*De l'esprit*` (31 lines in
   the txt): a source of italics besides font flags.
+
+Phase 2 results (2026-10-19, branch `feature/epub-quality-2`, on top of phase 1):
+- Italic/bold travel as inline markers (`inline.ITALIC`/`END_ITALIC`/`BOLD`/`END_BOLD`,
+  private-use U+E010-E013, around whole words, punctuation outside). `plain()` drops
+  them; EPUB/HTML/PDF render `<i>`/`<b>` and Markdown/Word `*`/`**`, styling each text
+  piece by the state at it, so unpaired markers (left by review fixes) can't break XHTML.
+- Sources (new `styles.py`): text-layer books: span font flags (`footnotes._render_line`
+  -> `styles.span_text`); body lines only, not text-layer footnotes yet. Paddle books:
+  the philosophy scan's own text layer has Times-Italic (its words are worse than
+  Paddle's), so each Paddle block's words are aligned (difflib, letters without accents)
+  with the layer's words inside its rect and take their partner's style; a block whose
+  words mostly don't match gets none. Plus Paddle's own Markdown `*...*`.
+- h3: the reference's 81 h3 are all bibliography "Textos"/"Estudios" under numbered
+  authors ("1. BAYLE"), same size as body text, so not a font-size rule: `tidy` puts a
+  short capitalised heading (<= 2 words, no digits, not all caps) after a numbered
+  heading of the same level one level down. Headings lose italic/bold markers.
+- Fixed on the way: review finds match across style markers (`fixes._word_pattern`);
+  `join_lines` dehyphenates across markers; margin-mark trimming (`margins.py`) sees
+  through an italic "b"; `extract-text` output strips the markers.
+- Score (`scratch/phase2_philo/`): italic tags 0 -> 3717 (ref 2750); italic words 10382
+  vs ref 9037, 88% of the ref's italic words found (`scratch/italic_words.py`). Our
+  extras are mostly the index's "véase también" (italic in print; the ref has no index),
+  "a priori", "infra"; misses: "Crítica" (accent lost, phase 3), "ibid". h3 0 -> 65
+  (ref 81; "Textos"/"Estudios" under unnumbered "Capítulos X-XVI: Kant" stay h2). XHTML:
+  60/60 files parse. Review file unchanged by the rebuild. Ratzinger (born-digital):
+  422 italics, all sampled right ("Verum quia factum", "Divina Comedia").
+- Note: `test_pdfs/Introduction to Christianity by Ratzinger.epub` is our own earlier
+  output, not a reference.
 
 Second reference book: user to supply a good EPUB of the **same edition** as one of their
 PDFs, ideally with a different note style (endnotes vs footnotes), scanned vs text-layer,

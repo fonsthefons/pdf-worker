@@ -9,6 +9,9 @@ with real text:
 * links: text that was a link in the PDF, to a web address or to a place in the book;
 * margin references: the section numbers printed beside the text of classical editions
   (Stephanus "22", "b", "c" ...; see ``pdf_worker.margin_refs``). Not footnotes.
+* italic and bold: on/off around whole words (``pdf_worker.styles``). Text operations may
+  leave them unpaired; writers style each text piece by the state at it, so the output
+  stays well-formed.
 """
 
 import re
@@ -23,6 +26,10 @@ _TOKEN_RE = re.compile("(\\d+)\\|([^]*)|([^]*)|")
 PAGE_MARK_RE = re.compile(f"{_PAGE_OPEN}\\d+\\|([^{_PAGE_CLOSE}]*){_PAGE_CLOSE}")
 LEADING_PAGE_MARKS_RE = re.compile("^((?:[^]*)+)(.*)$", re.DOTALL)
 
+
+ITALIC, END_ITALIC, BOLD, END_BOLD = "", "", "", ""
+STYLE_RE = re.compile("[-]")
+_STYLE_SPLIT_RE = re.compile("([-])")
 
 MARGIN_REF_RE = re.compile("([^]*)")
 
@@ -53,6 +60,18 @@ class LinkClose:
     pass
 
 
+@dataclass(frozen=True)
+class Style:
+    italic: bool  # else bold
+    on: bool
+
+
+def styled(text: str, italic: bool = False, bold: bool = False) -> str:
+    if italic:
+        text = ITALIC + text + END_ITALIC
+    return BOLD + text + END_BOLD if bold else text
+
+
 def page_mark(index: int, label: str) -> str:
     return f"{_PAGE_OPEN}{index}|{label.replace(_PAGE_CLOSE, '')}{_PAGE_CLOSE}"
 
@@ -81,14 +100,17 @@ def parse_page_target(target: str) -> tuple[int, float] | None:
     return int(page), float(y)
 
 
-def pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose | MarginRef]:
+def pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose | MarginRef | Style]:
     """Split block text into plain text and markers, in order (cells become spaces)."""
-    parts = MARGIN_REF_RE.split(text)  # text, label, text, label, ...
-    for i, part in enumerate(parts):
+    for i, part in enumerate(_STYLE_SPLIT_RE.split(text)):  # text, style, text, ...
         if i % 2:
-            yield MarginRef(part)
-        elif part:
-            yield from _pieces(part)
+            yield Style(part in (ITALIC, END_ITALIC), part in (ITALIC, BOLD))
+            continue
+        for k, sub in enumerate(MARGIN_REF_RE.split(part)):  # text, label, text, ...
+            if k % 2:
+                yield MarginRef(sub)
+            elif sub:
+                yield from _pieces(sub)
 
 
 def _pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
@@ -109,6 +131,7 @@ def _pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
 
 
 def plain(text: str) -> str:
-    """The text without page, link and margin-reference markers (table cells joined by
-    spaces)."""
-    return MARGIN_REF_RE.sub("", _TOKEN_RE.sub("", text)).replace(CELL, " ")
+    """The text without page, link, margin-reference and style markers (table cells
+    joined by spaces)."""
+    text = MARGIN_REF_RE.sub("", _TOKEN_RE.sub("", STYLE_RE.sub("", text)))
+    return text.replace(CELL, " ")

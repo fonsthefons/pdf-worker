@@ -10,7 +10,7 @@ import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
-from pdf_worker.inline import LinkClose, LinkOpen, MarginRef, pieces, plain
+from pdf_worker.inline import LinkClose, LinkOpen, MarginRef, Style, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph, Table
 
@@ -42,14 +42,26 @@ def escape_markdown(text: str, line_start: bool = True) -> str:
 
 def render_markdown(text: str, line_start: bool = True) -> str:
     """Escape block text for Markdown and render its inline markers: web links become
-    ``[text](url)``; links within the book and page starts are dropped."""
+    ``[text](url)``, italic and bold ``*text*`` and ``**text**``; links within the book
+    and page starts are dropped."""
     out: list[str] = []
     targets: list[str | None] = []
     first = True
+    styles = {True: False, False: False}  # italic, bold: on at this point
     for piece in pieces(text):
         if isinstance(piece, str):
-            out.append(escape_markdown(piece, line_start=line_start and first))
+            escaped = escape_markdown(piece, line_start=line_start and first)
+            core = escaped.strip()
+            # Emphasis must hug its text: spaces go outside the asterisks.
+            mark = "*" * styles[True] + "**" * styles[False]
+            if mark and core:
+                lead = escaped[: len(escaped) - len(escaped.lstrip())]
+                trail = escaped[len(escaped.rstrip()) :]
+                escaped = f"{lead}{mark}{core}{mark[::-1]}{trail}"
+            out.append(escaped)
             first = False
+        elif isinstance(piece, Style):
+            styles[piece.italic] = piece.on
         elif isinstance(piece, LinkOpen):
             uri = piece.target[2:] if piece.target.startswith("u:") else None
             targets.append(uri)

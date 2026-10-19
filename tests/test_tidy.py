@@ -1,4 +1,4 @@
-from pdf_worker.inline import page_mark
+from pdf_worker.inline import page_mark, styled
 from pdf_worker.structure import Heading, Note, Paragraph
 from pdf_worker.tidy import curl_quotes, tidy
 
@@ -26,3 +26,28 @@ def test_copyright_and_sentence_headings_become_paragraphs():
     assert isinstance(out[2], Paragraph) and not out[2].small
     assert out[3:5] == blocks[3:5]
     assert out[5] == Note("1", "“Cita”.")
+
+
+def test_subheadings_under_numbered_headings_go_a_level_down():
+    blocks = [
+        Heading("Capítulos I-II: La Ilustración", 2),
+        Heading("Textos", 2),
+        Heading("1. BAYLE", 2),
+        Heading(styled("Textos", italic=True), 2),
+        Heading("Estudios", 2),
+        Heading("2. El comienzo de la comprensión", 2),
+        Heading("cristiana", 2),
+        Heading("APÉNDICE", 2),
+        Heading("Capítulos III-IV: Rousseau", 2),
+        Heading("Estudios", 2),
+    ]
+    out = list(tidy(blocks))
+    assert [h.level for h in out] == [2, 2, 2, 3, 3, 2, 2, 2, 2, 2]
+    assert out[3].text == "Textos"
+
+
+def test_a_quote_after_italic_closes():
+    text = '"' + styled("Essai", italic=True) + '" y ' + styled('"Nota"', italic=True)
+    assert curl_quotes(text) == "“" + styled("Essai", italic=True) + "” y " + styled(
+        "“Nota”", italic=True
+    )
