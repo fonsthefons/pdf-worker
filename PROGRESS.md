@@ -487,7 +487,9 @@ Done 2026-10-19 (branch `feature/find-book-review`, 4 commits, not merged):
   (margin ref inside a word): the find doesn't match the blocks at apply time. Not fixed.
 - Test book 7: Marianela (Galdós). Elejandría born-digital PDF -> EPUB fine (24 chapter
   files, 0 notes) but 262 spelling rows, all real words (enclitics "Mirábale", diminutives
-  "patiecillo", old words): spelling flags on a born-digital text layer are noise. IA scan
+  "patiecillo", old words): spelling flags on a born-digital text layer are noise. Fixed
+  (user: yes): spelling only on Paddle text or mostly-scanned PDFs
+  (`ocr_check.mostly_scanned`); Marianela now gets 0 rows. IA scan
   `scratch/find_book/test7/marianela.pdf` (1903, Google, 297 pp.): Paddle conversion
   started then stopped at the user's request (later; the cache keeps pages read).
 - Philosophy's 77 undecided spelling rows: 71 were in the bibliography (`scratch/where_rows.py`

@@ -136,7 +136,7 @@ described in detail under [Features](#features).
     md   → book.md (+ book_images/)  ·  html → book.html  ·  txt → book.clean.txt
                                          ▼
   FLAG what looks wrong → new rows appended to book.fixes.tsv (empty action):
-    spelling (es/en body text: accent · swap b/h c/e · ocr1 · name · unknown)
+    spelling (OCR'd es/en body text: accent · swap b/h c/e · ocr1 · name · unknown)
     chars (odd letters, Cyrillic look-alikes, $) · note-no-ref · ref-no-note
     margin-est · margin-missing
     (skips bibliographies, indexes, ALL CAPS, old spelling; split words joined first)
