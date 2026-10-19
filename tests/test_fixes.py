@@ -136,6 +136,9 @@ def test_joins_words_split_at_line_breaks():
         + page_mark(1, "2")
         + "algún; cosa-en-sí, físico-químico, sino que, Jean-Jacques, acallar á Don, confies en."
     )
+    # A fragment before a longer part, both words joined known.
+    out, _, _ = _run([], [Paragraph(page_mark(0, "1") + "lo deter minado y su conoci miento")])
+    assert plain(out[0].text) == "lo determinado y su conocimiento"
 
 
 def test_spelling_rows_say_the_likely_error_reliable_first():

@@ -71,6 +71,7 @@ _SPLIT_WORD_RE = re.compile(
     f"(?P<marks>(?:{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern})*)"
     r"(?=(?P<second>[^\W\d_]+)(?![\w-]))"
 )
+_MIN_SPLIT_TAIL = 3  # letters after a fragment for a join: "confies en" stays
 _WORD_RE = re.compile(r"[^\W\d_]+")
 _LATIN_RE = re.compile(r"[A-Za-zÀ-ɏ]+")
 _MACRON_RE = re.compile("[āēīōūȳĀĒĪŌŪȲ]")
@@ -250,9 +251,14 @@ class Review:
 
         def join(match: re.Match) -> str:
             first, second = match["first"], match["second"]
-            # A hyphen is a break. With a space, only a fragment after it is joined
-            # ("por ciones"): not "sino que", old "acallar á", or "confies en" (confíes).
-            fragment = "-" in match["sep"] or (len(second) > 1 and not self._spelled(second))
+            # A hyphen is a break. With a space, a fragment after it is joined ("por
+            # ciones"), or a fragment before a longer part ("deter minado"): not "sino
+            # que", old "acallar á", or "confies en" (confíes).
+            fragment = (
+                "-" in match["sep"]
+                or (len(second) > 1 and not self._spelled(second))
+                or (len(second) >= _MIN_SPLIT_TAIL and not self._spelled(first))
+            )
             if second[0].islower() and fragment and self._spelled(first + second):
                 return match["marks"] + first
             return match.group()

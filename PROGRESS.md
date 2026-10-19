@@ -1,6 +1,6 @@
 # Progress
 
-## EPUB QUALITY PLAN (agreed with user 2026-10-19; phase 0 done, next: phase 1)
+## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-1 done, next: phase 2)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
 PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not
 in one writer. One PR per phase; run the reference score after each.
@@ -52,6 +52,29 @@ Phase 0 results (2026-10-19, branch `feature/epub-quality-0`):
 - Fixed on the way: `import pdf_worker.paddle_ocr` (or `ocr`) failed with a circular
   import (ocr -> convert -> book_metadata -> find_book -> ocr); `book_metadata` now
   imports `find_book` inside `_edition`. `scratch/book_build.py` works again.
+
+Phase 1 results (2026-10-19, branch `feature/epub-quality-1`, on top of phase 0):
+- New `tidy.py` (`tidy(blocks)`, run in `convert_pdf` after `Review.apply`, so every
+  format gets it and review finds still see the OCR's straight quotes): curly quotes and
+  apostrophes (d’Holbach, “la canalla”; a quote after a page mark opens); copyright
+  headings (©, ISBN, "Impreso en", "Depósito legal" ...) -> small paragraph; a heading of
+  8+ words ending in "." -> paragraph. Tests `tests/test_tidy.py`.
+- Copyright lines were h2 in the current build (not h1 as first noted).
+- `fixes.py` `_join_split`: also joins across a space when the first part is not a word,
+  the second has 3+ letters and the joined word is known ("deter minado", "conoci
+  miento", "ab soluto", "provo que"). Checked every new join on both books
+  (`scratch/join_check.py`): 9, all right. Test added to
+  `test_joins_words_split_at_line_breaks`.
+- Rebuilt philosophy EPUB (`scratch/phase1_philo/`, review file backed up as
+  `scratch/philosophy.fixes.before-phase1.tsv`). Score: bad headings 2 -> 0, straight
+  quotes 467 -> 4 (the 4 are HTML attributes), curly 2056 -> 2519, split words 23 -> 18,
+  h2 185 -> 182. Review file: 4 rows went stale (fragments now joined: ignored "conoci",
+  "com", "pre", and the replace "teo ría"); 1 new row ("pre" in "pre-kantiano", now
+  under the 2-occurrence limit).
+- Left: "su ministrar", "des cubrimiento", "bus carse" (both halves are words), "Critic a",
+  "acompañ a" (one-letter tail), "Mon tesquieu", "Les sing" (names).
+- Seen for phase 2: Paddle writes some italics as Markdown, `*De l'esprit*` (31 lines in
+  the txt): a source of italics besides font flags.
 
 Second reference book: user to supply a good EPUB of the **same edition** as one of their
 PDFs, ideally with a different note style (endnotes vs footnotes), scanned vs text-layer,
