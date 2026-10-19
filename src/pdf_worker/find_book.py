@@ -572,7 +572,8 @@ def _elejandria(query: BookQuery) -> list[Candidate]:
     """Spanish public-domain and free-licence ebooks, edited (PDF and EPUB).
 
     Its search runs in the browser (Google), so the sitemap, which lists every book
-    as /libro/<title>/<author>/<id>, is searched instead (about 400 KB)."""
+    as /libro/<title>/<author>/<id>, is searched instead (about 400 KB). The pages of
+    the few books that fit are read to learn which formats each one really has."""
     wanted = _words(" ".join(_key_terms(query)))
     if not wanted:
         return []
@@ -582,37 +583,41 @@ def _elejandria(query: BookQuery) -> list[Candidate]:
         author = author.decode("utf-8", "replace").replace("-", " ")
         if not wanted & _words(f"{title} {author}"):
             continue
-        candidates.append(
-            Candidate(
-                source="Elejandría",
-                title=title.capitalize(),
-                authors=author.title(),
-                language="es",
-                fmt=query.fmt or "epub",
-                page=url.decode(),
-                resolve=_elejandria_file_url,
-                quality=10,
-            )
+        candidate = Candidate(
+            source="Elejandría",
+            title=title.capitalize(),
+            authors=author.title(),
+            language="es",
+            page=url.decode(),
+            quality=10,
         )
+        if score_candidate(candidate, query) is not None:
+            candidates.append(candidate)
+    for candidate in candidates[:_ELEJANDRIA_PAGES]:
+        if files := _elejandria_files(candidate.page):
+            candidate.fmt = query.fmt if query.fmt in files else min(files)  # "epub" < "pdf"
+            candidate.url = files[candidate.fmt]
+    # Not read: only a page to open in a browser.
     return candidates
 
 
-def _elejandria_file_url(candidate: Candidate) -> str:
-    """The book page's 'Descargar en ePub/PDF' button leads, past a 'download
-    started' page, to /libro/link_descarga_libro/<book>/<file>: the file itself."""
-    try:
-        page = _get(candidate.page).decode("utf-8", "replace")
-    except OSError as exc:
-        raise FindBookError(f"Elejandría: {exc}") from exc
+_ELEJANDRIA_PAGES = 5  # an author alone matches dozens of books
+
+
+def _elejandria_files(page_url: str) -> dict[str, str]:
+    """{"epub"/"pdf": file URL}: the book page's 'Descargar en ePub/PDF' button leads,
+    past a 'download started' page, to /libro/link_descarga_libro/<book>/<file>."""
+    page = _get(page_url).decode("utf-8", "replace")
     buttons = re.findall(
         r'href="[^"]*/libro/descargar/[^"]*/(\d+)/(\d+)"[^>]*>.*?Descargar en (\w+)</a>',
         page,
         re.S,
     )
-    for book, file, fmt in sorted(buttons, key=lambda b: b[2].lower() != candidate.fmt):
-        if fmt.lower() in FORMATS:
-            return f"{_ELEJANDRIA}/libro/link_descarga_libro/{book}/{file}"
-    raise FindBookError(f"Elejandría has no PDF or EPUB of this book: {candidate.page}")
+    return {
+        fmt.lower(): f"{_ELEJANDRIA}/libro/link_descarga_libro/{book}/{file}"
+        for book, file, fmt in buttons
+        if fmt.lower() in FORMATS
+    }
 
 
 _FILE_LINK_RE = re.compile(
@@ -835,8 +840,10 @@ def score_candidate(candidate: Candidate, query: BookQuery) -> float | None:
         score += 15
     if query.languages and candidate.language:
         score += 10 if candidate.language in query.languages else -30
-    if query.year and candidate.year:
-        score += 10 - min(abs(query.year - candidate.year), 20)
+    if query.year:
+        # The year is the best sign of the edition (catalogues rarely name the
+        # translator); a result with no year may well be another translation.
+        score += 25 - min(2 * abs(query.year - candidate.year), 40) if candidate.year else -15
     if candidate.fmt is None:
         score -= 25  # only a page to open in a browser
     elif query.fmt == candidate.fmt:
@@ -917,6 +924,18 @@ def candidate_from_url(url: str) -> Candidate:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise FindBookError(f"Not a web address: {url}")
+    # Also /details/<id>/page/n5/mode/2up.
+    on_archive = re.fullmatch(r"(?:www\.)?archive\.org", parsed.netloc)
+    if ia := on_archive and re.match(r"/details/([^/]+)", parsed.path):
+        # A book's page, not its file: the item's files are listed to find the PDF.
+        return Candidate(
+            source="Internet Archive",
+            title=ia[1],
+            page=url,
+            fmt="pdf",
+            ia_id=ia[1],
+            resolve=_archive_file_url,
+        )
     name = urllib.parse.unquote(Path(parsed.path).stem) or parsed.netloc
     return Candidate(source=parsed.netloc, title=name, page=url, url=url)
 

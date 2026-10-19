@@ -202,23 +202,26 @@ ELEJANDRIA_PAGE = b"".join(
 )
 
 
-def test_elejandria_searches_the_sitemap_and_finds_the_file_on_download(monkeypatch):
-    monkeypatch.setattr(
-        find_book,
-        "_get",
-        fake_get({"sitemap.xml": ELEJANDRIA_SITEMAP, "/libro/la-ciudad": ELEJANDRIA_PAGE}),
-    )
+def test_elejandria_searches_the_sitemap_and_reads_the_formats_from_the_page(monkeypatch):
+    pages = {"sitemap.xml": ELEJANDRIA_SITEMAP, "/libro/la-ciudad": ELEJANDRIA_PAGE}
+    monkeypatch.setattr(find_book, "_get", fake_get(pages))
 
-    [found] = find_book._elejandria(BookQuery(title="La ciudad de Dios", fmt="epub"))
+    [found] = find_book._elejandria(BookQuery(title="La ciudad de Dios"))
 
     assert (found.title, found.authors, found.language) == (
         "La ciudad de dios",
         "Agustin De Hipona",
         "es",
     )
-    assert found.resolve(found) == "https://www.elejandria.com/libro/link_descarga_libro/2533/92"
-    found.fmt = "pdf"
-    assert found.resolve(found).endswith("/2533/91")
+    assert (found.fmt, found.url) == (
+        "epub",
+        "https://www.elejandria.com/libro/link_descarga_libro/2533/92",
+    )
+    [as_pdf] = find_book._elejandria(BookQuery(title="La ciudad de Dios", fmt="pdf"))
+    assert (as_pdf.fmt, as_pdf.url[-8:]) == ("pdf", "/2533/91")
+    pages["/libro/la-ciudad"] = ELEJANDRIA_PAGE.split(b"\n")[0]  # PDF only: not called an EPUB
+    [pdf_only] = find_book._elejandria(BookQuery(title="La ciudad de Dios", fmt="epub"))
+    assert pdf_only.fmt == "pdf"
 
 
 GLOBAL_GREY_SITEMAP = b"""<urlset>
@@ -395,6 +398,17 @@ def test_a_book_from_a_url():
         find_book.candidate_from_url("file:///etc/passwd")
 
 
+def test_an_internet_archive_page_downloads_the_item_pdf(monkeypatch):
+    files = {"result": [{"name": "a b.pdf", "format": "Text PDF"}]}
+    pages = {"/metadata/scan1": json.dumps(files).encode()}
+    monkeypatch.setattr(find_book, "_get", fake_get(pages))
+
+    candidate = find_book.candidate_from_url("https://archive.org/details/scan1/page/n5/mode/2up")
+
+    assert (candidate.ia_id, candidate.fmt, candidate.url) == ("scan1", "pdf", None)
+    assert candidate.resolve(candidate) == "https://archive.org/download/scan1/a%20b.pdf"
+
+
 def test_isbn_fills_in_title_author_and_language(monkeypatch):
     edition = {"title": "Crime and punishment", "languages": [{"key": "/languages/eng"}]}
     work = {
@@ -458,6 +472,20 @@ def test_score_prefers_asked_format_language_and_translator():
     assert score_candidate(book(details="constance garnett"), garnett) > score_candidate(
         book(), garnett
     )
+
+
+def test_score_puts_the_asked_translation_and_year_above_a_better_source():
+    # Lisi's Timeo (Gredos 1992) on Internet Archive, whose record doesn't name him, vs
+    # another Timeo as an edited EPUB with no year.
+    query = BookQuery(
+        title="Timeo", author="Platon", year=1992, translator="Francisco Lisi", languages=("es",)
+    )
+    gredos = book(title="Diálogos VI Filebo Timeo Critias", authors="Platón", year=1992, fmt="pdf")
+    other = book(title="Timeo", authors="Platon", fmt="epub", quality=10)
+    for candidate in (gredos, other):
+        candidate.language = "es"
+
+    assert score_candidate(gredos, query) > score_candidate(other, query)
 
 
 # --- Downloading and checking ---------------------------------------------------------
