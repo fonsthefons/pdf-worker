@@ -169,10 +169,11 @@ def write_fixes(path: Path, fixes: list[Fix]) -> None:
 class Review:
     """Applies ``fixes`` to a stream of blocks and collects what looks wrong in it."""
 
-    def __init__(self, fixes: list[Fix], language: str):
+    def __init__(self, fixes: list[Fix], language: str, spelling: bool = True):
+        """``spelling=False`` for text that wasn't OCR'd: its odd words are the author's."""
         self.fixes = fixes
         self.spell = None
-        if language in SPELL_LANGUAGES:
+        if spelling and language in SPELL_LANGUAGES:
             from spylls.hunspell import Dictionary
 
             self.spell = Dictionary.from_files(str(_DICTIONARIES / language))

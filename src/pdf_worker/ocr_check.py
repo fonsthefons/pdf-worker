@@ -90,6 +90,12 @@ def assess_text_layer(doc: pymupdf.Document) -> TextLayerReport:
     return TextLayerReport(None, "the text layer looks good", **report)
 
 
+def mostly_scanned(doc: pymupdf.Document) -> bool:
+    """Most sampled pages are page images: any text on them came from OCR."""
+    indices = _sample(doc.page_count)
+    return sum(_is_scanned(doc.load_page(i)) for i in indices) * 2 >= len(indices) > 0
+
+
 def _sample(count: int) -> list[int]:
     step = max(1, count // _SAMPLE_PAGES)
     return list(range(0, count, step))[:_SAMPLE_PAGES]

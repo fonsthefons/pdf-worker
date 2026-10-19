@@ -23,6 +23,7 @@ from pdf_worker.html_export import write_html
 from pdf_worker.inline import MARGIN_REF_RE
 from pdf_worker.layout import analyze_document
 from pdf_worker.markdown_export import write_markdown
+from pdf_worker.ocr_check import mostly_scanned
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import Block, Heading, Paragraph, iter_blocks
@@ -173,7 +174,9 @@ def convert_pdf(
         if estimate_margin_refs:
             blocks = margin_estimates.estimate_margin_refs(blocks)
         fixes_path = Path(fixes_path) if fixes_path else default_fixes_path(pdf_path)
-        review = Review(read_fixes(fixes_path), meta.language)
+        # A born-digital text has no OCR misreadings to flag.
+        ocr_text = paddle_rows is not None or mostly_scanned(doc)
+        review = Review(read_fixes(fixes_path), meta.language, spelling=ocr_text)
         blocks = review.apply(blocks)
         if notes_at == "none":
             blocks = drop_notes(blocks)
