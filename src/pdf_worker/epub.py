@@ -536,6 +536,15 @@ def _opf(
         items.append(f'<item id="notes" href="{_NOTES_FILE}" media-type="application/xhtml+xml"/>')
         spine.append('<itemref idref="notes"/>')
     creator = f"<dc:creator>{_esc(meta.author)}</dc:creator>\n    " if meta.author else ""
+    if meta.translator:
+        creator += (
+            f'<dc:contributor id="trl">{_esc(meta.translator)}</dc:contributor>\n    '
+            '<meta refines="#trl" property="role" scheme="marc:relators">trl</meta>\n    '
+        )
+    if meta.publisher:
+        creator += f"<dc:publisher>{_esc(meta.publisher)}</dc:publisher>\n    "
+    if meta.year:
+        creator += f"<dc:date>{_esc(meta.year)}</dc:date>\n    "
     if has_pages:
         creator += '<meta property="schema:accessibilityFeature">printPageNumbers</meta>\n    '
     if cover:

@@ -37,6 +37,28 @@ Steps, in order (ask the user before merging the branch):
 6. Merge `feature/find-book-review` into main once the user agrees.
 Not to do: the 1903 Marianela scan (user: the digital version is enough).
 
+## Book metadata from the book itself (2026-10-19, on `main`, not committed)
+Asked: PDF metadata is often wrong (Ratzinger's author was "MANUEL", Word's account
+name); find title, author, translator, language, publisher and year in the text.
+User decisions: title in the edition's own language; ISBN lookup on by default with a
+quiet fallback offline; no AI fallback yet.
+- New `book_metadata.py` (`find_metadata`), called from `convert_pdf` (so `convert` and
+  `kindle`). Order per field: given flag > PDF metadata if plausible (account names,
+  single words not printed on the title page are rejected; "Gibbon, Edward, 1737-1794"
+  -> "Edward Gibbon") > front pages (title page by type size, "Por X" bylines,
+  publisher line, copyright year) > ISBN via Open Library (`find_book.isbn_edition`,
+  10 s timeout; its records have typos, so it comes after the pages) > file name.
+  All-caps titles recased ("Introducción al cristianismo", "The 9/11 Commission Report").
+- Language: unchanged (guessed from the text, which is the edition's).
+- `convert_pdf(source_pdf=...)`: an OCR'd copy uses the original's metadata and file
+  name (replaces the removed `pdf_title`). CLI prints where each field came from.
+- Written to EPUB (dc:publisher, dc:date, translator as contributor) and Markdown/Word
+  YAML (publisher, date). PDF output: only title/author (PDF has no publisher field).
+- Checked on 15 test_pdfs with `scratch/try_metadata.py`; tests in
+  `tests/test_book_metadata.py`. Full suite 264 passed; ruff clean.
+- Known limits: paddle-only books (no text layer) get no type-size title page; the
+  file-name title keeps "by X" / "- X" parts when it is the fallback.
+
 ## Feature: `find-book` and `ebook-to-pdf` (2026-10-17, on `main`, not committed)
 Asked: a command that prompts for book details, finds a PDF/EPUB/text in online
 libraries, downloads the best, checks quality and suggests (and offers to run) the next

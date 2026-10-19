@@ -9,6 +9,8 @@ class Metadata:
     author: str = ""
     language: str = "en"  # BCP 47 code, e.g. "es"
     translator: str = ""
+    publisher: str = ""
+    year: str = ""  # of this edition, e.g. "2010"
 
 
 @dataclass
