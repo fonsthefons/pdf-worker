@@ -72,6 +72,13 @@ def test_ocr_adds_text_to_image_only_pages(make_scan, tmp_path):
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".out.pdf")] == []
 
 
+def test_a_scan_is_told_apart_from_a_born_digital_pdf(make_scan, make_pdf):
+    from pdf_worker.ocr_check import mostly_scanned
+
+    with pymupdf.open(make_scan([SPANISH])) as scan, pymupdf.open(make_pdf(SPANISH)) as text:
+        assert mostly_scanned(scan) and not mostly_scanned(text)
+
+
 def test_skip_mode_keeps_existing_text(make_pdf, tmp_path):
     pdf = make_pdf(["Digital text that must stay exactly as it is."])
     out = tmp_path / "out.pdf"

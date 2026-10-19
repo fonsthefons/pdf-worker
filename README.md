@@ -10,10 +10,265 @@ python3 -m venv .venv
 brew install tesseract tesseract-lang   # only needed for OCR
 ```
 
+## Pipeline overview
+
+How the commands fit together, from finding a book to a clean EPUB and PDF. Each step is
+described in detail under [Features](#features).
+
+```
+════════════════════════════════════════════════════════════════════════════════════
+ 0. GETTING A BOOK                                              pdf-worker find-book
+════════════════════════════════════════════════════════════════════════════════════
+
+  INPUT, one of three:
+  ┌─ prompts / flags ───────────────────┐  ┌─ --url URL ─────┐  ┌─ --file PATH ─┐
+  │ --title --author --isbn --year      │  │ direct link     │  │ local file    │
+  │ --translator --language es,en,la    │  │ (keeps the file │  │               │
+  │ --format epub|pdf|txt   -d DIR      │  │  name from URL) │  │               │
+  │ --config ~/.config/pdf-worker/      │  └───────┬─────────┘  └──────┬────────┘
+  │          find-book.toml (own sites) │          │                   │
+  └──────────────┬──────────────────────┘          │                   │
+                 │ ISBN? → Open Library fills       │                   │
+                 │ in title, author, language       │                   │
+                 ▼                                  │                   │
+  SEARCH (sources run in parallel; a failing one   │                   │
+  only becomes a warning; see the table below)     │                   │
+                 ▼                                  │                   │
+  RANK (score_candidate)                           │                   │
+   + title-word share (<50% → dropped as another   │                   │
+     book), author surname (fuzzy spelling),       │                   │
+     translator, language (wrong: −30), year,      │                   │
+     source quality                                │                   │
+   + asked format +30  │ no format asked: real EPUB +15 (not IA's)      │
+   − link only (no file) −25                       │                   │
+                 ▼                                  │                   │
+  pick from the list → DOWNLOAD ◄──────────────────┘                   │
+  (streamed, atomic, format from magic bytes: %PDF / PK)               │
+                 ▼                                                      │
+  CHECK QUALITY (check_download) ◄─────────────────────────────────────┘
+                 │  suggests next steps and offers to run them
+   ┌─────────────┼───────────────────────────┬─────────────────────────────┐
+   ▼             ▼                           ▼                             ▼
+ EPUB / FB2 /  PDF, good text layer      PDF, scan or poor OCR       link only
+ MOBI / TXT    (born-digital)            (assess_text_layer: mode)    → open in a
+   │             │                           │                         browser
+   │             │                           ▼
+   │             │                    1. OCR (below) → book.ocr.pdf
+   │             ▼                           ▼
+   │      2. CONVERT (below): --to epub and/or --to pdf
+   ▼
+ ebook-to-pdf book.epub [-o out.pdf]
+   whole book via MuPDF, A5 + margins, TOC → bookmarks, metadata kept,
+   U+FEFF/U+2060 removed          → book.pdf   (the EPUB is kept too)
+   ★ shortest path: no OCR, no review
+
+
+════════════════════════════════════════════════════════════════════════════════════
+ 1. OCR                         pdf-worker ocr  |  convert/extract-text --ocr [MODE]
+════════════════════════════════════════════════════════════════════════════════════
+
+  scan.pdf
+     ▼
+  ASSESS (ocr_check, samples 24 pages): text on ≥50% of pages? jittery lines?
+     misread words >1%? hand-drawn underlines?  → mode: none | skip | redo
+     ▼
+  --mode skip  (default) only pages without text
+         redo  replace a bad OCR layer, keep real digital text
+         force rasterize and OCR every page
+  --lang / --ocr-lang  spa, lat+eng, …   (default: guessed from the text or from a
+                                          quick English OCR)
+  -j N   pages in parallel
+     ▼
+  ┌─ --engine tesseract (default) ─────────────┐ ┌─ --engine paddle ──────────────────┐
+  │ OCRmyPDF + plugins:                         │ │ PaddleOCR-VL (Apple Silicon,       │
+  │  • underlines erased from the read image    │ │ 12–24 s/page, ~2 GB of models)     │
+  │  • spreads not at (0,0) moved to the origin │ │ --paddle-cache DIR, per-page cache │
+  │  • Latin: à/ü → ā/ū (--no-latin-macrons)    │ │ (can resume, repeatable)           │
+  └─────────────────────┬───────────────────────┘ └──────────────┬─────────────────────┘
+                        ▼                                         ▼
+               book.ocr.pdf (invisible text layer)       text layer + Paddle blocks
+                                                          (convert can use the blocks)
+
+
+════════════════════════════════════════════════════════════════════════════════════
+ 2. CONVERT                                     pdf-worker convert book.pdf [options]
+════════════════════════════════════════════════════════════════════════════════════
+
+  book.pdf (or book.ocr.pdf)
+     │  --ocr [MODE] --ocr-lang --ocr-engine   (does step 1 first)
+     ▼
+  ┌──────── Text-layer path ─────────────────┐   ┌──── Paddle path ─────────────────┐
+  │ LAYOUT (analyze_document):                │   │ (--ocr redo|force                │
+  │  running heads/feet, page numbers,        │   │  --ocr-engine paddle)            │
+  │  columns, gutter line numbers, margin     │   │ paddle_book: titles, paragraphs, │
+  │  glosses, body font size                  │   │ footnotes, running heads from    │
+  │ NOTES: footnotes under the column,        │   │ Paddle's blocks                  │
+  │  [31] endnotes, chapter endnotes          │   │ missing_refs: a note whose ref   │
+  │  (matched by order and count)             │   │ was lost is looked for again     │
+  │ STRUCTURE (iter_blocks):                  │   │ (old layer → Tesseract → Paddle  │
+  │  headings (size, caps, bold), paragraphs, │   │ on just those lines)             │
+  │  hyphens rejoined, dialogue turns, tables,│   │                                  │
+  │  printed TOC dropped, links, images (or   │   │                                  │
+  │  crops from scans), page labels           │   │                                  │
+  └──────────────────┬────────────────────────┘   └────────────────┬─────────────────┘
+                     └───────────────────┬─────────────────────────┘
+                                         ▼
+  METADATA: --title --author --language (default: PDF metadata / stopword guess);
+            translator found on the first 6 pages
+                                         ▼
+  MARGIN REFERENCES (Stephanus 22b…):  off by default, so they are removed
+            --margin-refs              keep them
+            --estimate-margin-refs     fill gaps as [~23c]
+                                         ▼
+  ┌───────────── REVIEW FILE: book.fixes.tsv (--fixes PATH) ─────────────────────────┐
+  │ APPLY rows that have an action:                                                   │
+  │   replace [text] · ignore · attach [word] · drop · accept · move [word] · add     │
+  │   status → applied | ambiguous | stale                                            │
+  └──────────────────────────────────────┬────────────────────────────────────────────┘
+                                         ▼
+  --notes page (default) | end (reflowed PDF) | none (drop notes and their refs)
+  --no-images  --no-cover
+                                         ▼
+  WRITE (atomic)  --to / -o extension:
+    epub → book.epub         EPUB 3, pop-up notes, nav+NCX, page list, cover
+    pdf  → book.reflowed.pdf A5, linked TOC and notes
+    docx → book.docx         via Pandoc, real Word footnotes
+    md   → book.md (+ book_images/)  ·  html → book.html  ·  txt → book.clean.txt
+                                         ▼
+  FLAG what looks wrong → new rows appended to book.fixes.tsv (empty action):
+    spelling (OCR'd es/en body text: accent · swap b/h c/e · ocr1 · name · unknown)
+    chars (odd letters, Cyrillic look-alikes, $) · note-no-ref · ref-no-note
+    margin-est · margin-missing
+    (skips bibliographies, indexes, ALL CAPS, old spelling; split words joined first)
+
+
+════════════════════════════════════════════════════════════════════════════════════
+ 3. CORRECTION LOOP                       pdf-worker review book.pdf
+════════════════════════════════════════════════════════════════════════════════════
+
+  book.fixes.tsv ──► open spelling/chars rows (undecided, or a replace that went stale)
+                 ──► scan line of each word (Paddle cache + Tesseract) → book.review/crops
+                 ──► gpt-oss-120b via Groq (GROQ_API_KEY; text only; rows asked once,
+                     kept in book.review/proposals.jsonl; --no-model to skip)
+                 ──► page on http://127.0.0.1:8765 (accept / ignore / edit, j/k a i e c,
+                     filters) → "Save decisions" → merged into book.fixes.tsv
+                     (backup in book.review/)
+                          │
+                          └──► run CONVERT again → fixes applied, new flags added
+                               (repeat until clean; note and margin rows: edit the TSV)
+
+
+════════════════════════════════════════════════════════════════════════════════════
+ SHORTCUTS
+════════════════════════════════════════════════════════════════════════════════════
+
+  kindle book.pdf  =  assess → OCR if needed (--no-ocr, --ocr-lang, --engine)
+                      → macOS scans with Tesseract: vote with Tesseract + Apple Vision
+                        (both engines agree on a different word, more common in the book,
+                        accents only added)
+                      → convert --to epub (review file next to the original PDF)
+                      → warns if over 50 MB (Send to Kindle email limit)
+
+  extract-text book.pdf  →  book.txt  (raw layer, \f between pages; notes marked
+                            [^p12-1] unless --no-footnotes; --page-separator; --ocr…)
+```
+
+Typical routes to a clean PDF and EPUB:
+- **A real EPUB was found:** `ebook-to-pdf`. Done.
+- **Born-digital PDF:** `convert --to epub`, then `convert --to pdf`.
+- **Scan:** `ocr --mode redo` (or `--engine paddle` for Latin or Greek), then `convert`,
+  then `review`, then `convert` again.
+
+### Sources `find-book` searches
+
+Searched every time:
+
+| Site | How | What you get | Quality |
+|---|---|---|---|
+| Project Gutenberg (gutenberg.org) | OPDS search | EPUB (or text) | 10 |
+| Standard Ebooks (standardebooks.org) | OPDS feed | Carefully edited EPUB | 15 |
+| Internet Archive (archive.org) | advancedsearch + metadata | PDF scan; EPUB only with `--format epub` or when there is no PDF | 3 (PDF with text layer) / 0 |
+| Wikisource (`<lang>.wikisource.org`, via ws-export.wmcloud.org) | MediaWiki search, in your languages (default en, es) | EPUB | 5 |
+| OpenAlex (api.openalex.org) | Open-access books and chapters only | PDF/EPUB when free, else a link | 5 |
+| DOAB (directory.doabooks.org) | OpenSearch | Link only | 5 |
+| HathiTrust (catalog.hathitrust.org) | Only with `--isbn`; full-view volumes only | Link only | 0 |
+| OpenStax (openstax.org) | Its list of ~130 textbooks (English and Spanish), matched by title | PDF | 10 |
+| Open Textbook Library (open.umn.edu) | JSON search | PDF/EPUB when the listed link is a file, else a link (often Pressbooks, which blocks scripts) | 5 |
+
+Only when your languages include Spanish (or none are given):
+
+| Site | How | What you get | Quality |
+|---|---|---|---|
+| Elejandría (elejandria.com) | Its sitemap (robots.txt blocks `/buscar`) | PDF or EPUB, found at download | 10 |
+| textos.info | Atom search feed | EPUB/PDF | 8 |
+
+Only when your languages include English (or none are given):
+
+| Site | How | What you get | Quality |
+|---|---|---|---|
+| Global Grey (globalgreyebooks.com) | Its sitemap (its search is Google's) | EPUB or PDF, found at download | 10 |
+
+Also used:
+- **Open Library** (openlibrary.org) is a helper, not a source of files: with `--isbn` it
+  fills in the title, author and language, and gives Internet Archive IDs.
+- **Your own sites** from `find-book.toml` (OPDS or a page of file links, `quality`
+  default 5; see below).
+
+Not used: OAPEN, Biblioteca Virtual Miguel de Cervantes, PhilArchive, Google Books, CCEL,
+BNE Biblioteca Digital Hispánica, SciELO Books and Freeditorial are unreachable or not
+usable. ManyBooks and Kobo answer scripts with 403; Smashwords' and Feedbooks'
+robots.txt forbid searching; LibreTexts has no public search API. Amazon Kindle and Apple
+Books free titles are DRM'd purchases on your account, with no download API. Shadow
+libraries (LibGen, Anna's Archive, Z-Library) and DRM'd library loans (eBiblio) are left
+out on purpose.
+
 ## Features
 
 Forgot a command? `pdf-worker help` (or just `pdf-worker`) lists them all, each with a
 one-line description. `pdf-worker <command> --help` shows every option.
+
+### Find a free book online
+
+```bash
+pdf-worker find-book                  # asks for title, author, ISBN, year, translator...
+pdf-worker find-book --title "Confesiones" --author Agustín --language es -d ~/Books
+pdf-worker find-book --isbn 0140449132 --format epub
+pdf-worker find-book --url https://example.org/libro.pdf   # no search: download and check
+pdf-worker find-book --file ~/Downloads/libro.epub         # no search: just check
+pdf-worker ebook-to-pdf book.epub     # an EPUB laid out as an A5 PDF, with bookmarks
+```
+
+`find-book` searches open, legal libraries at once: Project Gutenberg, Standard Ebooks,
+Internet Archive (freely downloadable items only), Open Library (an ISBN gives the title,
+author and language), Wikisource (any language, exported as EPUB), OpenAlex (recent
+open-access academic books, with their free PDF when there is one), the open textbooks of
+OpenStax and the Open Textbook Library, Global Grey (edited English classics), the
+Spanish libraries Elejandría and textos.info, and DOAB and HathiTrust (links to open in a browser: their
+downloads sit behind bot checks or a login). It ranks the results by title, author
+(other spellings allowed), translator, language, year and format, and lists the best 10.
+It downloads the one you pick (Enter: the best), checks it (a valid EPUB with text? a PDF
+with a good text layer, or a scan that needs OCR?) and lists the next commands, offering
+to run them. Cervantes Virtual, Biblioteca Digital Hispánica, SciELO Books, PhilArchive
+and OAPEN block automated access, and Google Books needs an API key, so they are not
+searched. Modern books still under copyright are usually not found; for a book you
+obtained elsewhere (a publisher, a purchase without DRM), use `--url` or `--file`.
+
+Extra sites and an OpenAlex key go in `~/.config/pdf-worker/find-book.toml` (or the file
+given with `--config`):
+
+```toml
+# Optional: a free key (openalex.org/settings/api) gives OpenAlex searches their own
+# daily budget instead of sharing one with your network.
+openalex_api_key = ""
+
+# Each site's search URL, with {query} where the search words go. It may answer with an
+# OPDS catalogue (Calibre-Web, COPS and many libraries) or with a web page; from a page,
+# the links to .pdf and .epub files become results.
+[[sites]]
+name = "My Calibre-Web"
+search = "https://books.example.org/opds/search/{query}"
+quality = 5   # optional: ranks this site's results higher (0-15; Gutenberg is 10)
+```
 
 ### Make a Kindle book (one step)
 

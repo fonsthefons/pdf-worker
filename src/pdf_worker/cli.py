@@ -3,16 +3,19 @@
 import argparse
 import codecs
 import os
+import re
+import shlex
 import sys
 import time
+import webbrowser
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-from pdf_worker import __version__, kindle, ocr
+from pdf_worker import __version__, ebook_to_pdf, find_book, groq, kindle, ocr, review
 from pdf_worker import convert as conversion
 from pdf_worker.errors import PdfWorkerError
-from pdf_worker.fixes import default_fixes_path
+from pdf_worker.fixes import default_fixes_path, read_fixes
 from pdf_worker.text_extraction import (
     DEFAULT_PAGE_SEPARATOR,
     default_output_path,
@@ -453,8 +456,292 @@ def _run_kindle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_find_book_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "find-book",
+        help="Find a free book online, download the best copy and check its quality.",
+        description="Search open libraries (Project Gutenberg, Standard Ebooks, Internet "
+        "Archive, Open Library, Wikisource, OpenAlex, Elejandría, textos.info, DOAB, "
+        "HathiTrust, and sites from the config file) for a book, download the best match "
+        "and suggest what to do next. Without options it asks for the details. With --url "
+        "or --file it skips the search and checks that book.",
+    )
+    given = parser.add_mutually_exclusive_group()
+    given.add_argument(
+        "--url",
+        help="Download this book (a PDF or EPUB link, or an archive.org/details page) "
+        "instead of searching.",
+    )
+    given.add_argument("--file", type=Path, help="Check this PDF or EPUB instead of searching.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help=f"Config file with extra sites and an OpenAlex key (default: "
+        f"{find_book.DEFAULT_CONFIG}, if it exists).",
+    )
+    parser.add_argument("--title", default="", help="Book title.")
+    parser.add_argument("--author", default="", help="Author.")
+    parser.add_argument("--isbn", default="", help="ISBN (fills in title and author).")
+    parser.add_argument("--year", type=int, help="Year of the edition you want.")
+    parser.add_argument("--translator", default="", help="Translator of the edition.")
+    parser.add_argument(
+        "--language", default="", help="Language code(s) such as 'es' or 'en,es' (default: any)."
+    )
+    parser.add_argument(
+        "--format", choices=find_book.FORMATS, help="Preferred format (default: any)."
+    )
+    parser.add_argument(
+        "-d",
+        "--dir",
+        type=Path,
+        default=Path("."),
+        help="Folder for the download (default: the current folder).",
+    )
+    parser.set_defaults(handler=_run_find_book)
+
+
+def _ask(prompt: str, default: str = "") -> str:
+    shown = f" [{default}]" if default else ""
+    try:
+        answer = input(f"{prompt}{shown}: ").strip()
+    except EOFError:
+        answer = ""
+    return answer or default
+
+
+def _ask_numbers(prompt: str, count: int, default: str = "") -> list[int] | None:
+    """Ask for numbers between 1 and ``count`` ('2' or '1,3'); None means quit."""
+    while True:
+        answer = _ask(prompt, default)
+        if not answer:
+            return []
+        if answer.lower() in ("q", "quit"):
+            return None
+        numbers = [int(n) for n in re.findall(r"\d+", answer)]
+        if numbers and all(1 <= n <= count for n in numbers):
+            return numbers
+        print(f"Please answer with numbers from 1 to {count}.")
+
+
+def _book_query(args: argparse.Namespace) -> find_book.BookQuery:
+    year = re.search(r"\d{4}", str(args.year or ""))
+    languages = (find_book.normalize_language(c) for c in re.split(r"[,\s]+", args.language))
+    return find_book.BookQuery(
+        title=args.title.strip(),
+        author=args.author.strip(),
+        isbn=find_book.normalize_isbn(args.isbn),
+        year=int(year[0]) if year else None,
+        translator=args.translator.strip(),
+        languages=tuple(dict.fromkeys(c for c in languages if c)),
+        fmt=args.format if args.format in find_book.FORMATS else None,
+    )
+
+
+def _run_find_book(args: argparse.Namespace) -> int:
+    interactive = sys.stdin.isatty()
+    language = next(iter(_book_query(args).languages), None)
+    if args.file:
+        return _check_and_offer(args.file, language, interactive)
+    if args.url:
+        candidate = find_book.candidate_from_url(args.url)
+        print(f"Downloading from {candidate.source}...")
+        return _download_and_offer(candidate, args.dir, language, interactive)
+    settings = find_book.load_settings(args.config)
+    if interactive and not (args.title or args.author or args.isbn):
+        print("Describe the book (press Enter to skip a question).")
+        args.title = _ask("Title")
+        args.author = _ask("Author")
+        args.isbn = _ask("ISBN")
+        args.year = _ask("Year of the edition")
+        args.translator = _ask("Translator")
+        args.language = _ask("Language(s): es, en,es ... or 'any'", "en,es")
+        args.format = _ask("Preferred format: pdf, epub or any", "any")
+    query = _book_query(args)
+    extra = "".join(f", {site.name}" for site in settings.sites)
+    print(
+        "Searching Project Gutenberg, Standard Ebooks, Internet Archive, Open Library, "
+        f"Wikisource, OpenAlex, Elejandría, textos.info, DOAB, HathiTrust{extra}..."
+    )
+    result = find_book.find_candidates(query, settings)
+    for warning in result.warnings:
+        print(f"Warning: skipped {warning}", file=sys.stderr)
+    shown = result.candidates[:10]
+    if not shown:
+        raise find_book.FindBookError(
+            "Nothing found. Try fewer words, another spelling or another language."
+        )
+    for number, candidate in enumerate(shown, 1):
+        print(f"{number:>2}. {_describe(candidate)}")
+    best = next((n for n, c in enumerate(shown, 1) if _downloadable(c)), None)
+    if best is None:
+        print("None of these can be downloaded directly; open one in your browser.")
+        return 0
+    choice = [best]
+    if interactive:
+        choice = _ask_numbers("Download which? (number, q to quit)", len(shown), str(best))
+        if not choice:
+            return 0
+    chosen = shown[choice[0] - 1]
+    if not _downloadable(chosen):
+        print(f"{chosen.source} has no direct download; open it in your browser: {chosen.page}")
+        return 0
+    print(f"Downloading from {chosen.source}...")
+    language = chosen.language or next(iter(query.languages), None)
+    return _download_and_offer(chosen, args.dir, language, interactive)
+
+
+def _downloadable(candidate: find_book.Candidate) -> bool:
+    return bool(candidate.url or candidate.resolve)
+
+
+def _download_and_offer(
+    candidate: find_book.Candidate, folder: Path, language: str | None, interactive: bool
+) -> int:
+    path = find_book.download(candidate, folder)
+    print(f"Saved {path} ({path.stat().st_size / (1024 * 1024):.1f} MB)")
+    return _check_and_offer(path, language, interactive)
+
+
+def _check_and_offer(path: Path, language: str | None, interactive: bool) -> int:
+    """Print the quality check and the next steps; in a terminal, offer to run them."""
+    check = find_book.check_download(path, language)
+    print(f"Quality: {check.summary}")
+    print("Next steps:")
+    print("   0. Use it as it is")
+    for number, step in enumerate(check.steps, 1):
+        print(f"  {number:>2}. {step.description}: pdf-worker {shlex.join(step.argv)}")
+    if not interactive:
+        return 0
+    numbers = _ask_numbers("Run now? (number(s) such as 1 or 1,2; Enter to skip)", len(check.steps))
+    for number in numbers or []:
+        argv = check.steps[number - 1].argv
+        print(f"\n$ pdf-worker {shlex.join(argv)}")
+        code = main(argv)
+        if code:
+            return code
+    return 0
+
+
+def _describe(candidate: find_book.Candidate) -> str:
+    facts = ", ".join(str(f) for f in (candidate.year, candidate.language) if f)
+    by = f" — {candidate.authors[:40]}" if candidate.authors else ""
+    kind = (candidate.fmt or "file") if _downloadable(candidate) else "web page only"
+    where = f"{candidate.source}, {kind}"
+    return f"{candidate.title[:70]}{by}{f' ({facts})' if facts else ''} [{where}]"
+
+
+def _add_ebook_to_pdf_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "ebook-to-pdf",
+        help="Lay out an EPUB (or FB2, MOBI, text) as an A5 PDF.",
+        description="Lay out an EPUB (or FB2, MOBI, plain text) as an A5 PDF with the "
+        "book's table of contents as bookmarks.",
+    )
+    parser.add_argument("ebook", type=Path, help="Input ebook file.")
+    parser.add_argument(
+        "-o", "--output", type=Path, help="Output PDF (default: next to the input)."
+    )
+    parser.set_defaults(handler=_run_ebook_to_pdf)
+
+
+def _run_ebook_to_pdf(args: argparse.Namespace) -> int:
+    output = args.output or ebook_to_pdf.default_output_path(args.ebook)
+    pages = ebook_to_pdf.ebook_to_pdf(args.ebook, output)
+    print(f"Wrote {output} ({pages} pages)")
+    return 0
+
+
+def _add_review_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "review",
+        help="Review a book's suspicious words on a local web page.",
+        description="Show the spelling and odd-character rows of the review file still to "
+        "decide on a local web page, each with its scan line and a model's suggestion "
+        "(Groq: needs GROQ_API_KEY in the environment or in .env; only text is sent). "
+        "'Save decisions' writes them into the review file; convert the PDF again to "
+        "apply them.",
+    )
+    parser.add_argument("pdf", type=Path, help="The PDF given to convert (paddle engine).")
+    parser.add_argument(
+        "--fixes", type=Path, help="Review file (default: <pdf stem>.fixes.tsv next to the PDF)."
+    )
+    parser.add_argument("--no-model", action="store_true", help="Don't ask the model.")
+    parser.add_argument("--port", type=int, default=review.PORT, help="Local port of the page.")
+    parser.add_argument(
+        "--paddle-cache",
+        type=Path,
+        help="Folder of PaddleOCR-VL's files, as given to convert (default: "
+        "~/.cache/pdf-worker/paddle).",
+    )
+    parser.set_defaults(handler=_run_review)
+
+
+def _run_review(args: argparse.Namespace) -> int:
+    _apply_engine_options(args)
+    fixes_path = args.fixes or default_fixes_path(args.pdf)
+    if not fixes_path.exists():
+        raise PdfWorkerError(f"No review file {fixes_path}: convert the PDF first.")
+    rows = review.open_rows(read_fixes(fixes_path))
+    if not rows:
+        print(f"Nothing to review in {fixes_path}.")
+        return 0
+    folder = review.review_folder(args.pdf)
+    print(f"{len(rows)} rows to review; cutting their scan lines...")
+    packets = review.packets(args.pdf, rows, folder)
+    proposals = folder / "proposals.jsonl"
+    key = "" if args.no_model else groq.api_key()
+    if key:
+        print(f"Asking {groq.MODEL} on Groq (the rows' text is sent to api.groq.com)...")
+        try:
+            counts = review.propose(
+                packets,
+                proposals,
+                lambda system, user: groq.generate(system, user, key),
+                _progress("Model"),
+            )
+            print(f"Model: {dict(counts) or 'nothing new to ask'}")
+        except groq.GroqError as exc:
+            print(f"Model stopped: {exc} (the suggestions so far are kept)")
+    elif not args.no_model:
+        print("No GROQ_API_KEY: no model suggestions.")
+    stem = fixes_path.name.removesuffix(".fixes.tsv")
+    page = review.page_html(stem, packets, review.read_proposals(proposals))
+
+    def on_decisions(tsv: str) -> str:
+        counts = review.merge(fixes_path, tsv, folder)
+        print(f"Saved into {fixes_path}: {dict(counts)}")
+        return (
+            f"Saved {sum(counts.values()) - counts['skipped']} decisions into {fixes_path.name}. "
+            f"To apply them, convert {args.pdf.name} again."
+        )
+
+    try:
+        server = review.serve(page, on_decisions, args.port)
+    except OSError as exc:
+        raise PdfWorkerError(f"Port {args.port} is busy ({exc}); try --port.") from exc
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"Review page: {url} (Ctrl+C to stop when you have saved)")
+    webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 # The cheat sheet printed by `pdf-worker help`: (section, [(command, what it does)]).
 CHEAT_SHEET = [
+    (
+        "Find a free book online",
+        [
+            ("pdf-worker find-book", "Asks for title, author, ISBN...; downloads the best"),
+            ('pdf-worker find-book --title "Confesiones" --language es', "Same, no questions"),
+            ("pdf-worker find-book --file book.pdf", "Check a book you have; next steps"),
+            ("pdf-worker ebook-to-pdf book.epub", "Lay out an EPUB as an A5 PDF"),
+        ],
+    ),
     (
         "Kindle book in one step",
         [
@@ -474,6 +761,7 @@ CHEAT_SHEET = [
             ("pdf-worker convert book.pdf --to docx", "Word, with footnotes (needs Pandoc)"),
             ("pdf-worker convert book.pdf --to pdf", "New A5 PDF, easy to read on a tablet"),
             ("pdf-worker convert scan.pdf --ocr redo", "Redo a scan's bad OCR, then convert"),
+            ("pdf-worker review scan.pdf", "Fix the OCR's suspicious words on a web page"),
         ],
     ),
     (
@@ -550,6 +838,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_convert_command(subparsers)
     _add_ocr_command(subparsers)
     _add_kindle_command(subparsers)
+    _add_find_book_command(subparsers)
+    _add_ebook_to_pdf_command(subparsers)
+    _add_review_command(subparsers)
     _add_help_command(subparsers)
     return parser
 
