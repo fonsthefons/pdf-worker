@@ -1,5 +1,99 @@
 # Progress
 
+## Feature: `find-book` and `ebook-to-pdf` (2026-10-17, on `main`, not committed)
+Asked: a command that prompts for book details, finds a PDF/EPUB/text in online
+libraries, downloads the best, checks quality and suggests (and offers to run) the next
+step. User: personal use; sources Gutenberg, Internet Archive, Standard Ebooks,
+Wikisource/HathiTrust "and more places"; search by title, author, ISBN, edition;
+English and Spanish, academic (philosophy, theology), novels, classics in translation;
+usually wants a clean PDF and an EPUB; offer to run the next step.
+- `src/pdf_worker/find_book.py`: searches (in parallel, stdlib `urllib` only) Gutenberg
+  (OPDS search; plain words: the `t.` prefix found nothing for "t.Don t.Quijote"),
+  Standard Ebooks (search page; file URL needs `?source=download`, else a "download
+  started" HTML page), Internet Archive (advancedsearch, no `access-restricted-item`;
+  file picked from `/metadata/<id>/files`, Text PDF first), Open Library (ISBN -> the
+  edition's title and language, the work's author and free IA scans), Wikisource
+  (search API + ws-export EPUB), DOAB (OpenSearch Atom; link only), HathiTrust (ISBN
+  only; link only). Ranking: title-word share, author surname with fuzzy spelling
+  (Dostoevsky/Dostoyevsky), translator, language, year, asked format (+30), source
+  quality; with no format asked, a real (non-IA) EPUB gets +15 since it yields a clean
+  PDF and EPUB with no OCR. Download is streamed to a temp file, checked by magic bytes
+  (%PDF / PK), then `os.replace`. Check: `assess_text_layer` for PDFs (steps: convert to epub/pdf, or
+  ocr then convert the `.ocr.pdf`), MuPDF text sample for EPUBs (step: ebook-to-pdf).
+- `src/pdf_worker/ebook_to_pdf.py` + `ebook-to-pdf` command: MuPDF lays the EPUB out on
+  A5 with margins (`apply_css @page`), keeps the TOC as bookmarks. Removes U+FEFF/U+2060
+  first (MuPDF drew "pity﻿—for I" as "pity —forI"). `convert_to_pdf(from, to)`
+  fails for ranges not starting at 0, so the PDF is built in one go (in memory).
+- CLI: `find-book` (flags or prompts when run in a terminal with no details),
+  `ebook-to-pdf`; cheat sheet + README section. Tests: `tests/test_find_book.py` (16,
+  no network: `_get`/`urlopen` faked).
+- Live runs (scratch/books): Confesiones/es (IA text PDF), Crime and Punishment +
+  Garnett (Standard Ebooks EPUB), ISBN 0140449132 (Standard Ebooks), De civitate Dei/la
+  pdf (IA scan -> OCR steps with `--lang lat`), Don Quijote/es (Gutenberg EPUB);
+  ebook-to-pdf on Crime and Punishment (562 A5 pages, checked a rendered page).
+- Default download folder is the current folder (`-d` to change), like the other
+  commands' "next to the input"; not scratch/books as first proposed.
+
+### Modern books and Spanish sites (2026-10-17, same branch, not committed)
+User asked for sources of modern books. Shadow libraries (LibGen, Anna's Archive,
+Z-Library) were declined; DRM removal too. User chose: OpenAlex, `--url`/`--file`, a
+config file for their own sites; then "add good Spanish sites (e.g. Elejandría)".
+- OpenAlex (`_openalex`): `/works` with `title.search` (or `raw_author_name.search`),
+  `type:book|book-chapter`, `is_oa:true`, `language:`; the first location with a
+  `pdf_url` is the download, else link only. Optional `openalex_api_key` in the config
+  (keyless requests share a small daily budget per IP).
+- Elejandría (`_elejandria`): its search is Google CSE in the browser (and /buscar is
+  disallowed in robots.txt), so the 400 KB sitemap (2341 books as
+  /libro/<title>/<author>/<id>) is matched instead. On download, the book page's
+  "Descargar en ePub/PDF" button gives /libro/link_descarga_libro/<id>/<file>: the file.
+  Its EPUBs can be page images (Zorrilla: 380 pages, 21k characters); the check flags
+  that and says to try the PDF.
+- textos.info: built-in `Site` on its OPDS search `busqueda.atom&query=`.
+- Config file `~/.config/pdf-worker/find-book.toml` (`--config`): `[[sites]]` with
+  `name`, `search` (`{query}`), optional `quality`. A site may answer OPDS (acquisition
+  links, EPUB preferred) or HTML (links to .pdf/.epub become results).
+- `Candidate.resolve` replaces the Internet-Archive-only lookup: finds the file URL on
+  download. `download` now takes the format from the file's first bytes (%PDF / PK).
+- `--url` downloads and checks one link; `--file` checks a local file. MuPDF's CSS error
+  messages are hidden while checking/laying out EPUBs (`quiet_mupdf`).
+- Tests: 22 in `tests/test_find_book.py` (OpenAlex, Elejandría, config sites OPDS/HTML,
+  config validation, `--url`, `--file`); a fixture keeps the user's real config out.
+- Live: Confesiones/es (textos.info first, Elejandría second), Niebla/es with a test
+  config site (`scratch/find-book-test.toml`), Elejandría PDF and EPUB downloads,
+  `--url` (Gutenberg), `--file`.
+- Also tried, blocked: Biblioteca Digital Hispánica (BNE "Revisión de Seguridad" page),
+  SciELO Books (bunny-shield challenge), Freeditorial (search 404). BNE items reach
+  OpenAlex via Hispana as links. Possible later: eBiblio lending links (no public API).
+- No format asked: a real (non-IA) EPUB gets +15 in ranking (clean PDF + EPUB, no OCR).
+- README: "Pipeline overview" section (text diagram + table of sources).
+
+### More sources: ebook stores and open textbooks (2026-10-17, not committed)
+User asked about free books on Amazon, Apple Books and other ebook sites. Amazon/Apple
+free titles are DRM'd $0 purchases with no download API: not usable. Probed
+(`scratch/probe_sites.py`, `probe_robots.py`, `probe_details.py`):
+- Added `_openstax`: CMS API list (~130 books, 11 Spanish), live ones with a PDF,
+  matched by title locally. Quality 10.
+- Added `_open_textbooks` (Open Textbook Library, `textbooks.json?q=`; only `q` filters):
+  a format URL ending .pdf/.epub becomes the download, else link only. Most point to
+  Pressbooks (403 to scripts). Quality 5.
+- Added `_global_grey` (English only): sitemap `<author>_<title>_complete-text.html`;
+  resolve follows "Download ebook instead" (-ebook.html, not guessable from the slug) to
+  the .epub/.pdf links. Quality 10. Live: Meditations EPUB (valid, 303 pages) and
+  OpenStax "Introducción a la estadística" PDF (935 pages, good text) downloaded and
+  checked (`scratch/try_new_sources.py`, `try_new_download.py`).
+- Left out: Smashwords (robots.txt forbids /books/search and /books/download),
+  Feedbooks (robots.txt disallows all but /), ManyBooks and Kobo (403), LibreTexts
+  (no public search API; its pages come via OTL), Google Books (429 again).
+- Tests: 3 new (25 in test_find_book.py); fast suite 220 passed; ruff clean.
+
+### Blocked / left out (find-book)
+- DOAB item pages and OAPEN (API and pages) sit behind an Anubis bot check; DOAB's REST
+  API answers "address not allowed". DOAB stays as link-only results; OAPEN left out.
+- Cervantes Virtual and PhilArchive: Cloudflare bot challenge. Left out (not bypassed).
+- Google Books: keyless quota is 0 ("Queries per day" limit 0); would need an API key.
+- CCEL: its search URL returns the home page; Perseus has no simple download. Left out.
+- Interactive prompts were tested with faked `input`, not in a real terminal.
+
 ## REVIEW PLAN (agreed with user 2026-10-16) — in progress, branch `feature/review-plan`
 Goal: every conversion follows one book structure, and the user fixes OCR errors in a
 review file (edited in Cursor) instead of in the output. Cheap after OCR (Paddle is
@@ -376,6 +470,32 @@ Done 2026-10-17 (user reviewed both pages):
   text). Ignores all applied. Still waiting: philosophy 77 undecided spelling rows
   (still flagged: not all bibliography), Platón 50 note/margin rows. New rows from the
   rebuild: philosophy 24, Platón 34 (incl. 1 `swap`).
+
+Done 2026-10-18/19:
+- Review pages are opened with `scratch/review_serve.py STEM` (local server on 127.0.0.1:8765,
+  root scratch/review_ai). Export POSTs and the server writes `scratch/review_ai/<stem>/decisions.tsv`
+  (an older one is kept as decisions.<time>.tsv). Opened as a file, the page still downloads.
+  localStorage is per origin: choices made on the file:// page don't show on the served page.
+- Philosophy's 77 undecided spelling rows: 71 were in the bibliography (`scratch/where_rows.py`
+  + `where_summary.py`). Cause: "BREVE BIBLIOGRAFIA" and its subheadings ("Obras generales",
+  "Textos", "Estudios") are all h2, and a same-level heading ended the bibliography. Fix in
+  `fixes.py` `_section`: same level ends it only at h1 or a chapter-like heading
+  (`_CHAPTER_RE`, whole word: "Capítulos I-II" groups entries). Test
+  `test_bibliography_subheadings_of_the_same_level_stay_in_it`. Rebuilt philosophy: 74 went
+  stale, 4 still flagged, user's decisions unchanged. Not committed yet.
+- Leftover review pages: `review_packets.py STEM --open` (undecided not stale, or stale
+  replace whose value is not in the txt; context from `scratch/fixed_*` txt), model, page.
+  philosophy 21 rows, Platón 19. Old pages kept as `review.20261017.html`. Backups:
+  `<stem>.fixes.20261018-before-bib.tsv`. Waiting for the user: review, Export, merge.
+- find-book experiment (Timeo, Lisi 1992): ranked an Elejandría copy (other translation,
+  listed "epub", saved a PDF) first; the Gredos 1992 volume (Internet Archive) 4th, below
+  candidates without a year. `--url` with an archive.org details page fails ("sent a web
+  page"). Downloaded via the candidate (`scratch/fb_download.py 4`): same edition as
+  `test_pdfs/platon_dialogos_vi_bad.pdf`, other scan (292 pages). Tesseract `ocr --mode
+  redo` + `convert --margin-refs` -> `scratch/find_book/timeo_lisi.{pdf,txt}`: 0 margin refs
+  (reference 728), 125 notes all note-no-ref, 292 chapter files in the PDF, 16.7% word
+  differences vs the reviewed Paddle build (`scratch/fb_wer.py`). No EPUB of this translation
+  in any source.
 
 Next, when the user says the review files are done:
 0. Fewer spelling rows (user decided 2026-10-16), in `fixes.py`, with tests, before
