@@ -199,7 +199,7 @@ def iter_paddle_blocks(
             layer = styles.layer_words(page)
             for block in blocks:
                 text = styles.markdown_italics(block[2])
-                block[2] = styles.apply_styles(text, styles.words_in(layer, block[1]))
+                block[2] = styles.apply_layer(text, styles.words_in(layer, block[1]))
             prepared.append((mark, row, blocks, anchors))
         if on_page:
             on_page(len(rows), len(rows))

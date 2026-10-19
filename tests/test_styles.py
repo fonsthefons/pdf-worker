@@ -5,7 +5,7 @@ from pdf_worker.inline import END_ITALIC, ITALIC, plain, styled
 from pdf_worker.markdown_export import render_markdown
 from pdf_worker.output import Metadata
 from pdf_worker.structure import Paragraph
-from pdf_worker.styles import apply_styles, markdown_italics, span_text
+from pdf_worker.styles import apply_layer, markdown_italics, span_text
 
 IT = 2  # MuPDF's italic span flag
 
@@ -15,12 +15,24 @@ def test_words_take_the_style_of_their_text_layer_partners():
     layer = [("La", 0), ("Enciclopedt·a", IT), ("y", 0), ("el", 0), ("Essai", IT), ("sur", IT)]
     layer += [("le", IT), ("merite", IT), ("(1745),", 0), ("de", 0), ("Shaftesbury[^1]", 0)]
     text = "La Enciclopedia y el Essai sur le mérite (1745), de Shaftesbury[^1]"
-    assert apply_styles(text, layer) == (
+    assert apply_layer(text, layer) == (
         f"La {ITALIC}Enciclopedia{END_ITALIC} y el "
         f"{ITALIC}Essai sur le mérite{END_ITALIC} (1745), de Shaftesbury[^1]"
     )
     # A layer that hardly matches the block belongs to other text: no styles.
-    assert apply_styles(text, [("otra", IT), ("cosa", IT)]) == text
+    assert apply_layer(text, [("otra", IT), ("cosa", IT)]) == text
+
+
+def test_words_take_the_accents_of_their_text_layer_partners():
+    layer = [("El", 0), ("imperativo", 0), ("categórico", IT), ("TEOLOGÍA", 0), ("publicó", 0)]
+    layer += [("cuestión.", 0), ("Espana", 0), ("compra", 0), ("la", 0), ("conclu-", 0)]
+    layer += [("sión.", 0), ("-", 0), ("El", 0)]
+    text = "El imperativo categorico[^2] TEOLOGIA público cuestion: España compro la conclusion.—El"
+    # Accents Paddle kept stay; a different letter ("compra") is a misreading, not an accent.
+    assert apply_layer(text, layer) == (
+        f"El imperativo {ITALIC}categórico{END_ITALIC}[^2] TEOLOGÍA público cuestión: España "
+        "compro la conclusión.—El"
+    )
 
 
 def test_paddle_markdown_italics_and_italic_spans():
