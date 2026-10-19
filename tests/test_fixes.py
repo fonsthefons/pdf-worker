@@ -193,6 +193,21 @@ def test_spelling_only_in_the_body():
     assert {f.find for f in review.fixes if f.kind == "chars"} == {"ВоHATEC"}
 
 
+def test_bibliography_subheadings_of_the_same_level_stay_in_it():
+    blocks = [
+        Heading("BREVE BIBLIOGRAFIA", 2),
+        Heading("Obras generales", 2),
+        Paragraph(page_mark(0, "1") + "Philologie mendaba."),
+        Heading("Capítulos I-II: La Ilustración", 2),
+        Heading("Estudios", 2),
+        Paragraph("Otra dcdicaban."),
+        Heading("Capítulo IX", 2),
+        Paragraph("Texto becho."),
+    ]
+    _, _, review = _run([], blocks)
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
+
+
 def test_no_spelling_check_for_other_languages():
     _, added, _ = _run([], language="la")
     assert "spelling" not in added and "chars" not in added  # macrons are Latin

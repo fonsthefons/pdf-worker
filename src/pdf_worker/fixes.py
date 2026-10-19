@@ -79,6 +79,8 @@ _DOLLAR_RE = re.compile(r"\S*\$\S*")
 _BACK_MATTER_RE = re.compile(r"bibliograf|[íi]ndice|\bindex\b|referencias|references", re.I)
 _AUTHOR_ENTRY_RE = re.compile(r"[A-ZÀ-Þ][A-ZÀ-Þ'\- ]{2,},\s+[A-ZÀ-Þ][a-zà-ÿ]?\.")
 _YEAR_RE = re.compile(r"\b1[5-9]\d\d\b")
+# Whole word: a bibliography's "Capítulos I-II: ..." groups entries, it isn't a chapter.
+_CHAPTER_RE = re.compile(r"(?:cap[íi]tulo|chapter|parte|part|libro|book)\b", re.I)
 _MAX_REFERENCE = 300  # characters
 _ADD_RE = re.compile(r"(\S+)\s+before\s+(.+)")
 # Infinitive or gerund + one or two pronouns: basarlo, evitarle, basándoselo.
@@ -262,10 +264,15 @@ class Review:
         return self.spelled[word]
 
     def _section(self, heading: Heading) -> None:
-        """A bibliography or index lasts until a heading of its level or higher."""
-        if _BACK_MATTER_RE.search(plain(heading.text)):
+        """A bibliography or index lasts until a higher heading, or one of its level that
+        starts a chapter: OCR gives its subheadings ("Textos", "Estudios") the same level."""
+        text = plain(heading.text)
+        if _BACK_MATTER_RE.search(text):
             self.back = heading.level if self.back is None else min(self.back, heading.level)
-        elif self.back is not None and heading.level <= self.back:
+        elif self.back is not None and (
+            heading.level < self.back
+            or (heading.level == self.back and (self.back == 1 or _CHAPTER_RE.match(text)))
+        ):
             self.back = None
 
     def _text(self, text: str) -> str:
