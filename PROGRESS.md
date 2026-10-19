@@ -471,11 +471,25 @@ Done 2026-10-17 (user reviewed both pages):
   (still flagged: not all bibliography), Platón 50 note/margin rows. New rows from the
   rebuild: philosophy 24, Platón 34 (incl. 1 `swap`).
 
-Done 2026-10-18/19:
-- Review pages are opened with `scratch/review_serve.py STEM` (local server on 127.0.0.1:8765,
-  root scratch/review_ai). Export POSTs and the server writes `scratch/review_ai/<stem>/decisions.tsv`
-  (an older one is kept as decisions.<time>.tsv). Opened as a file, the page still downloads.
-  localStorage is per origin: choices made on the file:// page don't show on the served page.
+Done 2026-10-19 (branch `feature/find-book-review`, 4 commits, not merged):
+- Committed find-book/ebook-to-pdf and the bibliography fix.
+- find-book: year weighs more (+25 exact, -2/year off; no year -15), Elejandría book pages
+  read at search time (real formats; first 5 that fit), `--url` takes archive.org/details
+  pages. Lisi's Timeo now ranks 1st.
+- `pdf-worker review book.pdf` (src/pdf_worker/review.py, groq.py, review_page.html):
+  replaces scratch review_packets/model/page/serve + merge_decisions. Folder
+  `<stem>.review/` next to the PDF (crops, proposals.jsonl); server 127.0.0.1:8765, "Save
+  decisions" merges into the TSV (backup in the folder). Context now from the Paddle block
+  (scratch used the built txt). Tried on Platón: 11 open rows, all with suggestions.
+  `test_pdfs/platon_dialogos_vi_bad.review/proposals.jsonl` copied from scratch/review_ai.
+- Round 2 merged (philosophy 21, Platón 19) and both rebuilt. Platón: 13 of 16 replaces
+  applied; stale: 437 'juiciocomún', 465 'mezclóde' (joined words), 508 'estre [74a] cha'
+  (margin ref inside a word): the find doesn't match the blocks at apply time. Not fixed.
+- Test book 7: Marianela (Galdós). Elejandría born-digital PDF -> EPUB fine (24 chapter
+  files, 0 notes) but 262 spelling rows, all real words (enclitics "Mirábale", diminutives
+  "patiecillo", old words): spelling flags on a born-digital text layer are noise. IA scan
+  `scratch/find_book/test7/marianela.pdf` (1903, Google, 297 pp.): Paddle conversion
+  started then stopped at the user's request (later; the cache keeps pages read).
 - Philosophy's 77 undecided spelling rows: 71 were in the bibliography (`scratch/where_rows.py`
   + `where_summary.py`). Cause: "BREVE BIBLIOGRAFIA" and its subheadings ("Obras generales",
   "Textos", "Estudios") are all h2, and a same-level heading ended the bibliography. Fix in

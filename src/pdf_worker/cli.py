@@ -467,7 +467,11 @@ def _add_find_book_command(subparsers: argparse._SubParsersAction) -> None:
         "or --file it skips the search and checks that book.",
     )
     given = parser.add_mutually_exclusive_group()
-    given.add_argument("--url", help="Download this book (PDF or EPUB link) instead of searching.")
+    given.add_argument(
+        "--url",
+        help="Download this book (a PDF or EPUB link, or an archive.org/details page) "
+        "instead of searching.",
+    )
     given.add_argument("--file", type=Path, help="Check this PDF or EPUB instead of searching.")
     parser.add_argument(
         "--config",
