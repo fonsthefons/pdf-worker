@@ -1593,3 +1593,28 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
   (now flattened to one paragraph).
 - Same table in the EPUB (seen in iBooks): shows the garbled Latin-letter text. This is
   the same Paddle misreading, not an EPUB/font problem; the fix above covers both.
+
+## Philosophy EPUB vs reference (2026-10-19)
+User added `test_pdfs/philosophy_epub_good.epub`. Compared with `scratch/philo/book_1-462.epub`
+via `scratch/epub_compare.py` (structure) and `scratch/epub_worddiff.py` (word counts).
+- Size: ours 215k words / 60 docs vs 204k / 29. Extra is mostly the analytic index
+  (véase +586, también +368, s./ss. +1500, Kant +325); the reference has no index.
+- Italics: reference has 2750 `<i>`, ours none found (no `<i>/<em>` tags).
+- Notes: reference 1419 `<sup>` (~700 notes, links both ways); ours 689 sup + 684 aside.
+- Headings: ours has copyright lines as h1 ("© 1960...", "Impreso en España") and a body
+  sentence as heading ("6. La actividad de Jacobi..."); no h3 subsections (ref has 81).
+- Lost accents: Paris/París 164, Berlin/Berlín 52, Munich, categorico, teologia,
+  conclusion, albedrio, Dificilmente, *-icamente (not checked against the PDF print).
+- OCR typos: empiismo, empiriismo, constrición, núumenos, Königssberg, desarrolloos,
+  contribuieron, incognosible, Florenceia, wollfiana, ecuídea, "éase" (lost V).
+- Leftover hyphen splits: leza, ción, miento.
+- Straight ' vs typographic ’.
+Not fixed; nothing changed in src.
+
+## virus-check (2026-10-19)
+`pdf-worker virus-check [file|url] [--upload]`: VirusTotal v3 via urllib, key
+`VIRUS_TOTAL_API_KEY` from env/.env (`groq.api_key` got a `variable` param). Files: SHA-256
+lookup, upload only with --upload or a yes in interactive mode. URLs: VirusTotal's URL
+report plus the served file's report. No target: asks file (macOS dialog) or URL. Exit 2
+when flagged. Files: `src/pdf_worker/virus_check.py`, `cli.py`, `tests/test_virus_check.py`.
+Live check on `philosophy_epub_good.epub`: clean (65 undetected).

@@ -28,13 +28,13 @@ class GroqError(PdfWorkerError):
     pass
 
 
-def api_key(env_file: Path = Path(".env")) -> str:
+def api_key(env_file: Path = Path(".env"), variable: str = "GROQ_API_KEY") -> str:
     """The key, or "" when there is none."""
-    key = os.environ.get("GROQ_API_KEY", "")
+    key = os.environ.get(variable, "")
     if not key and env_file.is_file():
         for line in env_file.read_text(encoding="utf-8").splitlines():
             name, separator, value = line.partition("=")
-            if separator and name.strip().removeprefix("export ") == "GROQ_API_KEY":
+            if separator and name.strip().removeprefix("export ") == variable:
                 key = value.strip().strip("'\"")
     return key
 
