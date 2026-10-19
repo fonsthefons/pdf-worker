@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pdf_worker.footnotes import display_marker
 from pdf_worker.inline import (
     ESTIMATED,
     LinkClose,
@@ -49,6 +48,7 @@ from pdf_worker.structure import (
 _MIN_CHAPTER_CHARS = 2_000
 _MAX_CHAPTER_CHARS = 150_000
 _NOTES_FILE = "notes.xhtml"
+_NOTE_NUMBER_RE = re.compile(r'<aside class="note" id="n(\d+)"')
 _COVER_PAGE = "cover.xhtml"
 _COVER_IMAGE = "OEBPS/images/cover.jpg"
 # Link targets are written as placeholders and resolved at the end (see _EpubBuilder).
@@ -164,6 +164,7 @@ class _EpubBuilder:
         self.first_ref: dict[str, str] = {}  # label -> "c003.xhtml#r7"
         self.ref_counts: dict[str, int] = {}
         self.defined: set[str] = set()
+        self.unreferenced: dict[str, str] = {}  # label -> note XHTML, no reference seen yet
         self.open_note: Note | None = None
         # PDF page index -> [(top, href, match key)] of the page start and its blocks.
         self.anchors: dict[int, list[tuple[float, str, str]]] = {}
@@ -254,6 +255,10 @@ class _EpubBuilder:
             self.note_ids[label] = f"n{len(self.note_ids) + 1}"
         return self.note_ids[label]
 
+    def _number(self, label: str) -> str:
+        # Notes numbered 1-N through the book, not as printed (often 1 again on each page).
+        return self._note_id(label)[1:]
+
     def _inline(self, text: str, file: str | None = None, notes: bool = False) -> str:
         """Block text as XHTML: footnote references, page starts and links.
 
@@ -299,7 +304,7 @@ class _EpubBuilder:
                     part.append(_esc(piece[last : match.start()]))
                     if notes or open_links:
                         # No links inside links: a reference in linked text is plain.
-                        part.append(f"<sup>{_esc(display_marker(match.group(1)))}</sup>")
+                        part.append(f"<sup>{self._number(match.group(1))}</sup>")
                     else:
                         part.append(self._noteref(match.group(1)))
                     last = match.end()
@@ -356,7 +361,7 @@ class _EpubBuilder:
         self.first_ref.setdefault(label, f"{self.current_file}#{ref_id}")
         return (
             f'<a class="noteref" id="{ref_id}" href="{_NOTES_FILE}#{note_id}" '
-            f'epub:type="noteref" role="doc-noteref"><sup>{_esc(display_marker(label))}</sup></a>'
+            f'epub:type="noteref" role="doc-noteref"><sup>{self._number(label)}</sup></a>'
         )
 
     def _add_note(self, note: Note) -> None:
@@ -372,7 +377,10 @@ class _EpubBuilder:
             return
         self.defined.add(note.label)
         self.stats.notes += 1
-        self._write_note(note.label, self._inline_note(note.text))
+        if note.label in self.note_ids:
+            self._write_note(note.label, self._inline_note(note.text))
+        else:  # numbered by its reference, which may come later
+            self.unreferenced[note.label] = self._inline_note(note.text)
 
     def _inline_note(self, text: str) -> str:
         # References inside notes are rare; render them as plain markers. Paragraphs
@@ -385,7 +393,7 @@ class _EpubBuilder:
 
     def _write_note(self, label: str, body: str) -> None:
         note_id = self._note_id(label)
-        marker = _esc(display_marker(label))
+        marker = self._number(label)
         back = self.first_ref.get(label)
         link = f'<a href="{_attr(back)}" role="doc-backlink">{marker}</a>' if back else marker
         arrow = f' <a class="back" href="{_attr(back)}" role="doc-backlink">↩</a>' if back else ""
@@ -396,6 +404,9 @@ class _EpubBuilder:
 
     def finish(self) -> None:
         self._flush_note()
+        # After the referenced ones: notes whose reference was never found.
+        for label, body in self.unreferenced.items():
+            self._write_note(label, body)
         # Every reference needs a target, or the EPUB is invalid.
         for label in self.first_ref:
             if label not in self.defined:
@@ -478,10 +489,12 @@ def _write_notes_file(
         out.write(
             f'<section epub:type="endnotes" role="doc-endnotes">\n<h2>{_esc(title)}</h2>\n'.encode()
         )
-        # One note per line, so links can be resolved line by line.
+        # One note per line, so links can be resolved line by line; in number order (a
+        # note can come before its reference on the page).
         with notes_path.open(encoding="utf-8") as notes:
-            for note in notes:
-                out.write(resolve(note).encode("utf-8"))
+            lines = sorted(notes, key=lambda note: int(_NOTE_NUMBER_RE.search(note)[1]))
+        for note in lines:
+            out.write(resolve(note).encode("utf-8"))
         out.write(b"</section>\n")
         out.write(tail.encode("utf-8"))
 
