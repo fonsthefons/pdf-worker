@@ -1,5 +1,42 @@
 # Progress
 
+## PLAN — start here (written 2026-10-19): make the pipeline work for all books
+State: branch `feature/find-book-review` (6 commits, not merged, not pushed): find-book +
+ebook-to-pdf, bibliography fix, find-book ranking/Elejandría/--url, `pdf-worker review`,
+spelling only on OCR'd text. Fast tests pass (233). Works end to end on Platón,
+philosophy (Paddle scans, review rounds 1-2 merged and rebuilt) and Marianela (Elejandría
+born-digital PDF). Not ready for "all books": too few kinds tested.
+Philosophy: 0 open spelling rows; 5 note-no-ref + 1 ref-no-note (TSV by hand).
+Platón: 3 stuck replaces (below), 50 note/margin rows (TSV by hand).
+
+Steps, in order (ask the user before merging the branch):
+1. Stuck fixes (small, shows in every review round):
+   a. `review.open_rows` shows stale replaces whose value is already in the text
+      (philosophy: 5). Skip them: needs the built text, or mark them in `Review.finish`
+      (value found on the page -> not stale).
+   b. Replaces that never apply: words OCR ran together ('juiciocomún' -> 'juicio común',
+      'mezclóde', Platón ids 437, 465) and a word split by a margin ref ('estre [74a] cha',
+      id 508). Find why the find doesn't match the blocks at apply time (hyphen joins
+      after apply? margin ref inserted before?) and fix it once in `fixes.py`.
+2. Test 3-4 books unlike the ones done; for each count problems per step (find, OCR,
+   build, review rows, rebuild) and fix what breaks:
+   - an English scan (spelling check in English, find-book in English);
+   - a modern Spanish scan with no notes;
+   - a book with pictures or tables;
+   - a two-column book.
+   Use find-book to get them (legal sources only). Paddle is 12-24 s/page: pick short
+   books (< 200 pp.) or a page range with `scratch/book_build.py`.
+3. Tesseract path (easy PDFs only, user 2026-10-19): `review` has no crops without the
+   Paddle cache; Timeo via Tesseract lost all margin refs, linked no notes and made one
+   chapter per page. Decide with the user whether to fix or just document it.
+4. Notes and margin rows stay manual (the model can't see where a number sits on the
+   scan). Maybe later: show them on the review page with the scan crop, user only.
+5. Older open items: reflowed PDF notes can overlap the text (`--notes end` workaround,
+   see TODO at the end); Paddle wrong letters (ū, ę, Cyrillic look-alikes); spelling only
+   for es/en.
+6. Merge `feature/find-book-review` into main once the user agrees.
+Not to do: the 1903 Marianela scan (user: the digital version is enough).
+
 ## Feature: `find-book` and `ebook-to-pdf` (2026-10-17, on `main`, not committed)
 Asked: a command that prompts for book details, finds a PDF/EPUB/text in online
 libraries, downloads the best, checks quality and suggests (and offers to run) the next
@@ -491,7 +528,7 @@ Done 2026-10-19 (branch `feature/find-book-review`, 4 commits, not merged):
   (user: yes): spelling only on Paddle text or mostly-scanned PDFs
   (`ocr_check.mostly_scanned`); Marianela now gets 0 rows. IA scan
   `scratch/find_book/test7/marianela.pdf` (1903, Google, 297 pp.): Paddle conversion
-  started then stopped at the user's request (later; the cache keeps pages read).
+  started then stopped; user (2026-10-19): don't run it, the digital version is enough.
 - Philosophy's 77 undecided spelling rows: 71 were in the bibliography (`scratch/where_rows.py`
   + `where_summary.py`). Cause: "BREVE BIBLIOGRAFIA" and its subheadings ("Obras generales",
   "Textos", "Estudios") are all h2, and a same-level heading ended the bibliography. Fix in
