@@ -5,6 +5,7 @@ import codecs
 import os
 import re
 import shlex
+import subprocess
 import sys
 import time
 import webbrowser
@@ -12,7 +13,16 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-from pdf_worker import __version__, ebook_to_pdf, find_book, groq, kindle, ocr, review
+from pdf_worker import (
+    __version__,
+    ebook_to_pdf,
+    find_book,
+    groq,
+    kindle,
+    ocr,
+    review,
+    virus_check,
+)
 from pdf_worker import convert as conversion
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.fixes import default_fixes_path, read_fixes
@@ -740,6 +750,8 @@ CHEAT_SHEET = [
             ('pdf-worker find-book --title "Confesiones" --language es', "Same, no questions"),
             ("pdf-worker find-book --file book.pdf", "Check a book you have; next steps"),
             ("pdf-worker ebook-to-pdf book.epub", "Lay out an EPUB as an A5 PDF"),
+            ("pdf-worker virus-check", "Check a download for malware (VirusTotal)"),
+            ("pdf-worker virus-check https://...", "Same, for a link before downloading"),
         ],
     ),
     (
@@ -804,6 +816,72 @@ Files
   Options start with two dashes (--to, --ocr); only -o and -j have one."""
 
 
+def _add_virus_check_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "virus-check",
+        help="Check a file or a link for malware with VirusTotal.",
+        description="Look a file up on VirusTotal by its hash (nothing is uploaded), or have "
+        "VirusTotal check a link. Without a target it asks: pick a file in a dialog, or "
+        f"paste a URL. Needs {virus_check.KEY_VARIABLE} in the environment or .env. "
+        "Exit code 2 when something flags it as malicious or suspicious.",
+    )
+    parser.add_argument("target", nargs="?", help="A file, or an http(s) URL.")
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload a file VirusTotal doesn't know (it is shared with security companies).",
+    )
+    parser.set_defaults(handler=_run_virus_check)
+
+
+def _pick_file() -> str:
+    """A file chosen in the macOS dialog (starting in Downloads), or a typed path."""
+    script = (
+        'POSIX path of (choose file with prompt "File to check for malware" '
+        "default location (path to downloads folder))"
+    )
+    try:
+        chosen = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    except FileNotFoundError:  # not on a Mac
+        return _ask("Path of the file")
+    return chosen.stdout.strip()
+
+
+def _run_virus_check(args: argparse.Namespace) -> int:
+    key = virus_check.api_key()
+    target, asking = args.target, not args.target
+    if asking:
+        choice = _ask("Check a (f)ile on this computer or a (u)RL?", "f").lower()
+        target = _ask("URL") if choice.startswith("u") else _pick_file()
+        if not target:
+            print("Nothing chosen.")
+            return 0
+    if re.match(r"https?://", target):
+        print("Asking VirusTotal about the link (a new one can take a few minutes)...")
+        reports = virus_check.check_url(target, key)
+    else:
+        path = Path(target).expanduser()
+        reports = [virus_check.check_file(path, key, args.upload)]
+        if reports[0].verdict == "unknown" and asking and not args.upload:
+            answer = _ask(
+                "VirusTotal doesn't know this file. Upload it? It is shared with security "
+                "companies (y/N)",
+                "n",
+            )
+            if answer.lower().startswith("y"):
+                print("Uploading and waiting for the analysis (a few minutes)...")
+                reports = [virus_check.check_file(path, key, upload=True)]
+    for report in reports:
+        print(f"{report.target}: {report.verdict.upper()}")
+        if report.stats is not None:
+            counts = ", ".join(f"{name} {n}" for name, n in report.stats.items() if n)
+            print(f"  engines: {counts}")
+            print(f"  details: {report.link}")
+        elif not args.upload:
+            print("  Not seen by VirusTotal before; --upload sends it for a scan.")
+    return 2 if any(r.verdict in ("malicious", "suspicious") for r in reports) else 0
+
+
 def _add_help_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "help",
@@ -841,6 +919,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_find_book_command(subparsers)
     _add_ebook_to_pdf_command(subparsers)
     _add_review_command(subparsers)
+    _add_virus_check_command(subparsers)
     _add_help_command(subparsers)
     return parser
 
