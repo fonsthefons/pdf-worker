@@ -82,6 +82,10 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
             body.write(f"---\ntitle: {_yaml(meta.title)}\n")
             if meta.author:
                 body.write(f"author: {_yaml(meta.author)}\n")
+            if meta.publisher:
+                body.write(f"publisher: {_yaml(meta.publisher)}\n")
+            if meta.year:
+                body.write(f"date: {_yaml(meta.year)}\n")
             body.write(f"lang: {meta.language}\n---\n\n")
             open_note: Note | None = None
             for block in blocks:

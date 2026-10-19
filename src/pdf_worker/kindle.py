@@ -56,7 +56,6 @@ def make_kindle_book(
     output_path = Path(output_path) if output_path else default_output_path(pdf_path)
     with open_pdf(pdf_path) as doc:
         assessment = assess_text_layer(doc)
-    title = title or convert.pdf_title(pdf_path)
     ocr_report = vote_report = None
     with ExitStack() as stack:
         source = pdf_path
@@ -92,6 +91,7 @@ def make_kindle_book(
             author=author,
             language=language,
             fixes_path=default_fixes_path(pdf_path),  # the source may be a temporary copy
+            source_pdf=pdf_path,
         )
     return KindleReport(
         output_path=output_path,

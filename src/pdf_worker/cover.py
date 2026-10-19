@@ -42,12 +42,15 @@ def find_translator(texts: Iterable[str]) -> str:
     for text in texts:
         match = _TRANSLATOR_RE.search(" ".join(text.split()))
         if match:
-            name = " ".join(_JUNK_RE.sub(" ", match.group(1)).split()).rstrip(".")
-            if name.isupper():
-                words = name.title().split()
-                name = " ".join(w.lower() if w in _SMALL_WORDS else w for w in words)
-            return name
+            return name_case(" ".join(_JUNK_RE.sub(" ", match.group(1)).split()).rstrip("."))
     return ""
+
+
+def name_case(name: str) -> str:
+    """ "MANUEL SACRISTÁN" -> "Manuel Sacristán"; names not in capitals stay as they are."""
+    if not name.isupper():
+        return name
+    return " ".join(w.lower() if w in _SMALL_WORDS else w for w in name.title().split())
 
 
 def add_cover_page(doc: pymupdf.Document, meta: Metadata) -> None:

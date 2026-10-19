@@ -192,8 +192,8 @@ def _get(url: str, timeout: float = 30) -> bytes:
         return response.read()
 
 
-def _json(url: str):
-    return json.loads(_get(url))
+def _json(url: str, timeout: float = 30):
+    return json.loads(_get(url, timeout))
 
 
 # --- Searching ----------------------------------------------------------------------
@@ -272,15 +272,9 @@ def _key_terms(query: BookQuery) -> list[str]:
 
 def _open_library(query: BookQuery) -> tuple[BookQuery, list[str]]:
     """Fill title, author and language from the ISBN; return the work's free scans."""
-    try:
-        edition = _json(f"https://openlibrary.org/isbn/{query.isbn}.json")
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return query, []  # not in Open Library
-        raise
-    fields = "author_name,ia,ebook_access"
-    data = _json(f"https://openlibrary.org/search.json?isbn={query.isbn}&fields={fields}&limit=1")
-    work = (data.get("docs") or [{}])[0]
+    edition, work = _isbn_records(query.isbn)
+    if not edition:
+        return query, []
     # The edition's own title and language: the work's may be the original's (Russian).
     languages = [
         normalize_language(lang.get("key", "").rsplit("/", 1)[-1])
@@ -294,6 +288,34 @@ def _open_library(query: BookQuery) -> tuple[BookQuery, list[str]]:
     )
     ia = work.get("ia", []) if work.get("ebook_access") == "public" else []
     return query, ia[:50]
+
+
+def _isbn_records(isbn: str, timeout: float = 30) -> tuple[dict, dict]:
+    """Open Library's record of the ISBN's edition and its work's search entry."""
+    try:
+        edition = _json(f"https://openlibrary.org/isbn/{isbn}.json", timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {}, {}  # not in Open Library
+        raise
+    fields = "author_name,ia,ebook_access"
+    url = f"https://openlibrary.org/search.json?isbn={isbn}&fields={fields}&limit=1"
+    return edition, (_json(url, timeout).get("docs") or [{}])[0]
+
+
+def isbn_edition(isbn: str, timeout: float = 30) -> dict[str, str]:
+    """The title, author, publisher and year of the ISBN's edition in Open Library ({}
+    if it doesn't know the ISBN)."""
+    edition, work = _isbn_records(isbn, timeout)
+    if not edition:
+        return {}
+    year = re.search(r"\d{4}", edition.get("publish_date", ""))
+    return {
+        "title": edition.get("title", ""),
+        "author": (work.get("author_name") or [""])[0],
+        "publisher": (edition.get("publishers") or [""])[0],
+        "year": year.group() if year else "",
+    }
 
 
 def _gutenberg(query: BookQuery) -> list[Candidate]:

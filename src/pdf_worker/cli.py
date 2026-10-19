@@ -286,8 +286,12 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         choices=sorted(conversion.FORMATS),
         help="Output format (default: from the -o extension, else epub).",
     )
-    parser.add_argument("--title", help="Book title (default: PDF metadata or file name).")
-    parser.add_argument("--author", help="Author (default: PDF metadata).")
+    parser.add_argument(
+        "--title", help="Book title (default: found via ISBN, PDF metadata, title page, file name)."
+    )
+    parser.add_argument(
+        "--author", help="Author (default: found via ISBN, PDF metadata, title page)."
+    )
     parser.add_argument(
         "--language", help="Language code such as 'es' (default: guessed from the text)."
     )
@@ -372,16 +376,28 @@ def _run_convert(args: argparse.Namespace) -> int:
             **options,
         )
         return _print_convert_summary(report, output, fmt)
-    # The OCR'd copy has no useful metadata of its own; keep the original's title.
-    title = args.title or (args.ocr and conversion.pdf_title(args.pdf))
     with _maybe_ocr(args, output) as pdf:
-        report = conversion.convert_pdf(pdf, output, fmt, title=title, **options)
+        # The OCR'd copy has no useful metadata of its own: use the original's.
+        report = conversion.convert_pdf(
+            pdf, output, fmt, title=args.title, source_pdf=args.pdf, **options
+        )
     return _print_convert_summary(report, output, fmt)
+
+
+def _print_metadata(report: conversion.ConvertReport) -> None:
+    """ "Title: 'Timeo' (title page); author: Platón (PDF metadata); ..." """
+    meta, sources = report.metadata, report.metadata_sources
+    parts = [f"Title: {meta.title!r} ({sources.get('title', '?')})"]
+    for name in ("author", "translator", "publisher", "year"):
+        if getattr(meta, name):
+            parts.append(f"{name}: {getattr(meta, name)} ({sources[name]})")
+    print("; ".join(parts))
 
 
 def _print_convert_summary(report: conversion.ConvertReport, output: Path, fmt: str) -> int:
     stats, meta = report.stats, report.metadata
     print(f"Wrote {output} ({fmt}): {meta.title!r}, language {meta.language}")
+    _print_metadata(report)
     print(
         f"{stats.chapters} chapter file(s), {stats.headings} heading(s), "
         f"{stats.paragraphs} paragraph(s), {stats.notes} note(s), "
@@ -406,8 +422,12 @@ def _add_kindle_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "-o", "--output", type=Path, help="Output .epub (default: next to the input)."
     )
-    parser.add_argument("--title", help="Book title (default: PDF metadata or file name).")
-    parser.add_argument("--author", help="Author (default: PDF metadata).")
+    parser.add_argument(
+        "--title", help="Book title (default: found via ISBN, PDF metadata, title page, file name)."
+    )
+    parser.add_argument(
+        "--author", help="Author (default: found via ISBN, PDF metadata, title page)."
+    )
     parser.add_argument("--language", help="Language code such as 'es' (default: guessed).")
     parser.add_argument(
         "--no-ocr", dest="use_ocr", action="store_false", help="Never OCR, even scans."
@@ -453,6 +473,7 @@ def _run_kindle(args: argparse.Namespace) -> int:
     print(
         f"Wrote {report.output_path} ({size_mb:.1f} MB): {meta.title!r}, language {meta.language}"
     )
+    _print_metadata(report.conversion)
     print(
         f"{stats.headings} heading(s), {stats.paragraphs} paragraph(s), {stats.notes} note(s), "
         f"{stats.images} picture(s)"

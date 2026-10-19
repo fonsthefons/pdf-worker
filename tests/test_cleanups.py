@@ -1,4 +1,5 @@
-from pdf_worker.convert import _title_from, convert_pdf
+from pdf_worker.book_metadata import title_from_file
+from pdf_worker.convert import convert_pdf
 from pdf_worker.layout import _cluster_sizes
 
 BODY = 11
@@ -52,5 +53,4 @@ def test_large_print_passage_is_not_a_heading(make_layout_pdf, tmp_path):
 
 
 def test_title_from_ocr_copy_drops_suffix(tmp_path):
-    assert _title_from({}, tmp_path / "My_Book.ocr.pdf") == "My Book"
-    assert _title_from({"title": "Real Title"}, tmp_path / "x.ocr.pdf") == "Real Title"
+    assert title_from_file(tmp_path / "My_Book.ocr.pdf") == "My Book"
