@@ -183,12 +183,13 @@ def normalize_isbn(value: str) -> str:
 # --- HTTP ---------------------------------------------------------------------------
 
 
-def _request(url: str) -> urllib.request.Request:
-    return urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _request(url: str, accept: str = "") -> urllib.request.Request:
+    headers = {"User-Agent": USER_AGENT} | ({"Accept": accept} if accept else {})
+    return urllib.request.Request(url, headers=headers)
 
 
-def _get(url: str, timeout: float = 30) -> bytes:
-    with urllib.request.urlopen(_request(url), timeout=timeout) as response:
+def _get(url: str, timeout: float = 30, accept: str = "") -> bytes:
+    with urllib.request.urlopen(_request(url, accept), timeout=timeout) as response:
         return response.read()
 
 
@@ -224,8 +225,10 @@ def find_candidates(query: BookQuery, settings: Settings | None = None) -> Searc
     }
     if not query.languages or "en" in query.languages:
         searches["Global Grey"] = lambda: _global_grey(query)
+        searches["CCEL"] = lambda: _ccel(query)
     if not query.languages or "es" in query.languages:
         searches["Elejandría"] = lambda: _elejandria(query)
+        searches["Cervantes Virtual"] = lambda: _cervantes(query)
         searches["textos.info"] = lambda: _site(TEXTOS_INFO, query)
     for site in settings.sites:
         searches[site.name] = lambda site=site: _site(site, query)
@@ -769,6 +772,94 @@ def _global_grey_file_url(candidate: Candidate) -> str:
     if not links:
         raise FindBookError(f"Global Grey has no PDF or EPUB of this book: {candidate.page}")
     return urllib.parse.urljoin(ebook_url, html.unescape(links[0][0]))
+
+
+_CCEL = "https://ccel.org"
+_CCEL_BOOK_RE = re.compile(
+    r'href="(?:https://ccel\.org)?(/ccel/(\w+)/\w+(?:\.html)?)"[^>]*>\s*([^<]+?)\s*<'
+)
+
+
+def _ccel(query: BookQuery) -> list[Candidate]:
+    """Christian Classics Ethereal Library: Church Fathers, theology (PDF, EPUB).
+
+    Its search runs in the browser, so the title index for the title's first letter
+    is read (one page per letter)."""
+    # shortcut: needs a title (the author index lists authors, not books); add the
+    # author pages if author-only searches matter.
+    words = [w for w in _terms(query.title).split() if w.lower() not in _STOPWORDS]
+    wanted = _words(" ".join(_key_terms(query)))
+    if not words or not wanted:
+        return []
+    index = _get(f"{_CCEL}/index/title/{words[0][0].upper()}").decode("utf-8", "replace")
+    return [
+        Candidate(
+            source="CCEL",
+            title=" ".join(title.split()),
+            authors=author.replace("_", " ").title(),
+            language="en",
+            fmt=query.fmt if query.fmt in FORMATS else "epub",
+            page=_CCEL + path,
+            resolve=_ccel_file_url,
+            quality=8,
+        )
+        for path, author, title in _CCEL_BOOK_RE.findall(index)
+        if wanted & _words(f"{title} {author}".replace("_", " "))
+    ]
+
+
+def _ccel_file_url(candidate: Candidate) -> str:
+    try:
+        page = _get(candidate.page).decode("utf-8", "replace")
+    except OSError as exc:
+        raise FindBookError(f"CCEL: {exc}") from exc
+    links = sorted(_FILE_LINK_RE.findall(page), key=lambda link: link[1].lower() != candidate.fmt)
+    if not links:
+        raise FindBookError(f"CCEL has no PDF or EPUB of this book: {candidate.page}")
+    return urllib.parse.urljoin(candidate.page, html.unescape(links[0][0]))
+
+
+_CERVANTES_SPARQL = "https://data.cervantesvirtual.com/bvmc-lod/repositories/data"
+
+
+def _cervantes(query: BookQuery) -> list[Candidate]:
+    """Biblioteca Virtual Miguel de Cervantes, from its open catalogue (SPARQL).
+
+    The site itself turns scripts away (Cloudflare), so its books are pages to open
+    in a browser."""
+    words = [w.lower() for w in _key_terms(query)] if _terms(query.title) else []
+    if not words:
+        return []  # shortcut: title words only; author search needs the creator records
+    # CONTAINS is fast; the regex then keeps whole words ("niebla", not "tinieblas").
+    filters = " ".join(
+        f'FILTER(CONTAINS(LCASE(STR(?t)), "{w}") && REGEX(?t, "(^|\\\\W){w}(\\\\W|$)", "i"))'
+        for w in words
+    )
+    sparql = (
+        "PREFIX m: <http://rdaregistry.info/Elements/m/> SELECT ?t ?url ?date WHERE { "
+        "?m m:title ?t ; m:uniformResourceLocator ?url . "
+        # Shortest titles first: the book itself, not the studies about it.
+        f"OPTIONAL {{ ?m m:dateOfPublication ?date }} {filters} }} "
+        "ORDER BY STRLEN(STR(?t)) LIMIT 30"
+    )
+    url = f"{_CERVANTES_SPARQL}?{urllib.parse.urlencode({'query': sparql})}"
+    body = _get(url, accept="application/sparql-results+json")
+    rows = json.loads(body)["results"]["bindings"]
+    candidates = []
+    for row in rows:
+        title, _, credits = row["t"]["value"].partition(" / ")
+        candidates.append(
+            Candidate(
+                source="Cervantes Virtual",
+                title=title.strip(),
+                authors=credits.strip(),
+                year=_year(row.get("date", {}).get("value")),
+                language="es",
+                page=row["url"]["value"],
+                quality=8,
+            )
+        )
+    return candidates
 
 
 def _site(site: Site, query: BookQuery) -> list[Candidate]:
