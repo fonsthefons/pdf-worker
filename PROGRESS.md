@@ -157,6 +157,19 @@ Phase 5 results (2026-10-20, branch `feature/epub-quality-5`):
 - Builds are slow (~12 min EPUB, ~40 with PDF): Tesseract runs again on every page; Paddle
   is cached. Next: cache Tesseract per page (user asked for it).
 
+Tesseract cache (2026-10-20, branch `feature/tesseract-cache`):
+- `tesseract_cache.run`: every Tesseract read of a page or crop (margin_refs, mixed_script,
+  consensus; missing_refs via margin_refs) keeps its stdout on disk, keyed by image +
+  arguments (`PDF_WORKER_TESSERACT_CACHE`, default `~/.cache/pdf-worker/tesseract`). Failed
+  runs are not kept. Tests use a per-test folder (`tests/conftest.py`).
+- `missing_refs.PaddleClips` keeps each crop's text in `<paddle cache>/clips` (keyed by PDF
+  path, page, region); the Paddle server starts only for crops not read before.
+- Philosophy EPUB rebuild: 1070 s cold -> 159 s warm, output identical (66/66 files).
+- `scratch/book_build.py` writes `OUTDIR/build.log` (time, page n/462) and keeps both
+  caches in `scratch/`.
+- Shortcuts: cache keys leave out Tesseract's version (clear the folder after an upgrade);
+  crop keys use the PDF path (a PDF changed in place keeps old crop readings).
+
 Second reference book: user to supply a good EPUB of the **same edition** as one of their
 PDFs, ideally with a different note style (endnotes vs footnotes), scanned vs text-layer,
 or another language. Score both books from phase 2 onward so fixes don't overfit.

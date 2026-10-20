@@ -13,6 +13,7 @@ A try counts only when it gives exactly one word with the number, and that word 
 the stretch of Paddle's text exactly once. Otherwise the reference stays missing.
 """
 
+import hashlib
 import re
 import shutil
 import tempfile
@@ -181,9 +182,10 @@ def _after_word(tokens: Sequence[str], number: int) -> list[str]:
 
 
 class PaddleClips:
-    """Paddle on a crop of the page. The MLX server starts at the first crop and stops
-    at ``close``. shortcut: crops are not cached, so a rerun may read them differently;
-    cache them like the pages if this try ends up deciding often."""
+    """Paddle on a crop of the page. The MLX server starts at the first crop not read
+    before and stops at ``close``; each crop's text is kept in ``cache_dir()/clips``.
+    shortcut: keyed by the PDF's path, not its content; a PDF changed in place keeps
+    its old readings until the folder is cleared."""
 
     def __init__(self) -> None:
         self._stack = ExitStack()
@@ -193,10 +195,31 @@ class PaddleClips:
 
     def __call__(self, page: pymupdf.Page, region: pymupdf.Rect, number: int) -> str | None:
         from pdf_worker import paddle_ocr
-        from pdf_worker.ocr import OcrError
 
         if self.failed:
             return None
+        place =f"{page.parent.name}\0{page.number}\0{tuple(round(v) for v in region)}"
+        cached = paddle_ocr.cache_dir() / "clips" / hashlib.sha256(place.encode()).hexdigest()
+        try:
+            text = cached.read_text(encoding="utf-8")
+        except OSError:
+            text = self._read(page, region)
+            if text is None:
+                return None
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            partial = cached.with_name(f".{cached.name}.part")
+            partial.write_text(text, encoding="utf-8")
+            partial.replace(cached)
+        candidates = [
+            m.group(1)
+            for m in re.finditer(rf"(\S*[^\W\d_][^\w\s]{{0,2}}){sup(number)}(?![⁰¹²³⁴⁵⁶⁷⁸⁹])", text)
+        ]
+        return _one(candidates)
+
+    def _read(self, page: pymupdf.Page, region: pymupdf.Rect) -> str | None:
+        from pdf_worker import paddle_ocr
+        from pdf_worker.ocr import OcrError
+
         try:
             python = paddle_ocr.paddle_python()
             if self._server is None:
@@ -222,14 +245,9 @@ class PaddleClips:
         except OcrError:
             self.failed = True  # no Paddle here: don't try again on every page
             return None
-        text = " ".join(
+        return " ".join(
             paddle_ocr.clean_text(b.get("text", "")) for row in rows.values() for b in row["blocks"]
         )
-        candidates = [
-            m.group(1)
-            for m in re.finditer(rf"(\S*[^\W\d_][^\w\s]{{0,2}}){sup(number)}(?![⁰¹²³⁴⁵⁶⁷⁸⁹])", text)
-        ]
-        return _one(candidates)
 
     def close(self) -> None:
         self._stack.close()

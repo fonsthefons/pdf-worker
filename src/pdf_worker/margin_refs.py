@@ -22,11 +22,11 @@ import difflib
 import json
 import re
 import statistics
-import subprocess
 from dataclasses import dataclass
 
 import pymupdf
 
+from pdf_worker import tesseract_cache
 from pdf_worker.inline import margin_ref
 
 MARKS_KEY = "PdfWorkerMarginRefs"
@@ -339,14 +339,13 @@ def _tesseract_lines(gray, tesseract: str, language: str) -> list[list[tuple]]:
     import cv2
 
     ok, png = cv2.imencode(".png", gray)
-    result = subprocess.run(
-        [tesseract, "stdin", "stdout", "-l", language, "--dpi", str(_DPI), "tsv"],
-        input=png.tobytes() if ok else b"",
-        capture_output=True,
-        check=False,
+    stdout = tesseract_cache.run(
+        tesseract,
+        ["stdin", "stdout", "-l", language, "--dpi", str(_DPI), "tsv"],
+        png.tobytes() if ok else b"",
     )
     lines: dict[tuple, list] = {}
-    for row in result.stdout.decode("utf-8", errors="replace").splitlines()[1:]:
+    for row in stdout.decode("utf-8", errors="replace").splitlines()[1:]:
         cells = row.split("\t")
         if len(cells) == 12 and cells[0] == "5" and cells[11].strip():
             x, y, w, h = map(int, cells[6:10])
@@ -409,14 +408,12 @@ def _read(gray, box, height: float, tesseract: str) -> str:
     crop = cv2.resize(gray[y0 : box[3] + pad, x0 : box[2] + pad], None, fx=2, fy=2)
     crop = cv2.copyMakeBorder(crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=255)
     ok, png = cv2.imencode(".png", crop)
-    result = subprocess.run(
-        [tesseract, "stdin", "stdout", "--psm", "7",
-         "-c", "tessedit_char_whitelist=0123456789abcde"],
-        input=png.tobytes() if ok else b"",
-        capture_output=True,
-        check=False,
-    )  # fmt: skip
-    text = "".join(result.stdout.decode("utf-8", errors="replace").split())
+    stdout = tesseract_cache.run(
+        tesseract,
+        ["stdin", "stdout", "--psm", "7", "-c", "tessedit_char_whitelist=0123456789abcde"],
+        png.tobytes() if ok else b"",
+    )
+    text = "".join(stdout.decode("utf-8", errors="replace").split())
     return text if is_mark(text) else UNREADABLE
 
 

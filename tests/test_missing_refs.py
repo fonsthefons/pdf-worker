@@ -99,6 +99,9 @@ def test_paddle_crop_reads_the_reference(monkeypatch, tmp_path):
         page = doc.new_page()
         assert clips(page, RECT, 8) == "causa"
         assert clips(page, RECT, 9) is None
-    clips.close()
-    assert starts == [1]  # one server for every crop
+        clips.close()
+        again = missing_refs.PaddleClips()
+        assert again(page, RECT, 8) == "causa"  # a rerun reads the kept text
+        again.close()
+    assert starts == [1]  # one server for every crop, none for a crop read before
     assert not list(tmp_path.glob(".clips.*"))  # work files removed

@@ -7,10 +7,11 @@ region is read twice and, word by word (matched by position), the more confident
 reading is kept.
 """
 
-import subprocess
 from dataclasses import dataclass
 
 import pymupdf
+
+from pdf_worker import tesseract_cache
 
 GREEK = "grc"
 _DPI = 400
@@ -65,14 +66,11 @@ def _overlap(a: tuple, b: tuple) -> float:
 
 
 def _tsv(png: bytes, tesseract: str, language: str) -> list[Word]:
-    result = subprocess.run(
-        [tesseract, "stdin", "stdout", "-l", language, "--psm", "6", "--dpi", str(_DPI), "tsv"],
-        input=png,
-        capture_output=True,
-        check=False,
+    stdout = tesseract_cache.run(
+        tesseract, ["stdin", "stdout", "-l", language, "--psm", "6", "--dpi", str(_DPI), "tsv"], png
     )
     words = []
-    for row in result.stdout.decode("utf-8", errors="replace").splitlines()[1:]:
+    for row in stdout.decode("utf-8", errors="replace").splitlines()[1:]:
         cells = row.split("\t")
         if len(cells) == 12 and cells[0] == "5" and cells[11].strip():
             x, y, w, h = map(int, cells[6:10])
