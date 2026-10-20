@@ -1951,3 +1951,13 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
   "todos'º5" for 105); notes whose number is garbled beyond ".¡."/o/I are folded into
   the note before.
 - Tests: `tests/test_glued_refs.py`; all 292 pass.
+
+## Repo cleanup (2026-10-20, user's request)
+- scratch/ emptied (1.4 GB of one-off scripts and old trial outputs, all rebuildable):
+  kept `paddle-home` (Paddle cache used by integration tests), `tesseract-cache`, `tmp`,
+  `pytest`, and `timeo/` (current reflowed PDF + review file).
+- Reusable inspection scripts moved to `tools/` (`find_text.py`, `page_lines.py`,
+  `render_clip.py`); listed in CLAUDE.md.
+- Loose files in the repo root ("El Timeo (La Atlántida).epub", "Platon - Timeo.pdf",
+  "Recursos Electrónicos Acceso Libre.pdf") moved to `test_pdfs/`.
+- Left for the user: `.claude/settings.json.bak` (a settings backup, not ours to drop).
