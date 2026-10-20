@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
+from pdf_worker.bilingual import apply_words, page_words
 from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
 from pdf_worker.margin_refs import apply_marks, has_bracketed, in_book, page_marks
@@ -88,13 +89,16 @@ class Line:
 
 def page_lines(page: pymupdf.Page) -> list[Line]:
     """All text lines of a page in MuPDF reading order, with OCR fixes from
-    ``pdf_worker.consensus`` and stored margin references (``pdf_worker.margin_refs``)
-    applied."""
+    ``pdf_worker.consensus``, re-read words (``pdf_worker.bilingual``) and stored margin
+    references (``pdf_worker.margin_refs``) applied."""
     fixes = page_fixes(page)
     marks = page_marks(page)
+    words = page_words(page)
     lines = []
     for block in page.get_text("rawdict", flags=_TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", ()):
+            if words:
+                apply_words([char for span in line["spans"] for char in span["chars"]], words)
             if fixes:
                 apply_fixes([char for span in line["spans"] for char in span["chars"]], fixes)
             if marks:  # after the fixes, which look for letters only

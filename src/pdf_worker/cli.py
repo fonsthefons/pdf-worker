@@ -406,6 +406,10 @@ def _print_convert_summary(report: conversion.ConvertReport, output: Path, fmt: 
     )
     for line in report.restored_refs:
         print(line)
+    if report.facing_pages:
+        print(f"Bilingual edition: {report.facing_pages} facing page(s) in the original dropped")
+    if report.reread_words:
+        print(f"{report.reread_words} garbled word(s) read again (Greek or the book's language)")
     if report.fixes_path:
         new = ", ".join(f"{n} {kind}" for kind, n in report.new_fixes.items()) or "none"
         print(f"Review file {report.fixes_path}: new rows: {new}")

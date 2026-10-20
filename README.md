@@ -98,6 +98,11 @@ described in detail under [Features](#features).
      │  --ocr [MODE] --ocr-lang --ocr-engine   (does step 1 first)
      ▼
   ┌──────── Text-layer path ─────────────────┐   ┌──── Paddle path ─────────────────┐
+  │ BILINGUAL: facing pages in the original   │   │                                  │
+  │  (Greek beside Spanish) dropped; garbled  │   │                                  │
+  │  words re-read per line with Tesseract    │   │                                  │
+  │  (grc + book language): "(ἀλήθεια)",      │   │                                  │
+  │  "acci6n" → "acción"                      │   │                                  │
   │ LAYOUT (analyze_document):                │   │ (--ocr redo|force                │
   │  running heads/feet, page numbers,        │   │  --ocr-engine paddle)            │
   │  columns, gutter line numbers, margin     │   │ paddle_book: titles, paragraphs, │
@@ -117,6 +122,7 @@ described in detail under [Features](#features).
             translator found on the first 6 pages
                                          ▼
   MARGIN REFERENCES (Stephanus 22b…):  kept when they are on ≥ 20% of pages
+            (in the margin, or printed in the text as "[22b]")
             --margin-refs / --no-margin-refs   always keep / always remove them
             --estimate-margin-refs     fill gaps as [~23c]
                                          ▼

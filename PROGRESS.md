@@ -1871,3 +1871,20 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
   page between the Spanish ones, cutting Spanish sentences. Tesseract `grc` on page 200
   (`scratch/ocr_pages.py ... grc force 200,201`) reads clean polytonic Greek, but the
   references as digits ("[30c]" -> "[406]"). Not fixed yet: waiting on the user.
+
+## Bilingual editions: Spanish only, quoted Greek kept (2026-10-20, same branch)
+- User chose: drop the Greek facing pages; keep Greek words quoted in the Spanish.
+- `bilingual.py`: `facing_pages` (book-language stopword share < 0.15 between pages that
+  aren't foreign, one of them >= 0.25, and alternating: a lone page is a table; at least
+  10). Timeo: 104 pages (166-372 even); table page 81 kept. `iter_blocks(skip=)`.
+- `mark_words`: tokens that look garbled (odd signs, digits or case flips inside; not
+  "[I7d]", note numbers, addresses) are re-read per line with Tesseract grc and the book
+  language (`mixed_script._tsv`, cached); Greek wins if >= 60% Greek letters, conf >= 60
+  and >= the other; else the book language at conf >= 85. Stored in memory
+  (`/PdfWorkerWords`), applied in `layout.page_lines`. Timeo: 990 words, 539 Greek words
+  in the text ("(ἀλήθεια)", "(ὑποδοχή, πανδεχής, 49a)"); 115 garbled tokens left.
+  Lugones (no Greek): 1135 words, all sampled right ("acci6n" -> "acción"); spelling
+  rows 1087 -> 840.
+- Timeo text now: 323 references (Spanish pages), Spanish runs on across dropped pages.
+- Not done: ClearScan line boxes are irregular (heights 12-26 pt, overlapping), so
+  paragraphs break mid-sentence ("causa,\n\npor cierto"); 6085 paragraphs. Next issue.
