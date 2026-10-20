@@ -1843,4 +1843,14 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
   (`scratch/pdf_index_marks.py`).
 - Ratzinger EPUB in `test_pdfs/` is our own output (2026-10-19), not a reference; its
   rebuild matches it except italics/bold (phase 2). User: find a real reference book.
+- Doña Perfecta: the scan is the 1897 printing, PG 15725 the later one with a vocabulary
+  and fewer notes, so notes can't be scored against it.
+- Second reference book: Lugones, *El imperio jesuítico* (1904). Scan from Commons
+  (`test_pdfs/lugones_imperio_jesuitico_1904.pdf`, 370 pp., text layer on 333) and the
+  proofread Wikisource export of that scan
+  (`test_pdfs/refs/lugones_imperio_jesuitico_wikisource.epub`, from
+  `ws-export.wmcloud.org/?format=epub-3&lang=es&page=El_imperio_jesuítico`). Text-layer
+  route, footnotes. First score (`scratch/lugones/`): words 59698 vs 58629, notes 0 of
+  84 found, 126 split words ("Paran á", "so bre"), 32 lost accents, 3533 words not in
+  the reference.
 - Skipped (user): book note-style profile.
