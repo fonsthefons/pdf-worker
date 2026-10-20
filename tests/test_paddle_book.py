@@ -13,6 +13,7 @@ from pdf_worker.inline import margin_ref, page_mark, plain
 from pdf_worker.paddle_book import (
     _Book,
     iter_paddle_blocks,
+    printed_labels,
     restore_question_marks,
     spanish_letters,
 )
@@ -227,6 +228,17 @@ def test_a_word_broken_across_pages_keeps_the_page_mark_before_it():
     book.marks.append(page_mark(140, "145"))
     list(book.add_page(None, {}, [("text", None, "tieron a crítica")], {}, False))
     assert book.para == "además, " + page_mark(140, "145") + "sometieron a crítica"
+
+
+def test_pages_without_a_printed_number_count_on_from_the_last_one():
+    readings = [(0, ""), (1, ""), (2, "8"), (3, "9"), (4, ""), (5, "1"), (6, "12")]
+    readings += [(7, "13"), (8, "16"), (9, "17")]  # 14, 15 missing from the scan
+
+    labels = printed_labels(readings)
+
+    # front pages count back from 8; a chapter opening and a misread "1" count on
+    assert list(labels.values()) == ["6", "7", "8", "9", "10", "11", "12", "13", "16", "17"]
+    assert printed_labels([(0, ""), (1, "1"), (2, "2")])[0] == "i"
 
 
 def test_a_question_mark_read_as_a_letter_is_put_back():

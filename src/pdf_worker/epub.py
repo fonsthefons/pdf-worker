@@ -7,6 +7,7 @@
 * Both an EPUB 3 navigation document and an EPUB 2 NCX are included for older readers.
 """
 
+import bisect
 import html
 import os
 import re
@@ -14,11 +15,14 @@ import shutil
 import tempfile
 import uuid
 import zipfile
+import zlib
+from array import array
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pdf_worker.index_links import parse_word_target, word_keys
 from pdf_worker.inline import (
     ESTIMATED,
     LinkClose,
@@ -110,6 +114,11 @@ def _link_text(items: list, position: int) -> str:
     return _TRAILING_PAGE_RE.sub("", REF_RE.sub("", "".join(texts)))
 
 
+def _has(keys: array, key: int) -> bool:
+    i = bisect.bisect_left(keys, key)
+    return i < len(keys) and keys[i] == key
+
+
 def _clean(text: str) -> str:
     return _XML_INVALID_RE.sub("", text)
 
@@ -168,6 +177,9 @@ class _EpubBuilder:
         self.open_note: Note | None = None
         # PDF page index -> [(top, href, match key)] of the page start and its blocks.
         self.anchors: dict[int, list[tuple[float, str, str]]] = {}
+        # PDF page index -> [(href, word keys)] of each paragraph's text on it, for index
+        # links; keys as sorted crc32s to keep memory small.
+        self.words: dict[int, list[tuple[str, array]]] = {}
         self.page_list: list[tuple[int, str, str]] = []  # (page index, label, href)
         self.image_files: list[str] = []  # "images/img3.jpg", in work_dir
         (work_dir / "images").mkdir(exist_ok=True)
@@ -219,6 +231,7 @@ class _EpubBuilder:
                 self.anchors.setdefault(block.page, []).append(
                     (block.top, f"{self.current_file}#{anchor}", key)
                 )
+                self._add_words(block.text, block.page, f"{self.current_file}#{anchor}")
             self.parts.append(f'<p id="{anchor}"{css}>{text}</p>\n')
             self.chars += len(block.text)
             if self.chars >= _MAX_CHAPTER_CHARS:
@@ -248,6 +261,19 @@ class _EpubBuilder:
             self.chars += 200  # pictures weigh on chapter size too
         elif isinstance(block, Note):
             self._add_note(block)
+
+    def _add_words(self, text: str, page: int, href: str) -> None:
+        """Each page's part of a paragraph: from its start, then from each page start."""
+        texts: list[str] = []
+        for piece in [*pieces(text), PageMark(-1, "")]:
+            if isinstance(piece, str):
+                texts.append(piece)
+            elif isinstance(piece, PageMark):
+                keys = array("I", sorted(zlib.crc32(k.encode()) for k in word_keys("".join(texts))))
+                if keys:
+                    self.words.setdefault(page, []).append((href, keys))
+                texts, page = [], piece.index
+                href = f"{self.current_file}#pg{piece.index}"
 
     # -- notes ------------------------------------------------------------------------
     def _note_id(self, label: str) -> str:
@@ -330,6 +356,12 @@ class _EpubBuilder:
     def _target_href(self, target: str, key: str = "") -> str:
         if target.startswith("u:"):
             return target[2:]
+        word = parse_word_target(target)
+        if word:
+            page, word_key = word
+            wanted = zlib.crc32(word_key.encode())
+            hrefs = [href for href, keys in self.words.get(page, ()) if _has(keys, wanted)]
+            return hrefs[0] if hrefs else self._target_href(f"p:{page}:0")
         place = parse_page_target(target)
         first = self.chapter_files[0] if self.chapter_files else "c001.xhtml"
         if place is None:
