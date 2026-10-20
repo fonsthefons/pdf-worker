@@ -28,6 +28,7 @@ from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import Block, Heading, Paragraph, iter_blocks
 from pdf_worker.text_export import write_text
+from pdf_worker.tidy import tidy
 
 FORMATS = {
     "epub": ".epub",
@@ -179,7 +180,7 @@ def convert_pdf(
         # A born-digital text has no OCR misreadings to flag.
         ocr_text = paddle_rows is not None or mostly_scanned(doc)
         review = Review(read_fixes(fixes_path), meta.language, spelling=ocr_text)
-        blocks = review.apply(blocks)
+        blocks = tidy(review.apply(blocks))
         if notes_at == "none":
             blocks = drop_notes(blocks)
         if fmt == "epub":
