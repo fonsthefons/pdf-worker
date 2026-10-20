@@ -1,5 +1,5 @@
 from pdf_worker.fixes import Fix, Review, default_fixes_path, read_fixes, write_fixes
-from pdf_worker.inline import margin_ref, page_mark, plain
+from pdf_worker.inline import margin_ref, page_mark, plain, styled
 from pdf_worker.structure import Heading, Note, Paragraph
 
 
@@ -79,6 +79,25 @@ def test_replace_spans_a_split_word():
         out[0].text == page_mark(0, "1") + "Más que " + page_mark(1, "2") + "definiciones de nada."
     )
     assert review.fixes[0].status == "applied"
+
+
+def test_replace_in_italics():
+    text = (
+        page_mark(0, "1")
+        + "la "
+        + styled("Enciclopedt·a", italic=True)
+        + " de "
+        + styled("Pu", italic=True)
+        + " sible."
+    )
+    fixes = [
+        Fix("1", "1", "spelling", "Enciclopedt·a", action="replace", value="Enciclopedia"),
+        Fix("2", "1", "spelling", "Pu sible", action="replace", value="Posible"),
+    ]
+    out, _, review = _run(fixes, [Paragraph(text)])
+    assert styled("Enciclopedia", italic=True) in out[0].text
+    assert plain(out[0].text) == "la Enciclopedia de Posible."
+    assert [f.status for f in review.fixes[:2]] == ["applied", "applied"]
 
 
 def test_rebuild_keeps_user_rows_and_marks_stale(tmp_path):

@@ -12,7 +12,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from pdf_worker.footnotes import BodyLine
-from pdf_worker.inline import CELL, LEADING_PAGE_MARKS_RE, margin_ref
+from pdf_worker.inline import CELL, LEADING_PAGE_MARKS_RE, STYLE_RE, margin_ref
 from pdf_worker.layout import Line, ink_bbox
 from pdf_worker.margin_refs import UNREADABLE, is_mark
 
@@ -28,6 +28,7 @@ _LEADING_NUMBER_RE = re.compile(r"^\s*\d{1,4}\s+(?=\S)")
 _TRAILING_NUMBER_RE = re.compile(r"(?<=\S)\s+\d{1,4}\s*$")
 _WORD_RE = re.compile(r"[^\W\d_]{3,}")
 _ALNUM_RE = re.compile(r"[^\W_]")
+_STYLES = STYLE_RE.pattern  # an italic/bold marker
 _BREAK_RE = re.compile(r"^\s*[*·•⁂~◆❖✱]+(?:\s*[*·•⁂~◆❖✱]+)*\s*$")
 
 
@@ -105,25 +106,28 @@ def _trim_edge_marks(body_line: BodyLine, left: float, right: float, body_size: 
     cut_head = cut_tail = None
     marks = []
     mark = spans[last]["text"].strip()
+    # An italic mark is "<i>b</i>": its style markers stay, harmless, without it.
+    found = re.search(f"({_STYLES}*){re.escape(mark)}({_STYLES}*)$", text.rstrip())
     if (
         spans[last]["bbox"][0] > right
         and len(mark) <= 4
         and spans[last]["bbox"][0] - spans[before_last]["bbox"][2] > gap
-        and text.rstrip().endswith(mark)
+        and found
     ):
         cut_tail = last
-        text = text.rstrip()[: -len(mark)].rstrip() + " "
+        text = text.rstrip()[: found.start()].rstrip() + found[1] + found[2] + " "
         marks.append(mark)
     mark = spans[first]["text"].strip()
+    found = re.match(f"({_STYLES}*){re.escape(mark)}({_STYLES}*)", text.lstrip())
     if (
         spans[first]["bbox"][2] < left
         and len(mark) <= 4
         and spans[second]["bbox"][0] - spans[first]["bbox"][2] > gap
-        and text.lstrip().startswith(mark)
+        and found
         and second != cut_tail
     ):
         cut_head = first
-        text = text.lstrip()[len(mark) :].lstrip()
+        text = found[1] + found[2] + text.lstrip()[found.end() :].lstrip()
         marks.append(mark)
     if cut_head is None and cut_tail is None:
         return body_line

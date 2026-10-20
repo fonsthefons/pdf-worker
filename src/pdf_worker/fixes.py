@@ -48,7 +48,7 @@ from functools import cached_property
 from itertools import combinations
 from pathlib import Path
 
-from pdf_worker.inline import ESTIMATED, MARGIN_REF_RE, PAGE_MARK_RE, margin_ref, plain
+from pdf_worker.inline import ESTIMATED, MARGIN_REF_RE, PAGE_MARK_RE, STYLE_RE, margin_ref, plain
 from pdf_worker.margin_estimates import label_value, value_label
 from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph
 
@@ -63,7 +63,7 @@ _MIN_FOREIGN = 5  # letters: shorter words aren't excused by the foreign diction
 _MAX_MISSING = 10  # more margin labels lost in a row: the found ones are suspect
 _CONTEXT = 30  # characters each side
 _SPLIT_RE = re.compile(f"({PAGE_MARK_RE.pattern})")
-_MARKS_RE = re.compile(f"{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern}")
+_MARKS_RE = re.compile(f"{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern}|{STYLE_RE.pattern}")
 # A word, a line-break hyphen or space, marks; the next word is only looked at, so it can
 # pair with the one after it in turn.
 _SPLIT_WORD_RE = re.compile(
@@ -590,7 +590,8 @@ def _word_pattern(text: str, pages: bool = False) -> re.Pattern:
     ``pages``, a page mark) may sit between two words ("def <21a>niciones")."""
     start = r"(?<!\w)" if text[:1].isalnum() else ""
     end = r"(?!\w)" if text[-1:].isalnum() else ""
-    gap = f"(?: |{_MARKS_RE.pattern if pages else MARGIN_REF_RE.pattern})+"
+    marks = _MARKS_RE.pattern if pages else f"{MARGIN_REF_RE.pattern}|{STYLE_RE.pattern}"
+    gap = f"(?: |{marks})+"
     return re.compile(start + gap.join(map(re.escape, text.split(" "))) + end)
 
 

@@ -25,6 +25,7 @@ from pdf_worker.inline import (
     CELL,
     LEADING_PAGE_MARKS_RE,
     MARGIN_REF_RE,
+    STYLE_RE,
     link,
     margin_ref,
     page_mark,
@@ -189,7 +190,12 @@ def join_lines(parts: list[str]) -> str:
             continue
         if not out or out.endswith("\n\n") or not plain(out):
             out += lead + part
-        elif (len(out) > 1 and out[-1] == "-" and out[-2].isalpha() and part[0].islower()) or (
+        elif (
+            len(out) > 1
+            and out[-1] == "-"
+            and STYLE_RE.sub("", out[:-1])[-1:].isalpha()
+            and STYLE_RE.sub("", part)[:1].islower()
+        ) or (
             out[-1] == SOFT_HYPHEN  # the layer marks the break as hyphenation
         ):
             if refs:
