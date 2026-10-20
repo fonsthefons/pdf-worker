@@ -23,6 +23,7 @@ from pdf_worker.html_export import write_html
 from pdf_worker.index_links import link_index
 from pdf_worker.inline import MARGIN_REF_RE
 from pdf_worker.layout import analyze_document
+from pdf_worker.margin_refs import in_book, page_marks
 from pdf_worker.markdown_export import write_markdown
 from pdf_worker.ocr_check import mostly_scanned
 from pdf_worker.output import Metadata, WriteStats
@@ -110,7 +111,7 @@ def convert_pdf(
     notes_at: str = "page",
     paddle_rows: list[dict] | None = None,
     on_page: Callable[[int, int], None] | None = None,
-    margin_refs: bool = False,
+    margin_refs: bool | None = None,
     estimate_margin_refs: bool = False,
     fixes_path: str | Path | None = None,
     source_pdf: str | Path | None = None,
@@ -129,12 +130,15 @@ def convert_pdf(
     PDF's text layer (``pdf_worker.paddle_book``); ``on_page(done, total)`` then
     follows the pages. ``margin_refs`` keeps the margin references of classical editions
     ("22b", ``pdf_worker.margin_refs``); other books have none, and ink in their margins
-    would only make false ones. ``estimate_margin_refs`` (implies ``margin_refs``) adds
-    those the scan lost between two found ones (``pdf_worker.margin_estimates``).
+    would only make false ones, so by default (None) they are kept only when found on
+    enough pages (``margin_refs.in_book``). ``estimate_margin_refs`` (implies
+    ``margin_refs``) adds those the scan lost between two found ones
+    (``pdf_worker.margin_estimates``).
     The review file ``fixes_path`` (default ``<pdf stem>.fixes.tsv`` next to the PDF;
     ``pdf_worker.fixes``) is applied to the text, then updated with what looks wrong.
     """
-    margin_refs = margin_refs or estimate_margin_refs
+    if estimate_margin_refs:
+        margin_refs = True
     if fmt not in FORMATS:
         raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
     if notes_at not in NOTE_PLACES:
@@ -164,6 +168,8 @@ def convert_pdf(
             profile = analyze_document(doc)
             sample = profile.text_sample
             blocks = iter_blocks(doc, profile, images=keep_images)
+            if margin_refs is None:
+                margin_refs = in_book(sum(bool(page_marks(p)) for p in doc), doc.page_count)
             if not margin_refs:
                 blocks = _without_margin_refs(blocks)
         meta, sources = book_metadata.find_metadata(

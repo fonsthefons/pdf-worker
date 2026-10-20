@@ -1,6 +1,6 @@
 # Progress
 
-## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-5 done; next: Tesseract cache, find_book CCEL + Cervantes)
+## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-5 done; Tesseract cache, find_book CCEL + Cervantes done; PRs #31-#38 merged by the user 2026-10-20)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
 PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not
 in one writer. One PR per phase; run the reference score after each.
@@ -1830,3 +1830,27 @@ book sources (`scratch/probe_sources*.py`):
 - OpenEdition, MDZ: search only in the browser, no API found. Not added.
 `_get` takes an optional `accept` header. Tests: 2 new in `tests/test_find_book.py`.
 Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia.
+(User 2026-10-20: keep this list for later.)
+
+## Margin references on by themselves (2026-10-20)
+- `convert --margin-refs` is now `--margin-refs/--no-margin-refs`, default auto: kept when
+  `margin_refs.in_book` (marks or labels on >= 20% of pages). Measured with
+  `scratch/margin_share.py`: Platón labels on 230/293 pages (78%, marks 86%); philosophy
+  labels 11 on 4/462 pages (1%, marks 11%: ink). `scratch/margin_auto.py`: by default
+  Platón keeps 688, philosophy 0. Text-layer path counts pages with stored marks.
+- Philosophy PDF rebuilt on main (`scratch/philo_final/`, notes at the end): 754 pages,
+  10443 internal links, 0 broken; all 4756 "[n]" marks linked
+  (`scratch/pdf_index_marks.py`).
+- Ratzinger EPUB in `test_pdfs/` is our own output (2026-10-19), not a reference; its
+  rebuild matches it except italics/bold (phase 2). User: find a real reference book.
+- Doña Perfecta: the scan is the 1897 printing, PG 15725 the later one with a vocabulary
+  and fewer notes, so notes can't be scored against it.
+- Second reference book: Lugones, *El imperio jesuítico* (1904). Scan from Commons
+  (`test_pdfs/lugones_imperio_jesuitico_1904.pdf`, 370 pp., text layer on 333) and the
+  proofread Wikisource export of that scan
+  (`test_pdfs/refs/lugones_imperio_jesuitico_wikisource.epub`, from
+  `ws-export.wmcloud.org/?format=epub-3&lang=es&page=El_imperio_jesuítico`). Text-layer
+  route, footnotes. First score (`scratch/lugones/`): words 59698 vs 58629, notes 0 of
+  84 found, 126 split words ("Paran á", "so bre"), 32 lost accents, 3533 words not in
+  the reference.
+- Skipped (user): book note-style profile.

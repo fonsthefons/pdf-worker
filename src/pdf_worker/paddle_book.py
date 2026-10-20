@@ -26,7 +26,7 @@ from pdf_worker import missing_refs, styles
 from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
 from pdf_worker.layout import _roman
-from pdf_worker.margin_refs import assign_labels
+from pdf_worker.margin_refs import assign_labels, in_book
 from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
 from pdf_worker.paddle_ocr import (
@@ -147,13 +147,14 @@ def iter_paddle_blocks(
     latin_macrons: bool | None = None,
     restored: list[str] | None = None,
     on_page: Callable[[int, int], None] | None = None,
-    margin_refs: bool = True,
+    margin_refs: bool | None = None,
 ) -> Iterator[Block]:
     """The book's blocks from Paddle's ``rows`` (one per page, as ``paddle_pages``
     returns them) for the scanned ``doc``. References put back by
     ``pdf_worker.missing_refs`` are told in ``restored``, one line each.
-    ``on_page(done, total)`` is called after each page. Without ``margin_refs`` no
-    margin mark is labelled."""
+    ``on_page(done, total)`` is called after each page. With ``margin_refs`` False no
+    margin mark is labelled; with None only when labels are on enough pages
+    (``margin_refs.in_book``)."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
     scan_of = page_scanner(language)
     read_mixed = mixed_reader(language)
@@ -243,16 +244,19 @@ def iter_paddle_blocks(
                 yield from book.add_page(doc.load_page(row["page"]), row, blocks, anchors, pictures)
         yield from book.flush()
 
-    if margin_refs:
+    book = _Book(lambda reading: None)
+    if margin_refs is not False:
         readings: list[tuple[int, str | None]] = []
         dry = _Book(lambda reading: readings.append((dry.page, reading)))
         for block in build(dry, False):
             if isinstance(block, Heading):
                 readings.append((dry.page, None))  # a new section: the marks count anew
-        labels = iter(assign_labels(readings))
-        book = _Book(lambda reading: next(labels))
-    else:
-        book = _Book(lambda reading: None)
+        found = assign_labels(readings)
+        marks = [page for page, reading in readings if reading is not None]
+        labelled = {page for page, label in zip(marks, found, strict=True) if label}
+        if margin_refs or in_book(len(labelled), len(rows)):
+            labels = iter(found)
+            book = _Book(lambda reading: next(labels))
     if language == "es":
         book.counts = Counter(
             w.lower() for row in rows for b in row["blocks"] for w in re.findall(r"\w+", b["text"])

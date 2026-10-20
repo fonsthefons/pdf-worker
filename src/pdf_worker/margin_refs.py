@@ -32,6 +32,7 @@ from pdf_worker.inline import margin_ref
 MARKS_KEY = "PdfWorkerMarginRefs"
 UNREADABLE = "?"
 _DPI = 300
+MIN_SHARE = 0.2  # of a book's pages with margin references, for ``in_book``
 _MARK_RE = re.compile(r"^(\d{1,4})?([a-e])?$")
 _NORM_RE = re.compile(r"[^\w]+")
 # Ink this far (in line heights) beside the text column is searched for marks.
@@ -219,6 +220,12 @@ def _one_off(read: str, real: str) -> bool:
 
 
 # -- marks stored on the page -------------------------------------------------------------
+
+
+def in_book(pages_with_marks: int, pages: int) -> bool:
+    """Whether a book has margin references: Platón has marks on 86% of its pages and
+    labels on 78%; ink in the philosophy book's margins made marks on 11%, labels on 1%."""
+    return pages_with_marks >= MIN_SHARE * pages
 
 
 def page_marks(page: pymupdf.Page) -> list[list]:
