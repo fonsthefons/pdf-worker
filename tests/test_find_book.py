@@ -1,5 +1,6 @@
 import io
 import json
+import urllib.parse
 import zipfile
 
 import pymupdf
@@ -50,7 +51,7 @@ def no_user_config(monkeypatch, tmp_path):
 def fake_get(responses):
     """A ``_get`` that answers from ``{url fragment: bytes}``; other URLs fail."""
 
-    def _get(url, timeout=30):
+    def _get(url, timeout=30, accept=""):
         for fragment, body in responses.items():
             if fragment in url:
                 return body
@@ -248,6 +249,57 @@ def test_global_grey_searches_the_sitemap_and_follows_the_download_page(monkeypa
 
     assert (found.title, found.authors, found.fmt) == ("Meditations", "Marcus Aurelius", "epub")
     assert found.resolve(found) == "https://www.globalgreyebooks.com/ebooks/m.epub"
+
+
+def test_ccel_reads_the_title_index_and_finds_the_files_on_the_book_page(monkeypatch):
+    index = (
+        b'<a href="/ccel/augustine/confess.html">Confessions of Saint Augustine\n   </a>'
+        b'<a href="https://ccel.org/ccel/patrick/confession">Confession of St. Patrick</a>'
+        b'<a href="/ccel/calvin/institutes">Institutes of the Christian Religion</a>'
+    )
+    book = (
+        b'<a href="/ccel/a/augustine/confess/cache/confess.pdf">PDF</a>'
+        b'<a href="/ccel/augustine/confess.epub">EPUB</a>'
+    )
+    monkeypatch.setattr(
+        find_book, "_get", fake_get({"/index/title/C": index, "/ccel/augustine/confess": book})
+    )
+
+    found = find_book._ccel(BookQuery(title="The Confessions", author="Augustine"))
+
+    assert [c.title for c in found] == ["Confessions of Saint Augustine"]
+    assert found[0].resolve(found[0]) == "https://ccel.org/ccel/augustine/confess.epub"
+
+
+def test_cervantes_searches_the_catalogue_by_title_words(monkeypatch):
+    rows = {
+        "results": {
+            "bindings": [
+                {
+                    "t": {"value": "Niebla  / Miguel de Unamuno"},
+                    "url": {"value": "https://www.cervantesvirtual.com/obra/niebla--0/"},
+                    "date": {"value": "https://data.cervantesvirtual.com/date/1914"},
+                }
+            ]
+        }
+    }
+    asked = []
+
+    def _get(url, timeout=30, accept=""):
+        asked.append((url, accept))
+        return json.dumps(rows).encode()
+
+    monkeypatch.setattr(find_book, "_get", _get)
+
+    [found] = find_book._cervantes(BookQuery(title="Niebla", author="Unamuno"))
+
+    assert (found.title, found.authors, found.year, found.fmt) == (
+        "Niebla",
+        "Miguel de Unamuno",
+        1914,
+        None,  # the site turns scripts away: a page to open in a browser
+    )
+    assert "niebla" in urllib.parse.unquote(asked[0][0]) and "json" in asked[0][1]
 
 
 OPENSTAX_JSON = {

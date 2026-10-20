@@ -1815,3 +1815,18 @@ lookup, upload only with --upload or a yes in interactive mode. URLs: VirusTotal
 report plus the served file's report. No target: asks file (macOS dialog) or URL. Exit 2
 when flagged. Files: `src/pdf_worker/virus_check.py`, `cli.py`, `tests/test_virus_check.py`.
 Live check on `philosophy_epub_good.epub`: clean (65 undetected).
+
+## find_book: CCEL and Cervantes Virtual (2026-10-20, branch `feature/find-book-sources`)
+User supplied `Recursos Electrónicos Acceso Libre.pdf` (repo root): 471 links, 307 answer
+200 (`scratch/recursos_links.py`, results `scratch/recursos_links.tsv`). Probed the best
+book sources (`scratch/probe_sources*.py`):
+- Google Books: 429 without an API key; downloads often need a captcha. Not added.
+- OAPEN: search works (same Atom as DOAB), pages and PDFs 403 to scripts. Not added (DOAB).
+- Cervantes Virtual: Cloudflare blocks the site; its SPARQL catalogue
+  (`data.cervantesvirtual.com/bvmc-lod/repositories/data`) works. Added `_cervantes`:
+  title words (whole words, shortest titles first), page-only candidates (open in browser).
+- CCEL: search runs in the browser; title index per letter works. Added `_ccel` + resolve
+  from the book page (PDF/EPUB download verified live).
+- OpenEdition, MDZ: search only in the browser, no API found. Not added.
+`_get` takes an optional `accept` header. Tests: 2 new in `tests/test_find_book.py`.
+Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia.
