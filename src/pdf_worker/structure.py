@@ -7,7 +7,7 @@ paragraph is held in memory. Footnote references in block text use the
 
 import re
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass, field
 
 import pymupdf
@@ -34,7 +34,7 @@ from pdf_worker.inline import (
     uri_target,
 )
 from pdf_worker.layout import HEADING_RATIO, PAGE_NUMBER_RE, DocumentProfile, Line, page_lines
-from pdf_worker.margin_refs import has_letter, next_label
+from pdf_worker.margin_refs import bracketed, has_letter, next_label
 from pdf_worker.margins import split_columns
 
 # Gap between line tops, relative to normal line spacing, that starts a new paragraph.
@@ -211,15 +211,21 @@ def join_lines(parts: list[str]) -> str:
 
 
 def iter_blocks(
-    doc: pymupdf.Document, profile: DocumentProfile, images: bool = False
+    doc: pymupdf.Document,
+    profile: DocumentProfile,
+    images: bool = False,
+    skip: Collection[int] = (),
 ) -> Iterator[Block]:
     """Yield the document's blocks in reading order, one page loaded at a time.
 
-    With ``images``, pictures on each page become ``Image`` blocks.
+    With ``images``, pictures on each page become ``Image`` blocks. ``skip`` pages
+    (indexes) are left out.
     """
     state = _State(profile)
     previous_label = None
     for index in range(doc.page_count):
+        if index in skip:
+            continue
         page = doc.load_page(index)
         layout = layout_page(page, index, profile, previous_label)
         previous_label = layout.trailing_label
@@ -385,6 +391,8 @@ class _State:
             lines = [bl for bl in lines if not _CONTENTS_ENTRY_RE.match(plain(bl.text))]
             glosses = ()
         lines = self._label_margin_refs(lines)
+        # Printed in the text, so taken as read: notes cite them out of order ("[38e]").
+        lines = [BodyLine(bracketed(bl.text), bl.line, bl.endnote_label) for bl in lines]
         margins = _page_margins(lines, profile.body_size)
         new_page = True
         # Blank lines only separate paragraphs between two lines of the same page; blanks
@@ -431,6 +439,10 @@ class _State:
         readings = [r for bl in lines for r in MARGIN_REF_RE.findall(bl.text)]
         if not readings:
             return lines
+        if self.profile.bracketed_refs:  # printed in the text: line-end marks are page numbers
+            return [
+                BodyLine(MARGIN_REF_RE.sub("", bl.text), bl.line, bl.endnote_label) for bl in lines
+            ]
         running = bool(self.margin_label and self.margin_label[:-1].isdigit())
         keep = running or any(has_letter(r) for r in readings)
 
@@ -540,7 +552,7 @@ class _State:
         indented = margins.left + 0.8 * size < line.x0 < margins.left + 6 * size
         if not new_page:
             spacing = self.profile.line_spacing * (size / (self.profile.body_size or size))
-            gap = line.top - prev.top
+            gap = line.baseline - prev.baseline
             if gap > spacing * _PARAGRAPH_GAP:
                 return True
             if gap < -spacing * 0.5:
@@ -610,7 +622,12 @@ class _State:
 
 
 def _page_margins(lines: list[BodyLine], body_size: float) -> _Margins:
-    """Typical left edge and right edge of body text on this page."""
+    """Typical left edge and right edge of body text on this page. Where no line is in
+    the book's body size, the page's own size stands in: the Timeo's dialogue is set
+    larger than its long notes, and without margins every line counted as indented."""
+    texts = [bl for bl in lines if bl.text.strip()]
+    if texts and not any(abs(bl.line.size - body_size) < 0.6 for bl in texts):
+        body_size = Counter(bl.line.size for bl in texts).most_common(1)[0][0]
     lefts: Counter[int] = Counter()
     rights: list[float] = []
     for body_line in lines:

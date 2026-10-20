@@ -10,9 +10,10 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
+from pdf_worker.bilingual import apply_words, page_words
 from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
-from pdf_worker.margin_refs import apply_marks, page_marks
+from pdf_worker.margin_refs import apply_marks, has_bracketed, in_book, page_marks
 
 # Text-only extraction flags: never decode images (scanned books would bloat memory).
 _TEXT_FLAGS = pymupdf.TEXTFLAGS_TEXT
@@ -73,6 +74,18 @@ class Line:
         return self.bbox[1]
 
     @property
+    def baseline(self) -> float:
+        """Where most of the line's letters sit (``top`` if unknown). Unlike the top, it
+        doesn't move with the fonts a line happens to use, so line gaps are measured on
+        it: fonts drawn from a scan's letter shapes (ClearScan-style) can claim an
+        ascender of 2.4 em, which lifted lines' tops by 11 pt and broke paragraphs."""
+        sitting: Counter[float] = Counter()
+        for span in self.spans:
+            if span["text"].strip() and "origin" in span and not span["flags"] & SUPERSCRIPT:
+                sitting[round(span["origin"][1], 1)] += len(span["text"].strip())
+        return sitting.most_common(1)[0][0] if sitting else self.top
+
+    @property
     def x0(self) -> float:
         return self.bbox[0]
 
@@ -88,13 +101,16 @@ class Line:
 
 def page_lines(page: pymupdf.Page) -> list[Line]:
     """All text lines of a page in MuPDF reading order, with OCR fixes from
-    ``pdf_worker.consensus`` and stored margin references (``pdf_worker.margin_refs``)
-    applied."""
+    ``pdf_worker.consensus``, re-read words (``pdf_worker.bilingual``) and stored margin
+    references (``pdf_worker.margin_refs``) applied."""
     fixes = page_fixes(page)
     marks = page_marks(page)
+    words = page_words(page)
     lines = []
     for block in page.get_text("rawdict", flags=_TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", ()):
+            if words:
+                apply_words([char for span in line["spans"] for char in span["chars"]], words)
             if fixes:
                 apply_fixes([char for span in line["spans"] for char in span["chars"]], fixes)
             if marks:  # after the fixes, which look for letters only
@@ -214,6 +230,8 @@ class DocumentProfile:
 
     text_sample: str = ""
     page_count: int = 0
+    # The book prints its margin references in the text, in brackets ("[22b]").
+    bracketed_refs: bool = False
 
     def heading_level(self, size: float) -> int | None:
         """Level of the nearest heading size, if ``size`` is within its jitter band."""
@@ -252,6 +270,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     note_lines: list[tuple[int, tuple[int, int]]] = []
     sample: list[str] = []
     sample_len = 0
+    bracketed_pages = 0
     for page_index in range(doc.page_count):
         page = doc.load_page(page_index)
         height = page.rect.height
@@ -260,6 +279,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         page_inner_texts = set()
         page_offsets: set[int] = set()
         image_pages.update({info[0] for info in page.get_images(full=False)})
+        bracketed_pages += any(has_bracketed(line.text) for line in lines)
         for line_index, line in enumerate(lines):
             text = line.text
             for span in line.spans:
@@ -275,7 +295,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
             elif len(text.strip()) >= _MIN_WATERMARK_CHARS:
                 page_inner_texts.add(running_key(text))
             if line_index and lines[line_index - 1].size == line.size:
-                gap = round(line.top - lines[line_index - 1].top, 1)
+                gap = round(line.baseline - lines[line_index - 1].baseline, 1)
                 if 0 < gap < 3 * line.size:
                     gaps[(line.size, gap)] += 1
             if sample_len < _SAMPLE_CHARS and text.strip():
@@ -341,6 +361,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         },
         text_sample=" ".join(sample),
         page_count=doc.page_count,
+        bracketed_refs=in_book(bracketed_pages, doc.page_count),
     )
 
 

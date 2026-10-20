@@ -144,6 +144,19 @@ def test_a_book_has_margin_references_when_they_are_on_a_fifth_of_its_pages():
     assert not in_book(4, 462)  # ink in the philosophy book's margins
 
 
+def test_references_printed_in_the_text_become_margin_references(make_pdf, tmp_path):
+    pdf = make_pdf(
+        [f"{FULL[0]}\nque dios plantó [8oe] para nosotros {FULL[1]}\nnota [I7b] y (8oc] [la] otra"]
+    )
+
+    convert_pdf(pdf, tmp_path / "book.txt", "txt")
+
+    text = (tmp_path / "book.txt").read_text(encoding="utf-8")
+    # Taken as printed, even out of order: the notes cite passages ("[17b]").
+    assert "plantó [80e] para" in text and "nota [17b] y [80c] [la]" in text
+    assert "[80c] [la] otra" in text  # no digit: an editor's insertion, not a reference
+
+
 def _blocks():
     text = (
         "Solón contaba que cuando llegó allí recibió de ellos muchos "

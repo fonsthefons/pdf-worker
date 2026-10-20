@@ -1854,3 +1854,53 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
   84 found, 126 split words ("Paran á", "so bre"), 32 lost accents, 3533 words not in
   the reference.
 - Skipped (user): book note-style profile.
+
+## Margin references printed in the text (2026-10-20, branch `feature/bracketed-refs`)
+- New scan `test_pdfs/Timeo_by_Platón.pdf` (35 MB): same book as `Timeo-Platón.pdf` (9 MB,
+  ABBYY 2015, JBIG2 page images, text split "m anera p red om"). The new one has no page
+  images: letters drawn by 31 MB of fonts made from the scan (ClearScan-style), clean
+  text layer. References printed bold in the text: "[30c]"; OCR reads the old-style
+  figures as letters ("[8oe]" 55x, "[I7b]" 12x; `scratch/bracket_refs.py`).
+- `margin_refs.bracketed`: "[8oe]" -> margin reference "80e", taken as printed (after the
+  sequence labelling, since endnotes cite them out of order). `DocumentProfile.bracketed_refs`
+  (on >= 20% of pages) turns margin references on and line-end marks off (they were
+  page numbers in the contents: "[93a]".."[94e]"). Timeo: 590 refs, 17b..92c, 0 review
+  rows. Test in `tests/test_margin_refs.py`.
+- Greek: the dialogue is facing pages, Greek on even pages 166-370 (103 pages). The text
+  layer read the Greek as Latin look-alikes ("Aó'YT)aá am Ta"); convert puts each Greek
+  page between the Spanish ones, cutting Spanish sentences. Tesseract `grc` on page 200
+  (`scratch/ocr_pages.py ... grc force 200,201`) reads clean polytonic Greek, but the
+  references as digits ("[30c]" -> "[406]"). Not fixed yet: waiting on the user.
+
+## Bilingual editions: Spanish only, quoted Greek kept (2026-10-20, same branch)
+- User chose: drop the Greek facing pages; keep Greek words quoted in the Spanish.
+- `bilingual.py`: `facing_pages` (book-language stopword share < 0.15 between pages that
+  aren't foreign, one of them >= 0.25, and alternating: a lone page is a table; at least
+  10). Timeo: 104 pages (166-372 even); table page 81 kept. `iter_blocks(skip=)`.
+- `mark_words`: tokens that look garbled (odd signs, digits or case flips inside; not
+  "[I7d]", note numbers, addresses) are re-read per line with Tesseract grc and the book
+  language (`mixed_script._tsv`, cached); Greek wins if >= 60% Greek letters, conf >= 60
+  and >= the other; else the book language at conf >= 85. Stored in memory
+  (`/PdfWorkerWords`), applied in `layout.page_lines`. Timeo: 990 words, 539 Greek words
+  in the text ("(ἀλήθεια)", "(ὑποδοχή, πανδεχής, 49a)"); 115 garbled tokens left.
+  Lugones (no Greek): 1135 words, all sampled right ("acci6n" -> "acción"); spelling
+  rows 1087 -> 840.
+- Timeo text now: 323 references (Spanish pages), Spanish runs on across dropped pages.
+- Not done: ClearScan line boxes are irregular (heights 12-26 pt, overlapping), so
+  paragraphs break mid-sentence ("causa,\n\npor cierto"); 6085 paragraphs. Next issue.
+
+## Paragraphs in the Timeo (2026-10-20, branch `feature/clearscan-paragraphs`)
+- Two causes (`scratch/baselines.py`, `scratch/para_rules.py`, `scratch/page_blocks.py`):
+  1. ClearScan font Fd1485794 claims ascender 2.37 em, so lines using it got tops 11 pt
+     too high. Baselines are regular (13.7-14.3). `Line.baseline` (most common span
+     origin); paragraph gaps and `line_spacing` now measured on it. (A box clamp at
+     1.2 em above the baseline was tried and dropped: it lost a footnote in an OCR'd
+     scan, `test_scanned_book_footnotes_after_ocr`.)
+  2. Body size is 9.8 (notes and introduction), the dialogue 11: `_page_margins` found
+     no body-size line, gave left = 0, and every line counted as indented, so each
+     was a paragraph. Now the page's own size stands in.
+- Also "(8oc]" (bracket read as parenthesis) is a reference.
+- Dialogue pages 201-350: one paragraph per line before, now 39-97 per 50 pages. Book
+  total 5045: the rest are bibliography, endnotes and index entries (one per entry).
+- Left: running head "INTRODUCCIÓN" kept as a paragraph; the introduction's footnotes
+  aren't found as notes ("Cf. M. Baltes ..." is a paragraph).
