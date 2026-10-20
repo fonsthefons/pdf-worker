@@ -8,6 +8,9 @@ import pytest
 from pdf_worker import pdf_export
 from pdf_worker.cli import main
 from pdf_worker.convert import convert_pdf, default_output_path
+from pdf_worker.epub import write_epub
+from pdf_worker.output import Metadata
+from pdf_worker.structure import Note, Paragraph
 
 BODY = 11
 NOTE = 8
@@ -48,6 +51,31 @@ def test_html_is_one_page_with_linked_notes(make_layout_pdf, tmp_path):
     assert f'id="{note_id}"' in html and f'href="#{ref.group(1)}"' in html
     assert ".xhtml" not in html  # no links to EPUB files left
     assert "The footnote text." in html
+
+
+def test_epub_numbers_notes_through_the_book(tmp_path):
+    # Printed: note 1 on each page. The book shows 1, 2, 3 (PDF and HTML too).
+    blocks = [
+        Paragraph("Kant[^p12-1] y Hume[^p12-2]."),
+        Note("p12-1", "Crítica."),
+        Note("p12-2", "Tratado."),
+        Note("p13-9", "Sin referencia."),
+        Note("p13-2", "Leviatán."),  # before its reference
+        Paragraph("Locke[^p13-1], Hobbes[^p13-2] y Kant otra vez[^p12-1]."),
+        Note("p13-1", "Ensayo."),
+    ]
+    write_epub(blocks, tmp_path / "b.epub", Metadata("T"))
+    with zipfile.ZipFile(tmp_path / "b.epub") as z:
+        text = z.read("OEBPS/c001.xhtml").decode()
+        notes = z.read("OEBPS/notes.xhtml").decode()
+    assert re.findall(r"<sup>(\w+)</sup>", text) == ["1", "2", "3", "4", "1"]
+    assert re.findall(r'role="doc-backlink">(\d+)</a>\. (\w+)', notes) == [
+        ("1", "Crítica"),
+        ("2", "Tratado"),
+        ("3", "Ensayo"),
+        ("4", "Leviatán"),
+    ]
+    assert re.search(r'id="n5" [^>]*><p>5\. Sin referencia', notes)  # last, numbered on
 
 
 def test_clean_text_has_notes_at_the_end(make_layout_pdf, tmp_path):

@@ -1,6 +1,6 @@
 # Progress
 
-## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-3 done, next: phase 4, discuss first)
+## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-4 done, next: phase 5, discuss first)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
 PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not
 in one writer. One PR per phase; run the reference score after each.
@@ -120,6 +120,22 @@ Phase 3 results (2026-10-19, branch `feature/epub-quality-3`):
   in the reference 2411 -> 2384. XHTML 60/60 parse; review file unchanged.
 - Not done: the dictionary fallback for scans without a usable text layer (plan item 3);
   no book needs it yet.
+
+Phase 4 results (2026-10-19, branch `feature/epub-quality-4`):
+- No missed note references: the reference's 1419 `<sup>` = 686 notes x2 (ref + note
+  number) + 47 bibliography ordinals ("2.ª ed."). Ours: 689 refs, same per chapter.
+- User decided: notes numbered 1-N through the book; EPUB keeps one notes file at the end
+  (popup footnotes, back-links); PDF notes at the page foot with the EPUB's numbers.
+- `epub._EpubBuilder._number`: numbers come from the order references are first seen,
+  not the printed labels (which restart at 1 per page). A note met before its reference
+  waits for it; a note with no reference is numbered after the last one; notes.xhtml is
+  written in number order. HTML and PDF are built from the EPUB, so they follow; Word
+  (Pandoc) already numbered 1-N.
+- txt/md keep the printed labels (`[^p12-1]`): `tests/platon_score.py` matches notes by
+  printed number. A first try renumbering in the shared pipeline broke it (refs_ok 9).
+- Trade-off: EPUB/PDF numbers no longer match the printed book; cite by page.
+- Tests: fast 257, full 274 pass. Built `scratch/phase4_philo/`; check with
+  `scratch/phase4_check.py EPUB PDF`.
 
 Second reference book: user to supply a good EPUB of the **same edition** as one of their
 PDFs, ideally with a different note style (endnotes vs footnotes), scanned vs text-layer,
