@@ -7,7 +7,7 @@ paragraph is held in memory. Footnote references in block text use the
 
 import re
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass, field
 
 import pymupdf
@@ -211,15 +211,21 @@ def join_lines(parts: list[str]) -> str:
 
 
 def iter_blocks(
-    doc: pymupdf.Document, profile: DocumentProfile, images: bool = False
+    doc: pymupdf.Document,
+    profile: DocumentProfile,
+    images: bool = False,
+    skip: Collection[int] = (),
 ) -> Iterator[Block]:
     """Yield the document's blocks in reading order, one page loaded at a time.
 
-    With ``images``, pictures on each page become ``Image`` blocks.
+    With ``images``, pictures on each page become ``Image`` blocks. ``skip`` pages
+    (indexes) are left out.
     """
     state = _State(profile)
     previous_label = None
     for index in range(doc.page_count):
+        if index in skip:
+            continue
         page = doc.load_page(index)
         layout = layout_page(page, index, profile, previous_label)
         previous_label = layout.trailing_label

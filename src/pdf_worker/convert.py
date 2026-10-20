@@ -11,7 +11,9 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from pdf_worker import book_metadata, margin_estimates
+import pymupdf
+
+from pdf_worker import bilingual, book_metadata, margin_estimates
 from pdf_worker.cover import cover_jpeg
 from pdf_worker.document import open_pdf
 from pdf_worker.docx_export import write_docx
@@ -69,6 +71,8 @@ class ConvertReport:
     restored_refs: list[str] = field(default_factory=list)  # see pdf_worker.missing_refs
     fixes_path: Path | None = None  # the review file, see pdf_worker.fixes
     new_fixes: dict[str, int] = field(default_factory=dict)  # rows added, per kind
+    facing_pages: int = 0  # left out: the original of a bilingual edition
+    reread_words: int = 0  # garbled words read again (Greek), see pdf_worker.bilingual
 
 
 def stopword_scores(text: str) -> dict[str, int]:
@@ -151,6 +155,7 @@ def convert_pdf(
     source_pdf = source_pdf or pdf_path
     with open_pdf(source_pdf) as source:
         info = source.metadata or {}
+    facing, reread = set(), 0
     with open_pdf(pdf_path) as doc:
         if paddle_rows is not None:
             from pdf_worker.paddle_book import iter_paddle_blocks, text_sample
@@ -165,9 +170,11 @@ def convert_pdf(
                 margin_refs=margin_refs,
             )
         else:
+            language, facing = bilingual.facing_pages(doc)
+            reread = _reread_words(doc, language, facing)
             profile = analyze_document(doc)
             sample = profile.text_sample
-            blocks = iter_blocks(doc, profile, images=keep_images)
+            blocks = iter_blocks(doc, profile, images=keep_images, skip=facing)
             if margin_refs is None:
                 marked = sum(bool(page_marks(p)) for p in doc)
                 margin_refs = profile.bracketed_refs or in_book(marked, doc.page_count)
@@ -217,7 +224,22 @@ def convert_pdf(
         restored_refs=restored,
         fixes_path=fixes_path if review.fixes else None,
         new_fixes=new_fixes,
+        facing_pages=len(facing),
+        reread_words=reread,
     )
+
+
+def _reread_words(doc: pymupdf.Document, language: str, facing: set[int]) -> int:
+    """Garbled words read again (``bilingual.mark_words``), when Tesseract has the models."""
+    from pdf_worker.ocr import GREEK_LANGUAGE, TESSERACT_CODES, available_languages, tesseract_path
+
+    code = TESSERACT_CODES.get(language)
+    try:
+        if not code or not {code, GREEK_LANGUAGE} <= available_languages():
+            return 0
+        return bilingual.mark_words(doc, tesseract_path(), code, facing)
+    except PdfWorkerError:  # no Tesseract
+        return 0
 
 
 def _title_page_texts(doc, paddle_rows: list[dict] | None) -> Iterator[str]:
