@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 
 # Numbers may skip a little within a run (a missed superscript, an OCR'd note).
 _MAX_STEP = 3
+# ... in OCR that loses or garbles numbers in a row ("todos'º5" for 105, "l!IO" for 120).
+LOSSY_STEP = 15
+# ... where only long runs are trusted (the Timeo's shorter ones were stray numbers).
+LOSSY_MIN_RUN = 20
 # A run and a group pair up when their highest numbers are this close.
 _MAX_COUNT_DIFF = 2
 _MAX_COUNT_RATIO = 0.15
@@ -52,21 +56,31 @@ class ChapterNotes:
     note_pages: set[int] = field(default_factory=set)
 
 
-def _sequences(entries: list[tuple[int, tuple]]) -> list[_Sequence]:
-    """Split numbers into sequences that start at 1 and climb; strays are ignored."""
+def sequences(
+    entries: list[tuple[int, tuple]], max_step: int = _MAX_STEP, resume_step: int = 1
+) -> list[_Sequence]:
+    """Split numbers into sequences that start at 1 and climb by at most ``max_step``;
+    strays are ignored, and a sequence after a stray "1" resumes by ``resume_step``."""
     out: list[_Sequence] = []
     for number, key in entries:
         current = out[-1] if out else None
         previous = out[-2] if len(out) > 1 else None
         if current and number == current.last + 1:
             current.items.append((number, key))
-        elif previous and number == previous.last + 1:
+        elif (
+            previous
+            and previous.last < number <= previous.last + resume_step
+            and len(previous.items) > len(current.items)
+        ):
             # The previous sequence resumes: the latest one was a numbered list inside
-            # a note ("107. ... 1. ... 10." then "108."), not a group of its own.
+            # a note ("107. ... 1. ... 10." then "108."), or a stray "1", not a group of
+            # its own.
             out.pop()
             previous.items.append((number, key))
-        elif current and current.last < number <= current.last + _MAX_STEP:
+        elif current and current.last < number <= current.last + max_step:
             current.items.append((number, key))
+        elif number == 1 and current and len(current.items) == 1:
+            current.items[0] = (number, key)  # a "1" after a lone "1": one of them a stray
         elif number == 1:
             out.append(_Sequence([(number, key)]))
     return out
@@ -76,29 +90,35 @@ def _compatible(a: int, b: int) -> bool:
     return abs(a - b) <= max(_MAX_COUNT_DIFF, _MAX_COUNT_RATIO * max(a, b))
 
 
-def _align(runs: list[_Sequence], groups: list[_Sequence]) -> list[tuple[int, int]]:
+def _align(
+    runs: list[_Sequence], groups: list[_Sequence], after_refs: bool = False
+) -> list[tuple[int, int]]:
     """Pair runs with groups in order (a longest common subsequence on note counts).
 
-    A group must start after its run starts: notes come after their references.
+    A group must start after its run starts (notes come after their references), or
+    with ``after_refs`` lie after the run's last reference (from its middle on: its
+    first number may be a stray).
     """
     runs, groups = runs[:_MAX_ALIGN], groups[:_MAX_ALIGN]
     n, m = len(runs), len(groups)
+
+    def fits(i: int, j: int) -> bool:
+        if not _compatible(runs[i].last, groups[j].last):
+            return False
+        if after_refs:
+            return groups[j].items[len(groups[j].items) // 2][1] > runs[i].items[-1][1]
+        return groups[j].start > runs[i].start
+
     best = [[0] * (m + 1) for _ in range(n + 1)]
     for i in range(n - 1, -1, -1):
         for j in range(m - 1, -1, -1):
             skip = max(best[i + 1][j], best[i][j + 1])
-            match = 0
-            if _compatible(runs[i].last, groups[j].last) and groups[j].start > runs[i].start:
-                match = 1 + best[i + 1][j + 1]
+            match = 1 + best[i + 1][j + 1] if fits(i, j) else 0
             best[i][j] = max(skip, match)
     pairs = []
     i = j = 0
     while i < n and j < m:
-        if (
-            _compatible(runs[i].last, groups[j].last)
-            and groups[j].start > runs[i].start
-            and best[i][j] == 1 + best[i + 1][j + 1]
-        ):
+        if fits(i, j) and best[i][j] == 1 + best[i + 1][j + 1]:
             pairs.append((i, j))
             i, j = i + 1, j + 1
         elif best[i + 1][j] >= best[i][j + 1]:
@@ -111,19 +131,25 @@ def _align(runs: list[_Sequence], groups: list[_Sequence]) -> list[tuple[int, in
 def match_chapter_notes(
     refs: list[tuple[int, tuple[int, int, int]]],
     defs: list[tuple[int, Position]],
+    lossy: bool = False,
 ) -> ChapterNotes:
     """Pair superscript references with numbered notes.
 
     ``refs`` are ``(number, (page, line, span))`` and ``defs`` ``(number, (page, line))``,
-    both in document order.
+    both in document order. ``lossy``: OCR lost or garbled many numbers, so they may
+    skip by ``LOSSY_STEP``, and a group of notes must come after all of its references
+    (not footnotes beside them).
     """
     result = ChapterNotes()
-    runs = _sequences(refs)
-    groups = [g for g in _sequences(defs) if len(g.items) >= 2]
-    pairs = _align(runs, groups)
+    steps = (LOSSY_STEP, LOSSY_STEP) if lossy else (_MAX_STEP, 1)
+    runs = sequences(refs, *steps)
+    least = LOSSY_MIN_RUN if lossy else 2
+    groups = [g for g in sequences(defs, *steps) if len(g.items) >= least]
+    pairs = _align(runs, groups, after_refs=lossy)
     ref_positions = sorted(key[:2] for _, key in refs)
     for chapter, (i, j) in enumerate(pairs, start=1):
-        defined = {number: key for number, key in groups[j].items}
+        end = runs[i].items[-1][1]
+        defined = {number: key for number, key in groups[j].items if not lossy or key > end}
         for number, key in defined.items():
             result.defs[key] = f"c{chapter}-{number}"
             result.note_pages.add(key[0])

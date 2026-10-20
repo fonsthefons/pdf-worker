@@ -1927,3 +1927,27 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
 - Still to do on the Timeo: note references are plain digits plus "•" ("inteligentes74•"),
   not linked to the endnotes; "[24_.e]" missed; title "Platón Time o"; "NOTAS A LA
   TRADUCCIÓN" not a heading.
+
+## Note references in the Timeo (2026-10-20, branch `feature/glued-refs`, on #43)
+- The redraw flattens printed superscripts: "inteligentes⁷⁴." is "inteligentes74•" on the
+  baseline ("•" = the period), sometimes "diosa 66", some digits flagged superscript,
+  one number split over two fonts ("7" "4"). The notes at the back hang their number in
+  the margin as a line of its own ("33 " beside "Cf. supra"), with old-style figures
+  misread (".¡. o" = 40, "l!IO" = 120).
+- `glued_refs.py`: numbers glued to a word (or after "word ", or flagged superscript)
+  that count up through the book (runs of 20+, steps up to 15, `endnotes.LOSSY_STEP`)
+  are stored per page and written as superscript digits in `page_lines`; "•" after one
+  becomes ".". `_with_text` merges adjacent superscript digit spans.
+- `endnotes.sequences`: `max_step`/`resume_step`; a run resumes only over a shorter one;
+  a second bare "1" replaces a lone "1". `match_chapter_notes(lossy=True)`: wide steps,
+  groups of 20+, lying after their run's last reference (so page footnotes, which look
+  the same, don't pair), items before it dropped.
+- `layout.plain_note_start`: "235 Text", or a number hung beside its first line (same
+  baseline within 0.3 size); the plain/lossy pairing is used when it links more refs.
+  `footnotes.layout_page` drops the hung number line and strips only the note's own number.
+- Timeo: 749 notes (was 13), 577 references linked; the introduction's footnotes are now
+  found as page footnotes too. Paragraphs 4040 -> 2845 (notes were paragraphs).
+- Left: ~170 notes without a reference (their reference garbled: "Heracles73•" for 78,
+  "todos'º5" for 105); notes whose number is garbled beyond ".¡."/o/I are folded into
+  the note before.
+- Tests: `tests/test_glued_refs.py`; all 292 pass.

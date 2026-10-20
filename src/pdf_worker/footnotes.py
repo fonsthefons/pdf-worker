@@ -22,12 +22,12 @@ from dataclasses import dataclass
 import pymupdf
 
 from pdf_worker.layout import (
-    NUMBERED_NOTE_RE,
     PAGE_NUMBER_RE,
     SUPERSCRIPT,
     DocumentProfile,
     Line,
     page_lines,
+    plain_note_start,
     running_key,
 )
 from pdf_worker.styles import span_text
@@ -118,6 +118,10 @@ def layout_page(
     for line_index, line in enumerate(lines):
         if line_index in consumed:
             continue
+        if page_index in chapter_notes.note_pages:
+            hung = plain_note_start(lines, line_index)
+            if hung and hung[1] != line_index and (page_index, hung[1]) in chapter_notes.defs:
+                continue  # a note's number hung beside its first line, which takes it
         chapter_refs = chapter_notes.refs.get((page_index, line_index), {})
         text = _render_line(line, marker_labels, references, chapter_refs)
         chapter_def = chapter_notes.defs.get((page_index, line_index))
@@ -125,7 +129,7 @@ def layout_page(
             definitions.append(chapter_def)
             body.append(
                 BodyLine(
-                    text=NUMBERED_NOTE_RE.sub("", text, count=1),
+                    text=re.sub(rf"^\s*{display_marker(chapter_def)}\.?\s*", "", text, count=1),
                     line=line,
                     endnote_label=chapter_def,
                 )
