@@ -317,9 +317,10 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
     )
     parser.add_argument(
         "--margin-refs",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         help="Keep the section numbers printed in the margin of classical editions "
-        "(Stephanus '22b' in Plato). Off by default: other books have none.",
+        "(Stephanus '22b' in Plato). Default: kept when found on at least a fifth of "
+        "the pages (other books have none; ink in their margins makes false ones).",
     )
     parser.add_argument(
         "--estimate-margin-refs",

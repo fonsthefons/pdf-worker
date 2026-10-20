@@ -116,8 +116,8 @@ described in detail under [Features](#features).
   METADATA: --title --author --language (default: PDF metadata / stopword guess);
             translator found on the first 6 pages
                                          ▼
-  MARGIN REFERENCES (Stephanus 22b…):  off by default, so they are removed
-            --margin-refs              keep them
+  MARGIN REFERENCES (Stephanus 22b…):  kept when they are on ≥ 20% of pages
+            --margin-refs / --no-margin-refs   always keep / always remove them
             --estimate-margin-refs     fill gaps as [~23c]
                                          ▼
   ┌───────────── REVIEW FILE: book.fixes.tsv (--fixes PATH) ─────────────────────────┐

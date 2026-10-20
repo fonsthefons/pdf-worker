@@ -14,6 +14,7 @@ from pdf_worker.margin_refs import (
     ScanMark,
     ScanWord,
     assign_labels,
+    in_book,
     mark_paddle_blocks,
     next_label,
     outer_marks,
@@ -136,6 +137,11 @@ def test_running_heads_leave_the_text_and_the_title_opens_the_book(make_layout_p
     assert text.count("TIMEO") == 1 and "\nTIMEO\n" in text
     assert "DIALOGOS" not in text
     assert "se refiere, a una desviación" in text  # the sentence runs on over the page
+
+
+def test_a_book_has_margin_references_when_they_are_on_a_fifth_of_its_pages():
+    assert in_book(230, 293)  # Platón
+    assert not in_book(4, 462)  # ink in the philosophy book's margins
 
 
 def _blocks():

@@ -1,6 +1,6 @@
 # Progress
 
-## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-5 done; next: Tesseract cache, find_book CCEL + Cervantes)
+## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-5 done; Tesseract cache, find_book CCEL + Cervantes done; PRs #31-#38 merged by the user 2026-10-20)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
 PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not
 in one writer. One PR per phase; run the reference score after each.
@@ -1830,3 +1830,17 @@ book sources (`scratch/probe_sources*.py`):
 - OpenEdition, MDZ: search only in the browser, no API found. Not added.
 `_get` takes an optional `accept` header. Tests: 2 new in `tests/test_find_book.py`.
 Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia.
+(User 2026-10-20: keep this list for later.)
+
+## Margin references on by themselves (2026-10-20)
+- `convert --margin-refs` is now `--margin-refs/--no-margin-refs`, default auto: kept when
+  `margin_refs.in_book` (marks or labels on >= 20% of pages). Measured with
+  `scratch/margin_share.py`: Platón labels on 230/293 pages (78%, marks 86%); philosophy
+  labels 11 on 4/462 pages (1%, marks 11%: ink). `scratch/margin_auto.py`: by default
+  Platón keeps 688, philosophy 0. Text-layer path counts pages with stored marks.
+- Philosophy PDF rebuilt on main (`scratch/philo_final/`, notes at the end): 754 pages,
+  10443 internal links, 0 broken; all 4756 "[n]" marks linked
+  (`scratch/pdf_index_marks.py`).
+- Ratzinger EPUB in `test_pdfs/` is our own output (2026-10-19), not a reference; its
+  rebuild matches it except italics/bold (phase 2). User: find a real reference book.
+- Skipped (user): book note-style profile.
