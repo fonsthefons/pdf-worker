@@ -34,7 +34,7 @@ from pdf_worker.inline import (
     uri_target,
 )
 from pdf_worker.layout import HEADING_RATIO, PAGE_NUMBER_RE, DocumentProfile, Line, page_lines
-from pdf_worker.margin_refs import has_letter, next_label
+from pdf_worker.margin_refs import bracketed, has_letter, next_label
 from pdf_worker.margins import split_columns
 
 # Gap between line tops, relative to normal line spacing, that starts a new paragraph.
@@ -385,6 +385,8 @@ class _State:
             lines = [bl for bl in lines if not _CONTENTS_ENTRY_RE.match(plain(bl.text))]
             glosses = ()
         lines = self._label_margin_refs(lines)
+        # Printed in the text, so taken as read: notes cite them out of order ("[38e]").
+        lines = [BodyLine(bracketed(bl.text), bl.line, bl.endnote_label) for bl in lines]
         margins = _page_margins(lines, profile.body_size)
         new_page = True
         # Blank lines only separate paragraphs between two lines of the same page; blanks
@@ -431,6 +433,10 @@ class _State:
         readings = [r for bl in lines for r in MARGIN_REF_RE.findall(bl.text)]
         if not readings:
             return lines
+        if self.profile.bracketed_refs:  # printed in the text: line-end marks are page numbers
+            return [
+                BodyLine(MARGIN_REF_RE.sub("", bl.text), bl.line, bl.endnote_label) for bl in lines
+            ]
         running = bool(self.margin_label and self.margin_label[:-1].isdigit())
         keep = running or any(has_letter(r) for r in readings)
 

@@ -12,7 +12,7 @@ import pymupdf
 
 from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
-from pdf_worker.margin_refs import apply_marks, page_marks
+from pdf_worker.margin_refs import apply_marks, has_bracketed, in_book, page_marks
 
 # Text-only extraction flags: never decode images (scanned books would bloat memory).
 _TEXT_FLAGS = pymupdf.TEXTFLAGS_TEXT
@@ -214,6 +214,8 @@ class DocumentProfile:
 
     text_sample: str = ""
     page_count: int = 0
+    # The book prints its margin references in the text, in brackets ("[22b]").
+    bracketed_refs: bool = False
 
     def heading_level(self, size: float) -> int | None:
         """Level of the nearest heading size, if ``size`` is within its jitter band."""
@@ -252,6 +254,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     note_lines: list[tuple[int, tuple[int, int]]] = []
     sample: list[str] = []
     sample_len = 0
+    bracketed_pages = 0
     for page_index in range(doc.page_count):
         page = doc.load_page(page_index)
         height = page.rect.height
@@ -260,6 +263,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         page_inner_texts = set()
         page_offsets: set[int] = set()
         image_pages.update({info[0] for info in page.get_images(full=False)})
+        bracketed_pages += any(has_bracketed(line.text) for line in lines)
         for line_index, line in enumerate(lines):
             text = line.text
             for span in line.spans:
@@ -341,6 +345,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         },
         text_sample=" ".join(sample),
         page_count=doc.page_count,
+        bracketed_refs=in_book(bracketed_pages, doc.page_count),
     )
 
 

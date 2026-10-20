@@ -35,6 +35,10 @@ _DPI = 300
 MIN_SHARE = 0.2  # of a book's pages with margin references, for ``in_book``
 _MARK_RE = re.compile(r"^(\d{1,4})?([a-e])?$")
 _NORM_RE = re.compile(r"[^\w]+")
+# Editions that print the references in the text, in brackets ("[22b]"). OCR reads
+# old-style figures as letters ("[3oc]", "[I7b]"), Greek OCR as Greek letters.
+_BRACKETED_RE = re.compile(r"\[\s*([0-9oOIlοΟΙ]*[0-9][0-9oOIlοΟΙ]*)\s*([a-e])\s*\]\s*")
+_DIGITS = str.maketrans("oOIlοΟΙ", "0011001")
 # Ink this far (in line heights) beside the text column is searched for marks.
 _GAP, _REACH = 0.15, 1.6
 _LONG_LINE_SHARE = 0.35
@@ -220,6 +224,15 @@ def _one_off(read: str, real: str) -> bool:
 
 
 # -- marks stored on the page -------------------------------------------------------------
+
+
+def bracketed(text: str) -> str:
+    """Margin references printed in the text ("[8oe]") as marker readings ("80e")."""
+    return _BRACKETED_RE.sub(lambda m: margin_ref(m.group(1).translate(_DIGITS) + m.group(2)), text)
+
+
+def has_bracketed(text: str) -> bool:
+    return bool(_BRACKETED_RE.search(text))
 
 
 def in_book(pages_with_marks: int, pages: int) -> bool:

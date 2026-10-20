@@ -1854,3 +1854,20 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
   84 found, 126 split words ("Paran á", "so bre"), 32 lost accents, 3533 words not in
   the reference.
 - Skipped (user): book note-style profile.
+
+## Margin references printed in the text (2026-10-20, branch `feature/bracketed-refs`)
+- New scan `test_pdfs/Timeo_by_Platón.pdf` (35 MB): same book as `Timeo-Platón.pdf` (9 MB,
+  ABBYY 2015, JBIG2 page images, text split "m anera p red om"). The new one has no page
+  images: letters drawn by 31 MB of fonts made from the scan (ClearScan-style), clean
+  text layer. References printed bold in the text: "[30c]"; OCR reads the old-style
+  figures as letters ("[8oe]" 55x, "[I7b]" 12x; `scratch/bracket_refs.py`).
+- `margin_refs.bracketed`: "[8oe]" -> margin reference "80e", taken as printed (after the
+  sequence labelling, since endnotes cite them out of order). `DocumentProfile.bracketed_refs`
+  (on >= 20% of pages) turns margin references on and line-end marks off (they were
+  page numbers in the contents: "[93a]".."[94e]"). Timeo: 590 refs, 17b..92c, 0 review
+  rows. Test in `tests/test_margin_refs.py`.
+- Greek: the dialogue is facing pages, Greek on even pages 166-370 (103 pages). The text
+  layer read the Greek as Latin look-alikes ("Aó'YT)aá am Ta"); convert puts each Greek
+  page between the Spanish ones, cutting Spanish sentences. Tesseract `grc` on page 200
+  (`scratch/ocr_pages.py ... grc force 200,201`) reads clean polytonic Greek, but the
+  references as digits ("[30c]" -> "[406]"). Not fixed yet: waiting on the user.

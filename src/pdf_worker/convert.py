@@ -169,7 +169,8 @@ def convert_pdf(
             sample = profile.text_sample
             blocks = iter_blocks(doc, profile, images=keep_images)
             if margin_refs is None:
-                margin_refs = in_book(sum(bool(page_marks(p)) for p in doc), doc.page_count)
+                marked = sum(bool(page_marks(p)) for p in doc)
+                margin_refs = profile.bracketed_refs or in_book(marked, doc.page_count)
             if not margin_refs:
                 blocks = _without_margin_refs(blocks)
         meta, sources = book_metadata.find_metadata(
