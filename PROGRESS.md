@@ -1904,3 +1904,26 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
   total 5045: the rest are bibliography, endnotes and index entries (one per entry).
 - Left: running head "INTRODUCCIÓN" kept as a paragraph; the introduction's footnotes
   aren't found as notes ("Cf. M. Baltes ..." is a paragraph).
+- Merged (user, 2026-10-20): #39, then #42 retargeted to main (it carried #40 and #41,
+  which had merged into their stacked bases / been closed).
+
+## Font sizes in the Timeo (2026-10-20, branch `feature/font-sizes`)
+- Reflowed PDF (`scratch/timeo/timeo.reflowed.pdf`) showed body lines in small print
+  mid-paragraph. The file has 1039 fonts (one+ per page; others 7-25). The same 12 pt
+  print reports 9.95 in one font, 7.90 in another on the same line
+  (`scratch/span_sizes.py`); a third of the lines read as small type.
+- Tried and dropped: per-font factors from fonts sharing lines (fonts shared by body
+  and notes aren't scaled alike: notes came out body size); letter height from declared
+  ascender/descender (depends on each font's glyphs: caps-only heading fonts came out
+  7 pt, index lines with Greek 13 pt and became headings).
+- Kept: `font_sizes.py`. Lines set with the same leading are one size: each line's
+  leading = gap to its nearest baseline above/below in the column; book-wide table
+  leading -> median size (per-page medians drifted 9.8-10.8 and broke paragraphs across
+  pages); lone lines (headings) keep their own. Only for books with a font per page or
+  more and mixed sizes on most mixed-font lines (`misreports`): only the new Timeo of
+  the test books. Stored on the doc in memory, applied in `layout.page_lines`.
+- Timeo PDF: body text reads as paragraphs across pages; 58 headings (real section
+  titles found; leftovers are diagram labels on pp. 81, 427-445 and a few TOC lines).
+- Still to do on the Timeo: note references are plain digits plus "•" ("inteligentes74•"),
+  not linked to the endnotes; "[24_.e]" missed; title "Platón Time o"; "NOTAS A LA
+  TRADUCCIÓN" not a heading.
