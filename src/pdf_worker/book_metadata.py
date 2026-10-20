@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pymupdf
 
-from pdf_worker import find_book  # a module: find_book imports convert, which imports this
 from pdf_worker.cover import find_translator, name_case
 from pdf_worker.output import Metadata
 
@@ -162,6 +161,10 @@ def _edition(isbn: str, book_words: set[str]) -> dict[str, str]:
     """Open Library's record of the ISBN, if its title shares a word with the book's.
 
     A copyright page may print the ISBN of another book or volume, hence the check."""
+    # Imported here: find_book -> ocr -> convert -> this module is a cycle when ocr
+    # or paddle_ocr is imported first.
+    from pdf_worker import find_book
+
     if not isbn:
         return {}
     try:

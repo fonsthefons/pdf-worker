@@ -1,7 +1,65 @@
 # Progress
 
+## EPUB QUALITY PLAN (agreed with user 2026-10-19; phase 0 done, next: phase 1)
+From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
+PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not
+in one writer. One PR per phase; run the reference score after each.
+
+0. **Groundwork (fast).** Confirm the PDF output is built from the same extracted text as
+   the EPUB. Sample pages of the philosophy PDF to find why accents are missing (dropped
+   combining glyphs in extraction, or absent in the source). Turn `scratch/epub_compare.py`
+   + `scratch/epub_worddiff.py` into a repeatable "score against reference" check.
+1. **Quick wins (fast).** No h1 from copyright lines or long sentences. Curly quotes and
+   apostrophes in text cleanup (both outputs). Rejoin hyphen-split words (leftover
+   "leza", "ción", "miento").
+2. **Italics + h3 (user's top priority, largest change).** Carry italic/bold font flags
+   from PDF spans to `<i>`/`<b>` in both outputs; detect h3 subheadings from font
+   size/weight. Accent protection (3) depends on this.
+3. **Accents.** If (0) shows extraction drops them, fix at the root. Otherwise dictionary
+   approach (pattern of `restore_macrons`): restore only when the unaccented word is not a
+   word and exactly one accented form is (categorico → categórico); ambiguous ones
+   (publico/público/publicó, esta/está) go to a report. Protect italics, quotes,
+   bibliography and foreign-language notes (French "Paris" is right). Misread letters
+   (empiismo, Königssberg, desarrolloos) as suggestions from the same check.
+4. **Notes (discuss first).** First detect the missed note references (ours 689 sup + 684
+   aside vs 1419 in the reference). Then layout: proposed EPUB popup footnotes
+   (`epub:type` noteref/footnote, back-links, text at chapter end), PDF notes at page foot.
+   Ask user: original has footnotes or endnotes? Match the original or optimise for reading?
+5. **Index as links (discuss first).** Keep the book's index; link each page number to its
+   `page_mark` anchor (page-level, not word-level; ask user if fine). Show original page
+   numbers in the PDF margin for citing. Hard part: parsing sub-entries, ranges, "ss.",
+   "passim", "véase" (link to other entries), printed vs PDF page offset.
+
+Phase 0 results (2026-10-19, branch `feature/epub-quality-0`):
+- Same text: `convert_pdf` builds one block stream (Paddle or text layer -> margin
+  estimates -> `Review.apply` -> `drop_notes`) and hands it to whichever writer; PDF and
+  EPUB differ only in layout (`notes_at` is PDF-only).
+- Accents (`scratch/accent_probe.py`, crops in `scratch/accent_probe/`): the scan prints
+  them (categórico in italics, teología/conclusión in small print, Difícilmente, albedrío
+  in body text); Paddle drops some: categorico 18 vs categórico 44, teologia 8/95,
+  conclusion 9/40, albedrio 4/0. Bibliography entries print "Paris" (correct as is).
+  The PDF's own text layer (`scratch/text_layer_accents.py`) has every accent: París 194,
+  Berlín 65, categórico 58, teología 99, no unaccented forms (it also writes "París" for a
+  printed "Paris" in the bibliography). So phase 3 = fix at the root: where a Paddle word
+  equals a text-layer word on the same page with its accents stripped, take the
+  text-layer form. The dictionary approach is only the fallback for scans with no layer.
+- Score: `tools/epub_score.py REF.epub OURS.epub` (replaces the two scratch scripts).
+  Baseline, `scratch/fixed_philo/book_1-462.epub` vs `test_pdfs/philosophy_epub_good.epub`:
+  words 198574 / 206683, docs 29 / 59, h1 11 / 25, h2 162 / 185, h3 81 / 0, italic
+  2750 / 0, sup 1419 / 689, noteref links 0 / 689, bad headings 2 / 2, straight quotes
+  56 / 467, curly 2423 / 2056, lost accents 136 (64 words), split words 23, words not
+  in the reference 2423. "split words" has some false hits ("restaurar los").
+- Fixed on the way: `import pdf_worker.paddle_ocr` (or `ocr`) failed with a circular
+  import (ocr -> convert -> book_metadata -> find_book -> ocr); `book_metadata` now
+  imports `find_book` inside `_edition`. `scratch/book_build.py` works again.
+
+Second reference book: user to supply a good EPUB of the **same edition** as one of their
+PDFs, ideally with a different note style (endnotes vs footnotes), scanned vs text-layer,
+or another language. Score both books from phase 2 onward so fixes don't overfit.
+Risk: phases 2 and 4 change the core pipeline, so rebuilt books may differ from earlier output.
+
 ## PLAN — start here (written 2026-10-19): make the pipeline work for all books
-State: branch `feature/find-book-review` (6 commits, not merged, not pushed): find-book +
+State: branch `feature/find-book-review` (since merged into main, a4f614e): find-book +
 ebook-to-pdf, bibliography fix, find-book ranking/Elejandría/--url, `pdf-worker review`,
 spelling only on OCR'd text. Fast tests pass (233). Works end to end on Platón,
 philosophy (Paddle scans, review rounds 1-2 merged and rebuilt) and Marianela (Elejandría
@@ -37,7 +95,7 @@ Steps, in order (ask the user before merging the branch):
 6. Merge `feature/find-book-review` into main once the user agrees.
 Not to do: the 1903 Marianela scan (user: the digital version is enough).
 
-## Book metadata from the book itself (2026-10-19, on `main`, not committed)
+## Book metadata from the book itself (2026-10-19, merged: PR #30)
 Asked: PDF metadata is often wrong (Ratzinger's author was "MANUEL", Word's account
 name); find title, author, translator, language, publisher and year in the text.
 User decisions: title in the edition's own language; ISBN lookup on by default with a
