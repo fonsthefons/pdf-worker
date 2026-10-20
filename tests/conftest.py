@@ -14,6 +14,12 @@ def pytest_configure(config: pytest.Config) -> None:
         config.option.basetemp = REPO_ROOT / "scratch" / "pytest"
 
 
+@pytest.fixture(autouse=True)
+def _tesseract_cache_per_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Each test reads with Tesseract afresh, and nothing is written outside the repo.
+    monkeypatch.setenv("PDF_WORKER_TESSERACT_CACHE", str(tmp_path / "tesseract-cache"))
+
+
 @pytest.fixture
 def make_pdf(tmp_path: Path) -> Callable[..., Path]:
     """Build a small PDF where each entry in ``pages`` is that page's text.

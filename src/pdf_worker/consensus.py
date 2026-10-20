@@ -18,7 +18,6 @@ and pages are left as they are.
 import difflib
 import json
 import re
-import subprocess
 import unicodedata
 from collections import Counter
 from collections.abc import Collection
@@ -28,6 +27,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pymupdf
+
+from pdf_worker import tesseract_cache
 
 if TYPE_CHECKING:
     import numpy as np
@@ -257,13 +258,12 @@ def _tesseract_words(gray: "np.ndarray", tesseract: str, language: str) -> list[
     import cv2
 
     ok, png = cv2.imencode(".png", gray)
-    result = subprocess.run(
-        [tesseract, "stdin", "stdout", "-l", language, "--dpi", str(_DPI)],
-        input=png.tobytes() if ok else b"",
-        capture_output=True,
-        check=False,
+    stdout = tesseract_cache.run(
+        tesseract,
+        ["stdin", "stdout", "-l", language, "--dpi", str(_DPI)],
+        png.tobytes() if ok else b"",
     )
-    return _words(result.stdout.decode("utf-8", errors="replace"))
+    return _words(stdout.decode("utf-8", errors="replace"))
 
 
 def _vision_words(gray: "np.ndarray", languages: Collection[str]) -> list[str]:
