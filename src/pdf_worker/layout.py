@@ -74,6 +74,18 @@ class Line:
         return self.bbox[1]
 
     @property
+    def baseline(self) -> float:
+        """Where most of the line's letters sit (``top`` if unknown). Unlike the top, it
+        doesn't move with the fonts a line happens to use, so line gaps are measured on
+        it: fonts drawn from a scan's letter shapes (ClearScan-style) can claim an
+        ascender of 2.4 em, which lifted lines' tops by 11 pt and broke paragraphs."""
+        sitting: Counter[float] = Counter()
+        for span in self.spans:
+            if span["text"].strip() and "origin" in span and not span["flags"] & SUPERSCRIPT:
+                sitting[round(span["origin"][1], 1)] += len(span["text"].strip())
+        return sitting.most_common(1)[0][0] if sitting else self.top
+
+    @property
     def x0(self) -> float:
         return self.bbox[0]
 
@@ -283,7 +295,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
             elif len(text.strip()) >= _MIN_WATERMARK_CHARS:
                 page_inner_texts.add(running_key(text))
             if line_index and lines[line_index - 1].size == line.size:
-                gap = round(line.top - lines[line_index - 1].top, 1)
+                gap = round(line.baseline - lines[line_index - 1].baseline, 1)
                 if 0 < gap < 3 * line.size:
                     gaps[(line.size, gap)] += 1
             if sample_len < _SAMPLE_CHARS and text.strip():

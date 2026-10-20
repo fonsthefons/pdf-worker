@@ -552,7 +552,7 @@ class _State:
         indented = margins.left + 0.8 * size < line.x0 < margins.left + 6 * size
         if not new_page:
             spacing = self.profile.line_spacing * (size / (self.profile.body_size or size))
-            gap = line.top - prev.top
+            gap = line.baseline - prev.baseline
             if gap > spacing * _PARAGRAPH_GAP:
                 return True
             if gap < -spacing * 0.5:
@@ -622,7 +622,12 @@ class _State:
 
 
 def _page_margins(lines: list[BodyLine], body_size: float) -> _Margins:
-    """Typical left edge and right edge of body text on this page."""
+    """Typical left edge and right edge of body text on this page. Where no line is in
+    the book's body size, the page's own size stands in: the Timeo's dialogue is set
+    larger than its long notes, and without margins every line counted as indented."""
+    texts = [bl for bl in lines if bl.text.strip()]
+    if texts and not any(abs(bl.line.size - body_size) < 0.6 for bl in texts):
+        body_size = Counter(bl.line.size for bl in texts).most_common(1)[0][0]
     lefts: Counter[int] = Counter()
     rights: list[float] = []
     for body_line in lines:

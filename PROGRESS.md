@@ -1888,3 +1888,19 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
 - Timeo text now: 323 references (Spanish pages), Spanish runs on across dropped pages.
 - Not done: ClearScan line boxes are irregular (heights 12-26 pt, overlapping), so
   paragraphs break mid-sentence ("causa,\n\npor cierto"); 6085 paragraphs. Next issue.
+
+## Paragraphs in the Timeo (2026-10-20, branch `feature/clearscan-paragraphs`)
+- Two causes (`scratch/baselines.py`, `scratch/para_rules.py`, `scratch/page_blocks.py`):
+  1. ClearScan font Fd1485794 claims ascender 2.37 em, so lines using it got tops 11 pt
+     too high. Baselines are regular (13.7-14.3). `Line.baseline` (most common span
+     origin); paragraph gaps and `line_spacing` now measured on it. (A box clamp at
+     1.2 em above the baseline was tried and dropped: it lost a footnote in an OCR'd
+     scan, `test_scanned_book_footnotes_after_ocr`.)
+  2. Body size is 9.8 (notes and introduction), the dialogue 11: `_page_margins` found
+     no body-size line, gave left = 0, and every line counted as indented, so each
+     was a paragraph. Now the page's own size stands in.
+- Also "(8oc]" (bracket read as parenthesis) is a reference.
+- Dialogue pages 201-350: one paragraph per line before, now 39-97 per 50 pages. Book
+  total 5045: the rest are bibliography, endnotes and index entries (one per entry).
+- Left: running head "INTRODUCCIÓN" kept as a paragraph; the introduction's footnotes
+  aren't found as notes ("Cf. M. Baltes ..." is a paragraph).
