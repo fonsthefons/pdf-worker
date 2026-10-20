@@ -180,6 +180,7 @@ class _EpubBuilder:
         # PDF page index -> [(href, word keys)] of each paragraph's text on it, for index
         # links; keys as sorted crc32s to keep memory small.
         self.words: dict[int, list[tuple[str, array]]] = {}
+        self.word_page = -1  # the page the text being added is on
         self.page_list: list[tuple[int, str, str]] = []  # (page index, label, href)
         self.image_files: list[str] = []  # "images/img3.jpg", in work_dir
         (work_dir / "images").mkdir(exist_ok=True)
@@ -231,7 +232,8 @@ class _EpubBuilder:
                 self.anchors.setdefault(block.page, []).append(
                     (block.top, f"{self.current_file}#{anchor}", key)
                 )
-                self._add_words(block.text, block.page, f"{self.current_file}#{anchor}")
+                self.word_page = block.page
+            self._add_words(block.text, f"{self.current_file}#{anchor}")
             self.parts.append(f'<p id="{anchor}"{css}>{text}</p>\n')
             self.chars += len(block.text)
             if self.chars >= _MAX_CHAPTER_CHARS:
@@ -262,18 +264,20 @@ class _EpubBuilder:
         elif isinstance(block, Note):
             self._add_note(block)
 
-    def _add_words(self, text: str, page: int, href: str) -> None:
-        """Each page's part of a paragraph: from its start, then from each page start."""
+    def _add_words(self, text: str, href: str) -> None:
+        """Each page's part of a paragraph: from its start, then from each page start.
+        A paragraph without a page (the OCR path's) is on the last page started."""
         texts: list[str] = []
-        for piece in [*pieces(text), PageMark(-1, "")]:
+        for piece in [*pieces(text), None]:
             if isinstance(piece, str):
                 texts.append(piece)
-            elif isinstance(piece, PageMark):
+            elif piece is None or isinstance(piece, PageMark):
                 keys = array("I", sorted(zlib.crc32(k.encode()) for k in word_keys("".join(texts))))
-                if keys:
-                    self.words.setdefault(page, []).append((href, keys))
-                texts, page = [], piece.index
-                href = f"{self.current_file}#pg{piece.index}"
+                if keys and self.word_page >= 0:
+                    self.words.setdefault(self.word_page, []).append((href, keys))
+                if piece is not None:
+                    texts, self.word_page = [], piece.index
+                    href = f"{self.current_file}#pg{piece.index}"
 
     # -- notes ------------------------------------------------------------------------
     def _note_id(self, label: str) -> str:

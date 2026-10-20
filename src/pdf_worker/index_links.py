@@ -14,7 +14,19 @@ import unicodedata
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
 
-from pdf_worker.inline import BOLD, END_BOLD, END_ITALIC, ITALIC, PageMark, link, pieces, plain
+from pdf_worker.inline import (
+    BOLD,
+    END_BOLD,
+    END_ITALIC,
+    ITALIC,
+    MARGIN_REF_RE,
+    PAGE_MARK_RE,
+    LinkOpen,
+    PageMark,
+    link,
+    pieces,
+    plain,
+)
 from pdf_worker.structure import Block, Heading, Paragraph
 
 # shortcut: an index runs from its heading to the next heading of the same or higher
@@ -27,6 +39,7 @@ _REF = r"(?<![\w(\-–])\d{1,4}(?:\s?[-–]\s?\d{1,4})?(?:ss|s|n|\*)?(?![\w\-–
 _GROUP_RE = re.compile(rf"(?:[{_S}]*,\s*)?[{_S}]*{_REF}(?:[{_S}]*\s*,\s*[{_S}]*{_REF})*[{_S}]*")
 _FIRST_RE = re.compile(rf"{_REF}")
 _STYLES_RE = re.compile(f"[{_S}]")
+_MARKER_RE = re.compile(f"{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern}")
 _WORD_RE = re.compile(r"[^\W\d_]+")
 _MIN_WORD, _MAX_WORD = 4, 6  # headword prefixes compared: "Idealismo" ~ "idealista"
 
@@ -77,8 +90,14 @@ def link_index(blocks: Iterable[Block]) -> Iterator[Block]:
 
 
 def _linked(text: str, pages: dict[str, int]) -> str:
+    if any(isinstance(piece, LinkOpen) for piece in pieces(text)):
+        return text  # linked in the PDF already
+    # Page marks and margin references hold digits of their own.
+    markers = [m.span() for m in _MARKER_RE.finditer(text)]
     out, last, headword = [], 0, ""
     for group in _GROUP_RE.finditer(text):
+        if any(start < group.end() and group.start() < end for start, end in markers):
+            continue
         firsts = [re.match(r"\d+", ref[0])[0] for ref in _FIRST_RE.finditer(group[0])]
         if not all(n in pages for n in firsts):
             continue
