@@ -20,6 +20,7 @@ from pdf_worker.epub import write_epub
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.fixes import Review, default_fixes_path, read_fixes, write_fixes
 from pdf_worker.html_export import write_html
+from pdf_worker.index_links import link_index
 from pdf_worker.inline import MARGIN_REF_RE
 from pdf_worker.layout import analyze_document
 from pdf_worker.markdown_export import write_markdown
@@ -183,6 +184,8 @@ def convert_pdf(
         blocks = tidy(review.apply(blocks))
         if notes_at == "none":
             blocks = drop_notes(blocks)
+        if fmt in ("epub", "html", "pdf"):
+            blocks = link_index(blocks)
         if fmt == "epub":
             stats = write_epub(blocks, output_path, meta, cover=cover_jpeg(meta) if cover else None)
         elif fmt == "pdf":

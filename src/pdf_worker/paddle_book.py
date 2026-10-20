@@ -12,7 +12,9 @@ Notes are labelled per part (``c<part>-<n>``): a count that starts again from 1 
 introduction's notes, then the dialogue's) is a new part, as in the printed book.
 """
 
+import bisect
 import contextlib
+import math
 import re
 import unicodedata
 from collections import Counter
@@ -23,6 +25,7 @@ import pymupdf
 from pdf_worker import missing_refs, styles
 from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
+from pdf_worker.layout import _roman
 from pdf_worker.margin_refs import assign_labels
 from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
@@ -110,6 +113,29 @@ def spanish_letters(text: str) -> str:
     return _VIETNAMESE_RE.sub(fix, text)
 
 
+def printed_labels(readings: list[tuple[int, str]]) -> dict[int, str]:
+    """Each page's printed number from Paddle's ``(page, reading)``, in page order. A
+    reading counts when the reading before or after agrees with it; other pages (chapter
+    openings print none, some are misread) count on from the last one that counts.
+    Pages before printed page 1 get lower-case Roman numerals."""
+    numbers = [(page, int(n)) for page, n in readings if n.isdigit()]
+    agreed = [
+        (page, n)
+        for k, (page, n) in enumerate(numbers)
+        if any(
+            0 <= j < len(numbers) and numbers[j][1] - n == numbers[j][0] - page
+            for j in (k - 1, k + 1)
+        )
+    ]
+    labels = {}
+    for page, _ in readings:
+        k = bisect.bisect_right(agreed, (page, math.inf)) - 1
+        known, n = agreed[max(k, 0)] if agreed else (page, page + 1)
+        number = n + page - known
+        labels[page] = str(number) if number >= 1 else _roman(page + 1).lower()
+    return labels
+
+
 def text_sample(rows: list[dict]) -> str:
     return " ".join(b.get("text", "") for row in rows for b in row["blocks"])[:20_000]
 
@@ -143,15 +169,18 @@ def iter_paddle_blocks(
     last_note, last_open = None, False
     printed = None  # the previous page's printed number
     front = True
+    rows = sorted(rows, key=lambda r: r["page"])
+    numbers = [
+        next((b["text"].strip() for b in row["blocks"] if b.get("label") == "number"), "")
+        for row in rows
+    ]
+    labels = printed_labels([(row["page"], n) for row, n in zip(rows, numbers, strict=True)])
     try:
-        for done, row in enumerate(sorted(rows, key=lambda r: r["page"])):
+        for done, (row, number) in enumerate(zip(rows, numbers, strict=True)):
             if on_page:
                 on_page(done, len(rows))
             page = doc.load_page(row["page"])
-            number = next(
-                (b["text"].strip() for b in row["blocks"] if b.get("label") == "number"), ""
-            )
-            label = number if number.isdigit() else str(row["page"] + 1)
+            label = labels[row["page"]]
             mark = page_mark(row["page"], label)
             if front:
                 words = sum(

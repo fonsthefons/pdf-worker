@@ -1,6 +1,6 @@
 # Progress
 
-## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-4 done, next: phase 5, discuss first)
+## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-5 done; next: Tesseract cache, find_book CCEL + Cervantes)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
 PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not
 in one writer. One PR per phase; run the reference score after each.
@@ -136,6 +136,26 @@ Phase 4 results (2026-10-19, branch `feature/epub-quality-4`):
 - Trade-off: EPUB/PDF numbers no longer match the printed book; cite by page.
 - Tests: fast 257, full 274 pass. Built `scratch/phase4_philo/`; check with
   `scratch/phase4_check.py EPUB PDF`.
+
+Phase 5 results (2026-10-20, branch `feature/epub-quality-5`):
+- User decided: index links go to the word on the printed page, else the page top; no
+  "véase" links; the index shows no page numbers in EPUB, HTML and PDF, only numbered
+  marks per entry ("Kant [1] [2] [3]"); the reflowed PDF shows its own page numbers only.
+- Page labels (Paddle path): pages without a printed number took index + 1 (39 of 461
+  wrong, labels 1-5 used twice). `paddle_book.printed_labels`: a reading counts when a
+  neighbouring reading agrees; other pages count on from the last one that counts (scan
+  gaps keep working); before printed page 1, Roman numerals. Now all 461 = index + 5.
+- `index_links.link_index` (EPUB/HTML/PDF only; txt/md/docx keep the numbers): from an
+  "Índice"/"Index" heading to the next heading of the same level, page groups become
+  numbered link marks with target `w:<page>:<headword key>`. Digits inside page marks and
+  margin refs are skipped; an index already linked in the PDF is left alone. The EPUB
+  keeps per page the word keys (4-6 letter prefixes, crc32 in sorted arrays) of each
+  paragraph part and links to the first that has the entry's headword.
+- Philosophy: 4634 index links, 2470 to the paragraph with the word, 2164 to the page top,
+  0 broken; 24 numbers left plain (years in the bibliography, groups with a misread number).
+  Score as phase 4 except words not in reference 2384 -> 2282. XHTML 0 errors.
+- Builds are slow (~12 min EPUB, ~40 with PDF): Tesseract runs again on every page; Paddle
+  is cached. Next: cache Tesseract per page (user asked for it).
 
 Second reference book: user to supply a good EPUB of the **same edition** as one of their
 PDFs, ideally with a different note style (endnotes vs footnotes), scanned vs text-layer,
