@@ -1829,9 +1829,13 @@ long Greek paragraphs dropped in bilingual books only, listed in the review file
 - `bilingual.facing_pages`: a page of 40+ words with 60%+ Greek letters is a facing page,
   no neighbours needed (Timeo-Platón's split words left its Spanish pages at 0.16-0.24
   stopwords, under the 0.25 the old test needs: 42 Greek pages were kept).
-- `bilingual.drop_greek` (bilingual books): paragraphs of 15+ words, 60%+ Greek letters,
+- `bilingual.drop_greek` (bilingual books): paragraphs of 15+ words, 90%+ Greek letters,
   are left out (their page marks go to the next block); `Review.left_out` lists them as
-  `greek-dropped` rows, action `ignore`, status `dropped`.
+  `greek-dropped` rows, action `ignore`, status `dropped`. At 60% it dropped a
+  bibliography entry with a Greek title (Timeo-Platón p146, 0.8).
+- Rebuilds: Timeo_by_Platón 71 s (749 notes, 104 facing pages, unchanged); Timeo-Platón
+  103 s, was 327 s (104 facing pages, was 62; 0 paragraphs dropped). Pages still mostly
+  Greek in its output: 3, the variants table of the "Nota al texto" (kept on purpose).
 
 ## Philosophy EPUB vs reference (2026-10-19)
 User added `test_pdfs/philosophy_epub_good.epub`. Compared with `scratch/philo/book_1-462.epub`
