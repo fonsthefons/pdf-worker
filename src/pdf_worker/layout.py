@@ -13,6 +13,7 @@ import pymupdf
 from pdf_worker.bilingual import apply_words, page_words
 from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
+from pdf_worker.font_sizes import same_leading_sizes, sizes_by_leading
 from pdf_worker.margin_refs import apply_marks, has_bracketed, in_book, page_marks
 
 # Text-only extraction flags: never decode images (scanned books would bloat memory).
@@ -101,8 +102,9 @@ class Line:
 
 def page_lines(page: pymupdf.Page) -> list[Line]:
     """All text lines of a page in MuPDF reading order, with OCR fixes from
-    ``pdf_worker.consensus``, re-read words (``pdf_worker.bilingual``) and stored margin
-    references (``pdf_worker.margin_refs``) applied."""
+    ``pdf_worker.consensus``, re-read words (``pdf_worker.bilingual``), stored margin
+    references (``pdf_worker.margin_refs``) applied, and sizes evened out by leading
+    where the fonts misreport them (``pdf_worker.font_sizes``)."""
     fixes = page_fixes(page)
     marks = page_marks(page)
     words = page_words(page)
@@ -121,7 +123,8 @@ def page_lines(page: pymupdf.Page) -> list[Line]:
                 sizes[round(span["size"], 1)] += len(span["text"].strip())
             size = sizes.most_common(1)[0][0] if sizes else 0.0
             lines.append(Line(spans=spans, size=size, bbox=ink_bbox(spans, line["bbox"])))
-    return lines
+    table = sizes_by_leading(page.parent)
+    return same_leading_sizes(lines, table) if table else lines
 
 
 def ink_bbox(spans: tuple[dict, ...], fallback) -> tuple[float, float, float, float]:

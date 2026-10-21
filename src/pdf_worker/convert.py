@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pymupdf
 
-from pdf_worker import bilingual, book_metadata, margin_estimates
+from pdf_worker import bilingual, book_metadata, font_sizes, margin_estimates
 from pdf_worker.cover import cover_jpeg
 from pdf_worker.document import open_pdf
 from pdf_worker.docx_export import write_docx
@@ -170,6 +170,7 @@ def convert_pdf(
                 margin_refs=margin_refs,
             )
         else:
+            font_sizes.mark_misreporting(doc)
             language, facing = bilingual.facing_pages(doc)
             reread = _reread_words(doc, language, facing)
             profile = analyze_document(doc)
