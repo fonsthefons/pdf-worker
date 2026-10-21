@@ -6,8 +6,8 @@ by a Latin-script OCR reads the Greek as look-alikes ("ἔμφρονος" -> "e�
 
 The book is converted in its own language: a page that doesn't read as it, between two
 that do, or one set mostly in Greek letters, is a facing page and is left out
-(``facing_pages``); so is a long Greek paragraph on the other pages (``drop_greek``,
-bilingual books only: elsewhere a Greek quotation is the author's). Quoted words that look
+(``facing_pages``); so is a Greek paragraph on the other pages, in any book
+(``drop_greek``; a few Greek words quoted in a sentence stay). Quoted words that look
 garbled are read again, their line at a time, with Tesseract in Greek and in the book's
 language (as ``pdf_worker.mixed_script`` does): a confident Greek reading replaces the
 token, else a confident reading in the book's language ("Ref>ública" -> "República").
@@ -39,16 +39,19 @@ _WORD_RE = re.compile(r"[^\W\d_]+")
 # NATIVE it is in the book's (Spanish pages 0.25-0.37, Greek read as Latin 0.00-0.09).
 _FOREIGN, _NATIVE = 0.15, 0.25
 _MIN_WORDS = 40
-_MIN_FACING = 10  # facing pages a bilingual edition has at least
+_MIN_FACING = 4  # facing pages a bilingual edition has at least
 # A token that looks like Greek read as Latin: odd signs, digits or case flips inside.
 _ODD_RE = re.compile(r"[µ<>!_|{}\\$%&*+=~^;]")
 _DIGIT_IN_WORD_RE = re.compile(r"[^\W\d_]\d+[^\W\d_]")
 _CASE_FLIP_RE = re.compile(r"[a-zß-ÿ][A-Z]")
 _EDGES = "()[]«»¿?¡!.,;:'\"’‘“”-—–•*"
 _GREEK_SHARE = 0.6
-_MIN_GREEK_WORDS = 15  # a Greek paragraph dropped; shorter ones are quotations
-# Greek pages are 0.94-0.99 Greek letters; a bibliography entry with a Greek title, 0.8.
+# A paragraph this much in Greek letters is Greek (Greek pages are 0.94-0.99); from the
+# lower share it is too when it has next to none of the book's words: the rest is Greek
+# read as Latin ("TTOU TWV χθὲς μὲν", 0.17-0.84). So is a bibliography entry with a
+# Greek title (0.8), which goes too.
 _GREEK_PARAGRAPH_SHARE = 0.9
+_MIXED_GREEK_SHARE = 0.15
 _MIN_GREEK_CONF, _MIN_NATIVE_CONF = 60, 85
 
 
@@ -99,26 +102,64 @@ def facing_pages(doc: pymupdf.Document) -> tuple[str, set[int]]:
     return language, facing if len(facing) >= _MIN_FACING else set()
 
 
-def drop_greek(blocks: Iterable["Block"], dropped: list["Paragraph"]) -> Iterator["Block"]:
-    """Leave out paragraphs of ``_MIN_GREEK_WORDS`` or more words, nearly all in Greek
-    letters, appending them to ``dropped``. Their page marks go on to the next block."""
+def drop_greek(
+    blocks: Iterable["Block"], dropped: list["Paragraph"], language: str
+) -> Iterator["Block"]:
+    """Leave out Greek paragraphs, appending them to ``dropped``: nearly all in Greek
+    letters, or partly (the rest Greek read as Latin) with next to none of the words of
+    the book's ``language``. A paragraph with neither, between two Greek ones, is Greek
+    read as Latin throughout ("av É KWV Tᰶ08E"): left out too. Page marks go on to the
+    next block."""
     from pdf_worker.structure import Heading, Note, Paragraph  # it imports layout, which imports us
 
-    marks = ""
-    for block in blocks:
-        if isinstance(block, Paragraph):
-            text = plain(block.text)
-            if (
-                len(text.split()) >= _MIN_GREEK_WORDS
-                and _greek_share(text) >= _GREEK_PARAGRAPH_SHARE
-            ):
-                dropped.append(block)
-                marks += "".join(m.group() for m in PAGE_MARK_RE.finditer(block.text))
-                continue
+    marks, held, after_greek = "", None, False
+
+    def drop(block: "Paragraph") -> None:
+        nonlocal marks
+        dropped.append(block)
+        marks += "".join(m.group() for m in PAGE_MARK_RE.finditer(block.text))
+
+    def keep(block: "Block") -> "Block":
+        nonlocal marks
         if marks and isinstance(block, Heading | Paragraph | Note):
-            block = replace(block, text=marks + block.text)
-            marks = ""
-        yield block
+            block, marks = replace(block, text=marks + block.text), ""
+        return block
+
+    for block in blocks:
+        kind = (
+            _paragraph_kind(plain(block.text), language) if isinstance(block, Paragraph) else None
+        )
+        if held is not None:
+            if kind == "greek":
+                drop(held)
+            else:
+                yield keep(held)
+                after_greek = False
+            held = None
+        if kind == "greek":
+            drop(block)
+            after_greek = True
+        elif kind == "foreign" and after_greek:
+            held = block  # Greek if the next paragraph is
+        else:
+            after_greek = False
+            yield keep(block)
+    if held is not None:
+        yield keep(held)
+
+
+def _paragraph_kind(text: str, language: str) -> str | None:
+    """ "greek", "foreign" (none of ``language``'s words, no Greek letters) or None."""
+    from pdf_worker.convert import stopword_scores
+
+    words = _WORD_RE.findall(text)
+    if not words:
+        return None
+    greek = _greek_share(text)
+    native = stopword_scores(text).get(language, 0) >= _FOREIGN * len(words)
+    if greek >= _GREEK_PARAGRAPH_SHARE or (greek >= _MIXED_GREEK_SHARE and not native):
+        return "greek"
+    return "foreign" if not native and not greek else None
 
 
 def suspect(token: str) -> bool:

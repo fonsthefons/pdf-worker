@@ -2007,3 +2007,164 @@ Next from the list if wanted: Google Books (user key), Documenta Catholica Omnia
 - Loose files in the repo root ("El Timeo (La Atlántida).epub", "Platon - Timeo.pdf",
   "Recursos Electrónicos Acceso Libre.pdf") moved to `test_pdfs/`.
 - Left for the user: `.claude/settings.json.bak` (a settings backup, not ours to drop).
+
+## Timeo step by step: test_timeo_1_bad.pdf (2026-10-21, uncommitted on feature/progress-greek)
+- 2-page sample (Greek p168 + Spanish p169). Output: `scratch/timeo1/timeo1.reflowed.pdf`.
+- Fixed: hanging indents (turn at the margin, other lines indented) made every line a
+  paragraph (58 -> 33). `structure._hanging` detects them per page; `_starts_paragraph`
+  then breaks at margin lines. Test: `test_hanging_indents_start_paragraphs_at_the_margin`.
+- Fixed: a paragraph split at "los que quedamos": the leading table had 13.5 pt -> 7.7
+  (scan jitter puts a few body lines 13.5 apart, and those few were in mis-scaled fonts).
+  `font_sizes.leading_table` now takes each leading's median with the leadings a step
+  either side. Test: `test_a_leading_of_few_lines_takes_the_size_of_the_leadings_beside_it`.
+- Fixed: page margin split across two 3-pt buckets (turns at x 51.6-54.4) gave left=69,
+  so the Greek page's last paragraph ran into the first Spanish turn. `_page_margins`
+  counts each bucket with its neighbours.
+- User: "drop greek paragraphs always, I don't care the amount". `drop_greek` now runs on
+  every book, any length: a paragraph >= 0.9 Greek letters, or >= 0.15 with under 0.15
+  of the book's stopwords (Greek read partly as Latin), or one with no Greek and no
+  stopwords between two Greek ones. A bibliography entry with a Greek title goes too.
+  Sample: the whole Greek page goes (25 rows `greek-dropped`).
+- User: references with no note get one reading "no footnote content found".
+  `footnotes._render_line` marks an unmatched superscript marker `[^pN-M]` (not after a
+  word of 1-2 letters: exponents "m²"); `layout_page` adds the note. Excerpts (< 10
+  pages): glued refs need a run of 2/page (min 4), from any number
+  (`glued_refs._runs_from_anywhere`).
+- User: notes 2-10 as printed. `glued_refs._missing`: for each run, the numbers it skips
+  are looked for only where they must be (between the two found around them; before the
+  first / after the last, to that page's top / foot), only that number, and only in a
+  reference's shape (`_number_re`): glued to a word's end with misread digits ("'º" =
+  10: ' ’ ‘ ´ ` | for 1, º ° for 0; a quote alone rejected), or apart but before
+  punctuation ("tres . . . 2 ,"; "los 4 hombres" rejected). Stored as a 5-item box with
+  the number; `apply_refs` writes it a digit a character. Unmatched references are
+  labelled `oN-M`; `epub._number` shows the printed number for `c`/`o`/numeric labels,
+  1-N only for page footnotes (`p`, often 1 again each page). Sample: notes 2-10.
+- test_timeo_2_bad.pdf (13 pages: Greek/Spanish 168-177, notes 1-46). Output:
+  `scratch/timeo2/timeo2.reflowed.pdf` (+ `.md`). References 2-36 all found; 33 paired
+  with their notes (see Result).
+  - User: the samples are parts of the book to test on; no excerpt-only path. One rule
+    for any document: glued-ref runs and the lossy note pairing start at any number
+    (`endnotes.runs_from_anywhere`; OCR loses note 1 as any other), and are trusted
+    from `endnotes.lossy_min_run(pages)` = 2 a page, 4 to 20 (a whole book: 20 as
+    before; "Page 1 .. Page 4" on 4 pages aren't refs). Lossy pairing: a run also fits
+    a group that holds its numbers (last refs or notes may be lost).
+  - User: don't rebuild the whole book as a check for now. Not done since this change.
+  - User's clue: notes 17, 18, 19 found -> a reference 18 the text lacks is there:
+    between the references found around it, one sign group glued to a word ("'3") is
+    taken (`glued_refs._missing(noted=...)`, `_note_numbers`, `_misread_re`). Exact
+    shapes are placed first, so misread ones search only between found neighbours.
+  - Mirror: notes whose hung number is misread ("n" 11, "1+" 14) fill a group's gap
+    when as many hung marks lie between its neighbours (`layout.hung_mark`,
+    `endnotes._fill_gaps`).
+  - Notes of the notes section no reference points to are left out
+    (`convert._referenced_notes`; still listed as note-no-ref in the review file).
+  - `bilingual._MIN_FACING` 10 -> 4: the excerpt's 5 Greek pages dropped.
+  - `structure._running_heads`: a line is on the page number's row by baseline (the
+    misreported fonts' tall boxes made the first text lines of pp. 173, 177 "heads").
+  - A misread number starting the note's line ("3.¡. Así pues" for 34) is a mark too
+    (`layout.NOTE_MARK_RE`); `footnotes.layout_page` strips it from the note.
+  - Result: references 2-36 found, all 35 paired with their note. Left (user: not now):
+    note lines out of order on the notes pages (MuPDF order:
+    note 13 before 11, a note's lines swapped); note 1 has no number (shown as text).
+- Samples compared (`scratch/compare_samples.py`): timeo1's 278 words and 12 paragraphs
+  are timeo2's first ones; references 2-10 the same; only the notes' text differs
+  (placeholder vs the real note).
+- dilexit_nos.pdf (born digital, Chrome print of vatican.va, 69 pages): 227 references
+  and 227 notes, all linked. Fixed: a [n] note whose first line ends short ("...2016):")
+  lost its next line to the text (17 lines): `structure._add_line` keeps lines of the
+  note's size in it. Left: the site header (top of p1, last in MuPDF order) comes out
+  mid-text as a heading "La SANTA SEDE" + "FRANCISCO ENCÍCLICAS ESPAÑOL", and the footer
+  (Copyright, FAQ, NOTAS LEGALES ...) at the end; "I." apart from its heading; italics
+  (Rm, Jn) lost; "persona. [^3]" keeps a space.
+- Italics in dilexit_nos: Chrome (Skia) wrote the text in 23 unnamed Type3 fonts, no
+  italic flag; italic only in the glyph shapes. Idea parked (user: "not for now"): a
+  `convert` route from HTML/URL (stdlib html.parser + urllib), main-text and note
+  detection, starting with vatican.va.
+- Misread bracketed Stephanus refs recovered before estimating
+  (`margin_estimates.recover_margin_refs`, run in `convert` for `bracketed_refs` books):
+  between two found labels with some missing (18d .. 19c), a bracket-like token
+  ("b8e]", "[Iga]", "[˒oa]") whose sign-for-sign reading (OCR_DIGITS) is one sign off a
+  missing label, same letter, takes it, in order. timeo2: 18e, 19a, 19b, 20a recovered;
+  17e has no trace in the text (still missing). Test:
+  `test_bracketed_references_misread_between_two_found_ones_are_recovered`.
+- Space before punctuation ("Claro que sí , como") is in the OCR text layer itself.
+  `tidy` now drops it before `, . ; : ) ? !` (French keeps it before `; : ? !`; a
+  spaced ellipsis ". . ." stays). `tidy(blocks, language)`; test
+  `test_a_space_before_punctuation_goes`. timeo2: none left.
+- "propósito36• CRITIAS.-Es" ran on: on a page of long speeches (2 turns in 33 lines)
+  the margin is the indent (x 63) and the page isn't hanging, so the turn at x 48 stuck
+  out unnoticed. `_starts_paragraph` now breaks at an outdented line when: out by
+  0.8-4 ems, the margin seen on >= 5 lines (`_Margins.support`), body size, starts
+  with a capital/digit/quote/dash, and the line before ends a sentence or the line is
+  a turn (`_TURN_RE`, "CRITIAS.-"). "•" counts as a full stop. Book-wide recurrence
+  of the outdent position (user's option 4) left out until a full-book check shows
+  stray breaks. timeo2: 37 -> 38 paragraphs, only CRITIAS. Test
+  `test_a_line_left_of_the_margin_starts_a_turn`.
+- One font, one size (user, 2026-10-21): the reflowed PDF is all Charis SIL. Notes
+  11pt like the body (were 9pt); headings, cover in the body font (were sans), bigger
+  and bold; margin labels (bold 7.5, green/pink) and page numbers (9) in Charis via
+  `insert_htmlbox` (`_write_line`; pymupdf can't name Charis for `insert_text`). "↩"
+  (not in Charis, fell back to Noto Sans Math) is "↑" in the PDF. EPUB/HTML: small
+  print and glosses at body size. Speaker names read from small caps ("SócRATES")
+  left as read (user). "SócRATES" was never a size change, only OCR casing.
+
+### test_timeo_3_bad.pdf (38 pages, 2026-10-21)
+- Notes 2-24 lost: a stray superscript "111" read on the 2nd notes page joined the
+  reference run (101 -> 111), and notes before the run's last item were dropped.
+  `endnotes._refs_end`: the run ends where the most of its numbers have their note
+  after it. Test `test_a_stray_superscript_among_the_notes_does_not_end_the_references_there`.
+- Glued refs misread further (`glued_refs`, a 3rd pass in a gap): signs read as
+  digits only where one fits a missing number alone, with a real digit in it: "s" 5
+  ("descritos6" -> descrito⁵⁶), "+" 4 ("9+"), 3/8 confused ("³0" -> 80, "3'" -> 81);
+  "-" may follow a reference ("vejez38-", "usémoslo1º2-"). 44 ("libré4") and 57
+  ("fulminados?") stay lost. Test `test_references_misread_further_are_found_where_only_they_fit`.
+- Bracketed labels: `[22h]` (one sign off, letter too), `[2 5c]`/`[24_.e]` (spaces,
+  stray marks dropped), `[23el` (closing bracket read "l", "1" after OCR_DIGITS).
+  Left: 17e (not printed), 21a ("bua]"); 27d/28a/28b after the last found label.
+- Note lines each a paragraph: notes read 5.8 pt but 9.3 apart, while the gap test
+  scaled the body's spacing (12.1 at 10.1 pt) to 7. `DocumentProfile.size_spacing`:
+  each frequent size's own median gap. timeo3 63 -> 52 paragraphs; timeo2 38 and
+  dilexit 227 notes unchanged.
+- Timeo_by_Platón_no_intro.pdf (261 pages, built by the user, 30 s for md). Against
+  the old full-book build on printed pages 169-424: margin-missing 33 -> 17,
+  note-no-ref 168 -> 59, ref-no-note 1 -> 2 (62, 506: not checked). Orphan references
+  ("no footnote content found") were silently dropped numbers before (459 is simply
+  missing from the old PDF). Two fixes, references matched 691 -> 744, orphans 81 -> 45:
+  - Notes' numbers misread on the notes pages (".i,57", "H7", "4-54-", "lllll" for
+    457, 447, 454, 122): at the page's number column (`layout._at_numbers`: the left
+    edge, the median line a column further in) a first token of up to 6 signs with a
+    digit is a mark (`LOOSE_NOTE_MARK_RE`; hung alone, up to 6 signs). Marks carry
+    their reading; `endnotes._fill_gaps` fills by count, then by last digits (only
+    when one missing number fits), then by count again. footnotes strips the mark.
+  - References read past any reading ("mundo\"9•", "posible111º", "entonces1111",
+    "concierto1112" for 119-122): `glued_refs._missing` counts glued signs (a digit
+    among them) in a gap of at most 6 missing numbers; as many as missing: those, in
+    order. A straight `"` may now precede a glued reference.
+  - Tests: `test_misread_note_numbers_fill_by_their_last_digits_then_by_count`,
+    `test_references_read_past_reading_are_counted_into_their_gap`,
+    `test_a_note_number_misread_with_letters_is_a_mark_only_at_the_numbers`.
+    timeo2 35/35, timeo3 99 (44, 57 lost), dilexit 227 notes: unchanged.
+- "Note 331" (review row `note-no-ref 331 o168-1`): the running head "331" had its
+  last digit flagged superscript, so a reference "1" got a stand-in note; the page
+  number was dropped, the stand-in stayed. `_referenced_notes` now drops unreferenced
+  `o…` notes too; review: an `o…` reference is `ref-no-note` (orphans were not counted
+  before), an `o…` note never `note-no-ref`. no-intro: notes 789 -> 786; review now
+  ref-no-note 46, note-no-ref 56 open (13 stale). Single-digit orphans left in the
+  text (o38-1, o74-6, o204-8...) are likely stray superscripts, not references.
+- Calibre comparison (user asked; /Applications/calibre.app/.../ebook-convert,
+  defaults; scratch/calibre/, `compare_epubs.py`). no-intro Timeo, ours vs Calibre:
+  paragraphs 1236 vs 7476 (one per printed line), words 60k vs 97k (Calibre keeps the
+  104 Greek pages as OCR garbage: "Kal" 772, "µ" 3951; ours 0), note links 2365 vs 0,
+  heads/page numbers left 17 vs 71, paragraphs cut mid-sentence 108 vs 4565. Calibre
+  20 s, ours 30 s. Calibre keeps raw OCR ("posible111º", "[3ob", "abso lutamente").
+- EPUB Stephanus labels easier to find on Kindle (user chose: brackets, full size,
+  sans-serif): `[30b]` as text in the span (Kindle may drop styling), a space after it
+  (padding is ignored), CSS sans-serif bold 0.95em, green kept. The PDF strips the
+  brackets for its margin labels. Not yet checked on a Kindle.
+- Remaining: note lines out of order on notes pages (MuPDF order, user: later);
+  note 1 unnumbered so its text runs on after the last paragraph with "por Luc
+  Brisson •" (running head of the notes pages); "TIMED" running head; speaker
+  garbles "CRIT . .:.\_Escucha", "CRIT . ....:Considera".
+- Seen, not fixed yet: running head "TIMED" kept; "[17a]" read "b7a]" (lost);
+  note refs stay digits ("cuarto3": the notes are not in the sample); speaker names
+  misread ("SOc.", "TrM."); "-" not turned into "—".

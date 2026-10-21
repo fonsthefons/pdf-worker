@@ -57,7 +57,9 @@ def sizes_by_leading(doc: pymupdf.Document) -> dict[float, float] | None:
 
 def leading_table(doc: pymupdf.Document) -> dict[float, float]:
     """For each leading of the book (to ``_GAP_STEP``), the median size of the lines set
-    with it, by characters: one size for the whole book, as a page's own fonts drift."""
+    with it or a step either side, by characters: one size for the whole book, as a
+    page's own fonts drift. A scan's baselines jitter (14 pt body lines 13.6 apart), and
+    a leading of few lines alone took the size of whichever fonts set them."""
     from pdf_worker.layout import page_lines
 
     sizes: dict[float, list[float]] = defaultdict(list)
@@ -67,7 +69,14 @@ def leading_table(doc: pymupdf.Document) -> dict[float, float]:
             gap = _leading(line, lines)
             if gap is not None:
                 sizes[_key(gap)].extend([line.size] * max(1, len(line.text.strip())))
-    return {gap: round(statistics.median(s), 1) for gap, s in sizes.items() if s}
+    return {
+        gap: round(
+            statistics.median(sizes.get(gap - _GAP_STEP, []) + s + sizes.get(gap + _GAP_STEP, [])),
+            1,
+        )
+        for gap, s in sizes.items()
+        if s
+    }
 
 
 def misreports(doc: pymupdf.Document) -> bool:

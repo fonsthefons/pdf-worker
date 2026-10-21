@@ -22,6 +22,8 @@ from dataclasses import dataclass
 import pymupdf
 
 from pdf_worker.layout import (
+    LOOSE_NOTE_MARK_RE,
+    NOTE_MARK_RE,
     PAGE_NUMBER_RE,
     SUPERSCRIPT,
     DocumentProfile,
@@ -37,6 +39,7 @@ SMALL_RATIO = 0.92
 # Footnote regions must start in the lower part of the page.
 _REGION_MIN_TOP = 0.4
 CONTINUED = "(continued) "
+NO_NOTE_TEXT = "no footnote content found"  # the note of a reference whose note wasn't found
 # Highest note number trusted when the marker looks like ordinary text.
 _MAX_PLAIN_MARKER = 30
 
@@ -82,8 +85,9 @@ class RenderedPage:
 
 
 def display_marker(label: str) -> str:
-    """The marker a reader sees: ``p12-1`` / ``c3-1`` -> ``1``; endnote ``31`` -> ``31``."""
-    if label[:1] in ("p", "c") and "-" in label:
+    """The marker a reader sees: ``p12-1`` / ``c3-1`` / ``o12-1`` (a reference whose
+    note wasn't found) -> ``1``; endnote ``31`` -> ``31``."""
+    if label[:1] in ("p", "c", "o") and "-" in label:
         return label.split("-", 1)[1]
     return label
 
@@ -123,13 +127,23 @@ def layout_page(
             if hung and hung[1] != line_index and (page_index, hung[1]) in chapter_notes.defs:
                 continue  # a note's number hung beside its first line, which takes it
         chapter_refs = chapter_notes.refs.get((page_index, line_index), {})
-        text = _render_line(line, marker_labels, references, chapter_refs)
+        # Outside the notes pages, a reference without its note still gets one.
+        prefix = None if page_index in chapter_notes.note_pages else f"o{page_index + 1}-"
+        text = _render_line(line, marker_labels, references, chapter_refs, prefix)
         chapter_def = chapter_notes.defs.get((page_index, line_index))
         if chapter_def:
             definitions.append(chapter_def)
+            number = rf"^\s*{display_marker(chapter_def)}\.?\s*"
+            # Its number, or the misread mark taken for it ("3.¡." for 34, ".i,57").
+            mark = NOTE_MARK_RE if NOTE_MARK_RE.match(text) else LOOSE_NOTE_MARK_RE
+            text = (
+                re.sub(number, "", text, count=1)
+                if re.match(number, text)
+                else mark.sub("", text, count=1)
+            )
             body.append(
                 BodyLine(
-                    text=re.sub(rf"^\s*{display_marker(chapter_def)}\.?\s*", "", text, count=1),
+                    text=text,
                     line=line,
                     endnote_label=chapter_def,
                 )
@@ -140,12 +154,18 @@ def layout_page(
             definitions.append(endnote)
         text = _render_brackets(text, profile, references)
         body.append(BodyLine(text=text, line=line, endnote_label=endnote))
+    trailing = notes[-1][0] if notes else None
+    found = {label for label, _ in notes}
+    for label in dict.fromkeys(marker_labels.values()):
+        if label not in found and label in references:
+            notes.append((label, [NO_NOTE_TEXT]))
+            definitions.append(label)
     return PageLayout(
         lines=tuple(body),
         notes=tuple((label, tuple(texts)) for label, texts in notes),
         definitions=tuple(definitions),
         references=tuple(references),
-        trailing_label=notes[-1][0] if notes else None,
+        trailing_label=trailing,
     )
 
 
@@ -376,8 +396,12 @@ def _render_line(
     marker_labels: dict[str, str],
     references: list[str],
     chapter_refs: dict[int, str] | None = None,
+    orphan_prefix: str | None = None,
 ) -> str:
-    if not marker_labels and not chapter_refs:
+    """A line's text with its note references marked. With ``orphan_prefix``, a
+    superscript marker matching no note is marked too, labelled with the prefix, and
+    added to ``marker_labels``."""
+    if not marker_labels and not chapter_refs and orphan_prefix is None:
         return "".join(span_text(span) for span in line.spans)
     parts: list[str] = []
     for span_index, span in enumerate(line.spans):
@@ -395,6 +419,12 @@ def _render_line(
             continue
         if span["flags"] & SUPERSCRIPT and _MARKER_LIST_RE.match(stripped):
             markers = [m.strip() for m in stripped.split(",")]
+            before = "".join(parts).split()[-1:]
+            # An exponent ("m²", "x³") follows a word of a letter or two; a reference doesn't.
+            exponent = bool(before) and before[0].isalpha() and len(before[0]) <= 2
+            if orphan_prefix is not None and not exponent:
+                for marker in markers:
+                    marker_labels.setdefault(marker, f"{orphan_prefix}{marker}")
             if all(m in marker_labels for m in markers):
                 while parts and not parts[-1].strip():
                     parts.pop()

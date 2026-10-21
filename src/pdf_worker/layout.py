@@ -5,6 +5,7 @@ sample), never the document text, so it is safe on huge PDFs.
 """
 
 import re
+import statistics
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ import pymupdf
 
 from pdf_worker.bilingual import apply_words, page_words
 from pdf_worker.consensus import apply_fixes, page_fixes
-from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
+from pdf_worker.endnotes import ChapterNotes, lossy_min_run, match_chapter_notes
 from pdf_worker.font_sizes import same_leading_sizes, sizes_by_leading
 from pdf_worker.glued_refs import apply_refs, page_refs
 from pdf_worker.margin_refs import OCR_DIGITS, apply_marks, has_bracketed, in_book, page_marks
@@ -46,6 +47,7 @@ _PRINTED_NUMBER_RE = re.compile(r"^\s*(\d{1,4})\s*$")
 # A mid-page line on at least this share of pages (and 5 pages) is a watermark.
 _WATERMARK_SHARE = 0.5
 _MIN_WATERMARK_CHARS = 12
+_MIN_SPACING_LINES = 20  # gaps between lines of a size, to know its own spacing
 # A bracketed number seen more often than this is not an endnote.
 _MAX_ENDNOTE_OCCURRENCES = 3
 # Characters of body text kept for language detection.
@@ -57,6 +59,15 @@ NUMBERED_NOTE_RE = re.compile(r"^\s*(\d{1,4})\.\s*(?=[^\d\s])")
 # ... or with no period: "235 Trato de ..." (footnotes look the same, see below).
 _PLAIN_NOTE_RE = re.compile(r"^\s*(\d{1,4})\s+(?=[^\d\s])")
 _SAME_BASELINE = 0.3  # in sizes: a hung note number sits this close to its line's
+_MAX_MARK_SIGNS = 4  # a hung note number, misread ("2 +"): this many signs at most
+# A misread note number starting its line: up to 4 signs, a digit among them and no
+# letters ("3.¡." for 34), then the note's first word.
+NOTE_MARK_RE = re.compile(r"^\s*(?=\S*\d)[^\sA-Za-zÀ-ÿ]{1,4}\s+(?=[^\W\d_])")
+# ... or misread worse, letters and all (".i,57", "H7", "4-54-"), where the line starts
+# at the notes' numbers (``_at_numbers``).
+LOOSE_NOTE_MARK_RE = re.compile(r"^\s*(?=\S*\d)\S{1,6}\s+(?=[«“\"(]?[^\W\d_])")
+_MAX_LOOSE_SIGNS = 6
+_MIN_COLUMN_LINES = 5
 _DIGITS_RE = re.compile(r"\d+")
 # Upper-case Roman numerals of two or more letters (a lone "I" or "V" may be a word).
 _ROMAN_RE = re.compile(r"\b[IVXLC]{2,}\b|\b[VXLC]\b")
@@ -229,6 +240,9 @@ class DocumentProfile:
     body_size: float = 0.0
     # Typical distance between the tops of consecutive body lines.
     line_spacing: float = 0.0
+    # The same for other sizes seen often (notes): an OCR layer's sizes need not scale
+    # with their leading (the Timeo's notes read 5.8 pt, 9.3 apart; body 10.1, 12.1).
+    size_spacing: dict[float, float] = field(default_factory=dict)
     # Heading font sizes, largest first; index + 1 is the heading level.
     heading_sizes: list[float] = field(default_factory=list)
     # Normalised texts of running headers/footers (see ``running_key``).
@@ -297,6 +311,8 @@ def analyze_document(
     sup_refs: list[tuple[int, tuple[int, int, int]]] = []
     note_lines: list[tuple[int, tuple[int, int]]] = []
     plain_note_lines: list[tuple[int, tuple[int, int]]] = []
+    note_marks: list[tuple[int, int]] = []  # first lines of notes with a hung mark
+    mark_readings: dict[tuple[int, int], str] = {}  # ... and what the mark was read as
     sample: list[str] = []
     sample_len = 0
     bracketed_pages = 0
@@ -342,6 +358,11 @@ def analyze_document(
             plain = plain_note_start(lines, line_index)
             if plain:
                 plain_note_lines.append((plain[0], (page_index, plain[1])))
+            mark = hung_mark(lines, line_index)
+            if mark is not None:
+                note_marks.append((page_index, mark))
+                signs = text.split()[0] if mark == line_index else "".join(text.split())
+                mark_readings[(page_index, mark)] = signs
             for match in _BRACKET_RE.finditer(text):
                 number = int(match.group(1))
                 at_line_start = match.start() == len(text) - len(text.lstrip())
@@ -359,6 +380,14 @@ def analyze_document(
     body_size = sizes.most_common(1)[0][0] if sizes else 0.0
     body_gaps = Counter({gap: n for (size, gap), n in gaps.items() if size == body_size})
     line_spacing = body_gaps.most_common(1)[0][0] if body_gaps else body_size * 1.2
+    by_size: dict[float, list[float]] = {}
+    for (size, gap), n in gaps.items():
+        by_size.setdefault(size, []).extend([gap] * n)
+    size_spacing = {
+        size: statistics.median(found)
+        for size, found in by_size.items()
+        if len(found) >= _MIN_SPACING_LINES
+    }
     heading_sizes = _cluster_sizes(
         {s: n for s, n in sizes.items() if s >= body_size * HEADING_RATIO and n >= 3}
     )
@@ -385,13 +414,21 @@ def analyze_document(
     # ("17 Text" at its foot) look the same.
     chapter_notes = max(
         match_chapter_notes(sup_refs, note_lines),
-        match_chapter_notes(sup_refs, plain_note_lines, lossy=True),
+        match_chapter_notes(
+            sup_refs,
+            plain_note_lines,
+            lossy=True,
+            least=lossy_min_run(doc.page_count),
+            marks=note_marks,
+            readings=mark_readings,
+        ),
         key=lambda notes: sum(len(refs) for refs in notes.refs.values()),
     )
     return DocumentProfile(
         watermarks=watermarks,
         body_size=body_size,
         line_spacing=line_spacing,
+        size_spacing=size_spacing,
         heading_sizes=heading_sizes,
         running_texts=running,
         endnote_defs=_endnote_candidates(occurrences, line_starts, referenced_mid_line),
@@ -422,6 +459,39 @@ def plain_note_start(lines: list[Line], index: int) -> tuple[int, int] | None:
     digits = "".join(line.text.split()).replace(".¡.", "4").translate(OCR_DIGITS)
     if not digits.isdigit() or len(digits) > 4:
         return None
+    beside = _beside(lines, index)
+    return (int(digits), beside) if beside is not None else None
+
+
+def hung_mark(lines: list[Line], index: int) -> int | None:
+    """A note number however misread: a few signs alone on a line, hung beside another
+    ("n" for 11, "1+" for 14), or starting the note's line ("3.¡. Así pues" for 34).
+    Returns the index of the note's first line."""
+    if NOTE_MARK_RE.match(lines[index].text):
+        return index
+    if LOOSE_NOTE_MARK_RE.match(lines[index].text) and _at_numbers(lines, index):
+        return index  # ".i,57 Entre los", "H7 Como": at the column of the notes' numbers
+    signs = "".join(lines[index].text.split())
+    # Longer at the notes' numbers: "lllll" for 122.
+    most = _MAX_LOOSE_SIGNS if _at_numbers(lines, index) else _MAX_MARK_SIGNS
+    if not 0 < len(signs) <= most:
+        return None
+    return _beside(lines, index)
+
+
+def _at_numbers(lines: list[Line], index: int) -> bool:
+    """Whether a line starts at the page's left edge, its notes' numbers hung out of a
+    text column most lines start further in (the Timeo's notes: 54 against 69)."""
+    line = lines[index]
+    xs = sorted(o.x0 for o in lines if o.text.strip() and abs(o.size - line.size) < 0.6)
+    if len(xs) < _MIN_COLUMN_LINES:
+        return False
+    return line.x0 - xs[0] < 0.5 * line.size and xs[len(xs) // 2] - line.x0 > 1.5 * line.size
+
+
+def _beside(lines: list[Line], index: int) -> int | None:
+    """The first of the lines on ``lines[index]``'s baseline, to its right."""
+    line = lines[index]
     beside = [
         i
         for i, other in enumerate(lines)
@@ -429,7 +499,7 @@ def plain_note_start(lines: list[Line], index: int) -> tuple[int, int] | None:
         and other.x0 > line.x1
         and other.text.strip()
     ]
-    return (int(digits), min(beside, key=lambda i: lines[i].x0)) if beside else None
+    return min(beside, key=lambda i: lines[i].x0) if beside else None
 
 
 def _body_fonts(fonts: Counter[str]) -> set[str]:

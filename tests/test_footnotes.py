@@ -111,12 +111,21 @@ def test_footnote_continued_on_next_page(make_layout_pdf):
     assert second.startswith("Next page body.")
 
 
-def test_unmatched_superscript_is_left_alone(make_layout_pdf):
+def test_an_exponent_is_left_alone(make_layout_pdf):
     pdf = make_layout_pdf([[*_with_sup(100, "Area in m", "2"), _body(114, "More."), *FILLER]])
 
     (text,) = _texts(pdf)
 
     assert "[^" not in text
+
+
+def test_a_reference_without_its_note_gets_one_saying_so(make_layout_pdf):
+    pdf = make_layout_pdf([[*_with_sup(100, "As the guests", "3"), _body(114, "More."), *FILLER]])
+
+    (text,) = _texts(pdf)
+
+    assert "As the guests[^o1-3]" in text
+    assert "[^o1-3]: no footnote content found" in text
 
 
 def test_small_margin_notes_beside_body_are_not_footnotes(make_layout_pdf):

@@ -14,10 +14,10 @@ from pdf_worker.output import Metadata
 
 PAGE = pymupdf.paper_rect("a5")
 _CSS = """\
-body { font-family: sans-serif; text-align: center; }
+body { font-family: serif; text-align: center; }
 .author { font-size: 16pt; margin-bottom: 40pt; }
 h1 { font-size: 28pt; line-height: 1.2; margin: 0 0 40pt 0; }
-.translator { font-family: serif; font-size: 12pt; font-style: italic; }
+.translator { font-size: 12pt; font-style: italic; }
 """
 TRANSLATED_BY = {
     "es": "Traducción de",

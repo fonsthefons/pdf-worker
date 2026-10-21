@@ -6,8 +6,13 @@ import pymupdf
 import pytest
 
 from pdf_worker.cli import main
-from pdf_worker.convert import UnsupportedFormatError, convert_pdf, guess_language
-from pdf_worker.structure import join_lines
+from pdf_worker.convert import (
+    UnsupportedFormatError,
+    _referenced_notes,
+    convert_pdf,
+    guess_language,
+)
+from pdf_worker.structure import Note, Paragraph, join_lines
 
 BODY = 11
 LINE = 14
@@ -41,6 +46,18 @@ def _md(make_layout_pdf, tmp_path, pages, **kwargs):
     return out.read_text(encoding="utf-8"), report
 
 
+def test_notes_of_the_notes_section_no_reference_points_to_are_left_out():
+    blocks = [
+        Paragraph("el cuarto[^c1-3]."),
+        Note("p1-1", "A page footnote is kept."),
+        Note("c1-3", "Hermócrates."),
+        Note("c1-40", "For a page the excerpt left out."),
+        Note("o168-1", "no footnote content found"),  # a page number's "1", dropped
+    ]
+
+    assert list(_referenced_notes(blocks)) == blocks[:3]
+
+
 def test_join_lines_undoes_hyphenation_and_joins_refs():
     assert join_lines(["a hyphen-", "ated word"]) == "a hyphenated word"
     assert join_lines(["Well-", "Known"]) == "Well- Known"
@@ -72,6 +89,59 @@ def test_paragraph_continues_across_pages(make_layout_pdf, tmp_path):
     text, _ = _md(make_layout_pdf, tmp_path, pages)
 
     assert f"{FULL[2]} and it ends on the next page.\n\n" in text
+
+
+def test_hanging_indents_start_paragraphs_at_the_margin(make_layout_pdf, tmp_path):
+    # Dialogue set like the Abada Timeo: a turn starts at the margin, its other lines indented.
+    page = [
+        item
+        for n, top in enumerate((100, 160, 220))
+        for item in (
+            _body(top, FULL[0]),
+            (90, top + LINE, FULL[1], BODY),
+            (90, top + LINE * 2, f"Turn {n} ends here.", BODY),
+        )
+    ]
+    text, report = _md(make_layout_pdf, tmp_path, [page])
+
+    assert f"{FULL[0]} {FULL[1]} Turn 1 ends here.\n" in text
+    assert report.stats.paragraphs == 3
+
+
+def test_a_line_left_of_the_margin_starts_a_turn(make_layout_pdf, tmp_path):
+    # A Timeo page of long speeches: few turns, so the margin is the indent (x 90), and
+    # "CRITIAS.-" sticks out after a full line ending "propósito36•".
+    page = [
+        (90, 100, FULL[0], BODY),
+        *[(90, 100 + LINE * i, FULL[1], BODY) for i in range(1, 6)],
+        (90, 100 + LINE * 6, FULL[1] + "•", BODY),
+        (72, 100 + LINE * 7, "CRITIAS.-Es preciso hacerlo, si también a nuestro", BODY),
+        (90, 100 + LINE * 8, FULL[1], BODY),
+        (72, 100 + LINE * 9, "tercer compañero le parece bien and so it goes", BODY),
+        (90, 100 + LINE * 10, "and ends.", BODY),
+    ]
+    text, report = _md(make_layout_pdf, tmp_path, [page])
+
+    assert "\nCRITIAS.-Es preciso" in text
+    assert f"{FULL[1]} tercer compañero" in text  # lowercase: the sentence goes on
+    assert report.stats.paragraphs == 2
+
+
+def test_a_numbered_notes_next_line_stays_in_it_after_a_short_line(make_layout_pdf, tmp_path):
+    # Dilexit nos: "[5] Homilía ... (14 octubre 2016):" ends short; its next line is
+    # capitalised, which would start a paragraph in the text.
+    pages = [
+        [*_paragraph(100, FULL[:2], "A claim with a note.[1] And another.[2]")],
+        [
+            _body(100, "[1] Homily, Domus Sanctae Marthae (14 October 2016):"),
+            _body(114, "L'Osservatore Romano, weekly edition, p. 9."),
+            _body(128, "[2] Second note."),
+        ],
+    ]
+    text, report = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "[^1]: Homily, Domus Sanctae Marthae (14 October 2016): L’Osservatore" in text
+    assert report.stats.paragraphs == 1
 
 
 def test_running_headers_and_page_numbers_are_dropped(make_layout_pdf, tmp_path):

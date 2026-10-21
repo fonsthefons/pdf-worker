@@ -21,6 +21,18 @@ def _run(fixes, blocks=None, language="es"):
     return out, review.finish(), review
 
 
+def test_a_reference_with_a_stand_in_note_is_one_with_no_note():
+    blocks = [
+        Paragraph(page_mark(0, "1") + "Una frase[^o1-3] sin su nota."),
+        Note("o1-3", "no footnote content found"),
+        Note("o1-1", "no footnote content found"),  # its reference went with a page number
+    ]
+    _, _, review = _run([], blocks)
+    rows = {(f.kind, f.find) for f in review.fixes}
+    assert ("ref-no-note", "o1-3") in rows
+    assert not {f.find for f in review.fixes if f.kind == "note-no-ref"}
+
+
 def test_flags_suspicious_items():
     _, added, review = _run([])
     rows = {(f.kind, f.find, f.page) for f in review.fixes}
