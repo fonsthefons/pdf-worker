@@ -11,6 +11,15 @@ def test_curl_quotes():
     assert curl_quotes(mark + '"Hola" —"adiós"') == mark + "“Hola” —“adiós”"
 
 
+def test_a_space_before_punctuation_goes():
+    blocks = [Paragraph("Claro que sí , como dijo ; siglo III a . C . Uno , dos, tres . . . bien")]
+    assert list(tidy(blocks, "es"))[0].text == (
+        "Claro que sí, como dijo; siglo III a. C. Uno, dos, tres . . . bien"
+    )
+    french = [Paragraph("Il dit : oui , vraiment ?")]
+    assert list(tidy(french, "fr"))[0].text == "Il dit : oui, vraiment ?"
+
+
 def test_copyright_and_sentence_headings_become_paragraphs():
     blocks = [
         Heading("© 1960: Frederick Copleston", 2),

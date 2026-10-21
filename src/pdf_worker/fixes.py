@@ -462,8 +462,19 @@ class Review:
             found.append(fix)
         if on_word:
             on_word(len(self.words), len(self.words))
-        found += [Fix("", p, "note-no-ref", n) for n, p in self.notes.items() if n not in self.refs]
-        found += [Fix("", p, "ref-no-note", r) for r, p in self.refs.items() if r not in self.notes]
+        # A reference whose note wasn't found ("o168-1") has a stand-in note: it is a
+        # reference with no note, and its stand-in alone (its reference dropped with a
+        # running head) is nothing.
+        found += [
+            Fix("", p, "note-no-ref", n)
+            for n, p in self.notes.items()
+            if n not in self.refs and not n.startswith("o")
+        ]
+        found += [
+            Fix("", p, "ref-no-note", r)
+            for r, p in self.refs.items()
+            if r not in self.notes or r.startswith("o")
+        ]
         found += [
             Fix("", page, "margin-est", label)
             for label, page in filter(None, self.labels)

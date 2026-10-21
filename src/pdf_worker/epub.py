@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pdf_worker.footnotes import display_marker
 from pdf_worker.index_links import parse_word_target, word_keys
 from pdf_worker.inline import (
     ESTIMATED,
@@ -79,13 +80,14 @@ h3 { font-size: 1.15em; }
 h4, h5, h6 { font-size: 1em; }
 p { margin: 0; text-indent: 1.2em; text-align: justify; }
 h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p { text-indent: 0; }
-p.small { font-size: 0.85em; text-indent: 0; margin: 0.4em 0; }
+p.small { text-indent: 0; margin: 0.4em 0; }
 a.noteref { text-decoration: none; }
-span.mref { color: #2e7d32; font-weight: bold; font-size: 0.8em; padding: 0 0.2em; }
+span.mref { color: #2e7d32; font-family: sans-serif; font-weight: bold; font-size: 0.95em;
+  padding: 0 0.2em; }
 span.mref.est { color: #d81b60; }
 sup { font-size: 0.75em; line-height: 0; }
 aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; }
-div.gloss { font-size: 0.8em; margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
+div.gloss { margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
   border-left: 2px solid #999; }
 div.gloss p { text-indent: 0; text-align: left; }
 table.data { border-collapse: collapse; margin: 0.6em 0; }
@@ -286,8 +288,13 @@ class _EpubBuilder:
         return self.note_ids[label]
 
     def _number(self, label: str) -> str:
-        # Notes numbered 1-N through the book, not as printed (often 1 again on each page).
-        return self._note_id(label)[1:]
+        # Page footnotes are numbered 1-N through the book, not as printed (often 1 again
+        # on each page); notes numbered through the book or a chapter keep their number.
+        marker = display_marker(label)
+        if label.startswith("p") or not marker.isdigit():
+            return self._note_id(label)[1:]
+        self._note_id(label)
+        return marker
 
     def _inline(self, text: str, file: str | None = None, notes: bool = False) -> str:
         """Block text as XHTML: footnote references, page starts and links.
@@ -324,7 +331,9 @@ class _EpubBuilder:
                 self.stats.margin_refs += 1
                 kind = "mref est" if piece.label.startswith(ESTIMATED) else "mref"
                 mark_id = f"m{self.stats.margin_refs}"
-                out.append(f'<span class="{kind}" id="{mark_id}">{_esc(piece.label)}</span>')
+                # In brackets: text, so a reader that drops the styling (Kindle) shows it;
+                # a space after it, as readers ignore the padding (HTML collapses two).
+                out.append(f'<span class="{kind}" id="{mark_id}">[{_esc(piece.label)}]</span> ')
             elif isinstance(piece, Style):
                 styles[piece.italic] = piece.on
             else:

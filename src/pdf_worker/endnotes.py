@@ -10,14 +10,20 @@ Labels are ``c<group>-<number>`` (``[^c3-12]``); readers see just the number.
 """
 
 import bisect
+import re
 from dataclasses import dataclass, field
+
+from pdf_worker.margin_refs import OCR_DIGITS
 
 # Numbers may skip a little within a run (a missed superscript, an OCR'd note).
 _MAX_STEP = 3
 # ... in OCR that loses or garbles numbers in a row ("todos'º5" for 105, "l!IO" for 120).
 LOSSY_STEP = 15
-# ... where only long runs are trusted (the Timeo's shorter ones were stray numbers).
+# ... where only long runs are trusted (the Timeo's shorter ones were stray numbers): a
+# few a page, so a few pages of a book are tested as the book is.
 LOSSY_MIN_RUN = 20
+_LOSSY_RUN_PER_PAGE = 2
+_LOSSY_MIN_RUN_FLOOR = 4
 # A run and a group pair up when their highest numbers are this close.
 _MAX_COUNT_DIFF = 2
 _MAX_COUNT_RATIO = 0.15
@@ -86,6 +92,86 @@ def sequences(
     return out
 
 
+def lossy_min_run(pages: int) -> int:
+    """The length from which a lossy run is trusted, in a document of ``pages``."""
+    return max(_LOSSY_MIN_RUN_FLOOR, min(LOSSY_MIN_RUN, _LOSSY_RUN_PER_PAGE * pages))
+
+
+def runs_from_anywhere(entries: list[tuple[int, tuple]]) -> list[_Sequence]:
+    """Runs climbing by at most ``LOSSY_STEP`` from any number (OCR loses note 1 as any
+    other, and a part of a book starts where it starts); each number joins the longest
+    run it can continue, so a stray starts a run nothing follows."""
+    runs: list[_Sequence] = []
+    for item in entries:
+        fits = [run for run in runs if run.last < item[0] <= run.last + LOSSY_STEP]
+        if fits:
+            max(fits, key=lambda run: len(run.items)).items.append(item)
+        else:
+            runs.append(_Sequence([item]))
+    return runs
+
+
+def _fill_gaps(
+    defined: dict[int, tuple], marks: list[tuple], readings: dict[tuple, str] | None = None
+) -> None:
+    """Notes a group skips (their numbers misread): where as many unclaimed marks lie
+    between the notes found around the gap as numbers are missing, they are those notes,
+    in order. Then, by what a mark was read as (``readings``), a mark whose last digits
+    are a missing number's (".i,57" for 457, "H7" for 447) is that note, in order; and
+    the gaps left are counted again."""
+    _fill_counted(defined, marks)
+    if readings:
+        _fill_read(defined, marks, readings)
+        _fill_counted(defined, marks)
+
+
+def _gaps(defined: dict[int, tuple], marks: list[tuple]):
+    """Each gap in the numbers found: (lower, upper, the unclaimed marks between)."""
+    used = set(defined.values())
+    numbers = sorted(defined)
+    for lo, hi in zip(numbers, numbers[1:], strict=False):
+        if hi - lo >= 2:
+            between = (m for m in marks if defined[lo] < m < defined[hi] and m not in used)
+            yield lo, hi, sorted(between)
+
+
+def _fill_counted(defined: dict[int, tuple], marks: list[tuple]) -> None:
+    for lo, hi, between in list(_gaps(defined, marks)):
+        if len(between) == hi - lo - 1:
+            defined.update(zip(range(lo + 1, hi), between, strict=True))
+
+
+def _fill_read(defined: dict[int, tuple], marks: list[tuple], readings: dict[tuple, str]) -> None:
+    for lo, hi, between in list(_gaps(defined, marks)):
+        last = lo
+        for mark in between:
+            digits = re.sub(r"\D", "", readings.get(mark, "").translate(OCR_DIGITS))
+            if not digits:
+                continue
+            fits = [
+                n
+                for n in range(last + 1, hi)
+                if n not in defined and str(n).endswith(digits[-len(str(n)) :])
+            ]
+            if len(fits) == 1:  # "H7" with both 447 and 457 missing: either
+                defined[fits[0]] = mark
+                last = fits[0]
+
+
+def _refs_end(run: _Sequence, group: _Sequence) -> tuple:
+    """Where a lossy run's references end and its notes begin: the reference after
+    which the most of the run's numbers have their note. A stray superscript read among
+    the notes ("111" after 101) joins the run, and ending there would lose every note
+    before it. The earliest such reference wins."""
+    best, end = -1, run.items[-1][1]
+    for _, at in run.items:
+        noted = {number for number, key in group.items if key > at}
+        score = sum(1 for number, key in run.items if key <= at and number in noted)
+        if score > best:
+            best, end = score, at
+    return end
+
+
 def _compatible(a: int, b: int) -> bool:
     return abs(a - b) <= max(_MAX_COUNT_DIFF, _MAX_COUNT_RATIO * max(a, b))
 
@@ -97,13 +183,16 @@ def _align(
 
     A group must start after its run starts (notes come after their references), or
     with ``after_refs`` lie after the run's last reference (from its middle on: its
-    first number may be a stray).
+    first number may be a stray). With ``after_refs`` (lossy OCR) a run also fits a
+    group that holds its numbers: the last references or notes may be lost.
     """
     runs, groups = runs[:_MAX_ALIGN], groups[:_MAX_ALIGN]
     n, m = len(runs), len(groups)
 
     def fits(i: int, j: int) -> bool:
-        if not _compatible(runs[i].last, groups[j].last):
+        run, group = runs[i], groups[j]
+        holds = group.items[0][0] <= run.items[0][0] <= run.last <= group.last + LOSSY_STEP
+        if not _compatible(run.last, group.last) and not (after_refs and holds):
             return False
         if after_refs:
             return groups[j].items[len(groups[j].items) // 2][1] > runs[i].items[-1][1]
@@ -132,25 +221,33 @@ def match_chapter_notes(
     refs: list[tuple[int, tuple[int, int, int]]],
     defs: list[tuple[int, Position]],
     lossy: bool = False,
+    least: int = LOSSY_MIN_RUN,
+    marks: list[Position] = (),
+    readings: dict[Position, str] | None = None,
 ) -> ChapterNotes:
     """Pair superscript references with numbered notes.
 
     ``refs`` are ``(number, (page, line, span))`` and ``defs`` ``(number, (page, line))``,
     both in document order. ``lossy``: OCR lost or garbled many numbers, so they may
-    skip by ``LOSSY_STEP``, and a group of notes must come after all of its references
-    (not footnotes beside them).
+    skip by ``LOSSY_STEP`` and start anywhere, only runs and groups of ``least`` are
+    trusted, and a group of notes must come after all of its references (not footnotes
+    beside them). ``marks``: first lines of notes whose number may be misread beyond
+    reading ("n" for 11), to fill a group's gaps; ``readings``: what each was read as.
     """
     result = ChapterNotes()
-    steps = (LOSSY_STEP, LOSSY_STEP) if lossy else (_MAX_STEP, 1)
-    runs = sequences(refs, *steps)
-    least = LOSSY_MIN_RUN if lossy else 2
-    groups = [g for g in sequences(defs, *steps) if len(g.items) >= least]
+    if lossy:
+        runs = [run for run in runs_from_anywhere(refs) if len(run.items) >= least]
+        groups = [g for g in runs_from_anywhere(defs) if len(g.items) >= least]
+    else:
+        runs = sequences(refs)
+        groups = [g for g in sequences(defs) if len(g.items) >= 2]
     pairs = _align(runs, groups, after_refs=lossy)
     ref_positions = sorted(key[:2] for _, key in refs)
     for chapter, (i, j) in enumerate(pairs, start=1):
-        end = runs[i].items[-1][1]
+        end = _refs_end(runs[i], groups[j]) if lossy else runs[i].items[-1][1]
         defined = {number: key for number, key in groups[j].items if not lossy or key > end}
-        for number, key in defined.items():
+        _fill_gaps(defined, [m for m in marks if m > end], readings)
+        for number, key in sorted(defined.items()):
             result.defs[key] = f"c{chapter}-{number}"
             result.note_pages.add(key[0])
         last_label = f"c{chapter}-{groups[j].last}"
@@ -163,6 +260,6 @@ def match_chapter_notes(
             if at == len(ref_positions) or ref_positions[at] >= before:
                 result.section_continues.add(last_label)
         for number, (page, line, span) in runs[i].items:
-            if number in defined:
+            if number in defined and (page, line, span) <= end:
                 result.refs.setdefault((page, line), {})[span] = f"c{chapter}-{number}"
     return result

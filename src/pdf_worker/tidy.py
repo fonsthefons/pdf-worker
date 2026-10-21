@@ -1,5 +1,6 @@
 """Last touches to a book's text, the same for every format.
 
+* A space OCR put before punctuation goes: "sí , como" -> "sí, como".
 * Typewriter quotes become typographic ones: d'Holbach -> d’Holbach, "la canalla" ->
   “la canalla”.
 * Headings that aren't: a copyright line ("© 1960: Frederick Copleston", "Impreso en
@@ -34,6 +35,10 @@ _COPYRIGHT_RE = re.compile(
     re.I,
 )
 _SENTENCE_WORDS = 8
+# OCR reads a wide gap before punctuation as a space ("Claro que sí , como"); a spaced
+# ellipsis (". . .") keeps its spaces. French spaces before ; : ? ! (``_FRENCH_SPACE_RE``).
+_SPACE_BEFORE_RE = re.compile(r"(?<=[^\s.]) +(?=[,;:)?!]|\.(?! \.))")
+_FRENCH_SPACE_RE = re.compile(r"(?<=[^\s.]) +(?=[,)]|\.(?! \.))")
 
 
 def curl_quotes(text: str) -> str:
@@ -43,7 +48,12 @@ def curl_quotes(text: str) -> str:
     return _OPEN_SINGLE_RE.sub("‘", text).replace("'", "’")
 
 
-def tidy(blocks: Iterable[Block]) -> Iterator[Block]:
+def tidy(blocks: Iterable[Block], language: str = "") -> Iterator[Block]:
+    space_re = _FRENCH_SPACE_RE if language == "fr" else _SPACE_BEFORE_RE
+
+    def touch(text: str) -> str:
+        return curl_quotes(space_re.sub("", text))
+
     numbered = None  # the level of the last numbered heading, while its subheadings go on
     for block in blocks:
         if isinstance(block, Heading):
@@ -69,7 +79,7 @@ def tidy(blocks: Iterable[Block]) -> Iterator[Block]:
             else:
                 numbered = None
         if isinstance(block, Heading | Paragraph | Note):
-            block = replace(block, text=curl_quotes(block.text))
+            block = replace(block, text=touch(block.text))
         elif isinstance(block, Gloss):
-            block = replace(block, lines=tuple(curl_quotes(line) for line in block.lines))
+            block = replace(block, lines=tuple(touch(line) for line in block.lines))
         yield block

@@ -9,6 +9,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 import pymupdf
 
@@ -41,7 +42,15 @@ from pdf_worker.margins import split_columns
 _PARAGRAPH_GAP = 1.3
 # A previous line ending this far (in ems) before the right margin is a paragraph end.
 _SHORT_LINE_EMS = 2.5
-_SENTENCE_END = tuple('.!?»"”’)]')
+_SENTENCE_END = tuple('.!?»"”’)]•')  # OCR reads a full stop as "•" ("propósito36•")
+# A line starting left of the page's margin (a speaker's turn on a page of long
+# speeches) starts a paragraph: out by this many ems, starting like one, after a
+# sentence's end or as a turn ("CRITIAS.-", "Sóc . -Y"), with the margin seen on
+# enough lines.
+_OUTDENT_EMS = (0.8, 4)
+_OUTDENT_STARTS = "\"'«“‘¿¡-–—"
+_TURN_RE = re.compile(r"[^\W\d_]{2,15} ?\.? ?[-–—]")
+_MIN_MARGIN_LINES = 5
 # Font size change (share of the block's size) that starts a new block. OCR'd text layers
 # size each line from its height, so sizes wobble by a few percent.
 _SIZE_JITTER = 0.08
@@ -124,6 +133,8 @@ Block = Heading | Paragraph | Note | Gloss | Image | Table
 class _Margins:
     left: float
     right: float
+    hanging: bool = False  # paragraphs start at the margin, their other lines indented
+    support: int = 0  # body lines starting at the left margin
 
 
 @dataclass
@@ -283,8 +294,9 @@ def _running_heads(
             head = (merged.group(2) or merged.group(3)).strip()
             right_hand = merged.group(4) is not None
         else:
-            height = bl.line.bbox[3] - bl.line.top
-            row = [n for n in numbers if abs(n.top - bl.line.top) < height]
+            # On the number's baseline: boxes of misreported fonts reach lines below.
+            size = bl.line.size or body_size
+            row = [n for n in numbers if abs(n.baseline - bl.line.baseline) < 0.5 * size]
             if not row:
                 continue
             head, right_hand = text, row[0].x0 > page_width / 2
@@ -526,6 +538,11 @@ class _State:
         else:
             kind = "small" if is_small(line, profile.body_size) else "para"
             starts = self._starts_paragraph(line, text, margins, new_page)
+            if starts and self.current.kind == "note" and not self.break_next:
+                # A numbered note ("[5] ... (14 octubre 2016):") runs on to the next note
+                # or a change of type ("Copyright ©" after the last), not a short line.
+                size = self.current.size or line.size
+                starts = abs(line.size - size) > _SIZE_JITTER * size
             if not starts and self.current.kind in ("note", "para", "small"):
                 # Wrapped lines keep the block's kind: endnote text, and OCR'd lines whose
                 # size straddles the small-type threshold.
@@ -557,18 +574,32 @@ class _State:
         indented = margins.left + 0.8 * size < line.x0 < margins.left + 6 * size
         if not new_page:
             spacing = self.profile.line_spacing * (size / (self.profile.body_size or size))
+            if size != self.profile.body_size:
+                spacing = self.profile.size_spacing.get(size, spacing)
             gap = line.baseline - prev.baseline
             if gap > spacing * _PARAGRAPH_GAP:
                 return True
             if gap < -spacing * 0.5:
                 return ends_sentence  # jumped up to a new column
-        if indented:
+        if margins.hanging:
+            if line.x0 <= margins.left + 0.8 * size:
+                return True
+        elif indented:
+            return True
+        first = text.lstrip()[:1]
+        outdent = margins.left - line.x0
+        if (
+            _OUTDENT_EMS[0] * size <= outdent <= _OUTDENT_EMS[1] * size
+            and margins.support >= _MIN_MARGIN_LINES
+            and abs(line.size - self.profile.body_size) < 0.6
+            and (first.isupper() or first.isdigit() or first in _OUTDENT_STARTS)
+            and (ends_sentence or _TURN_RE.match(text.lstrip()))
+        ):
             return True
         right = (self.prev_margins if new_page and self.prev_margins else margins).right
         short = prev.x1 < right - _SHORT_LINE_EMS * (prev.size or size)
         # A short line ends its paragraph when the sentence ended, or when the next line
         # starts like a new item (contents entries, lists, verse).
-        first = text.lstrip()[:1]
         return short and (ends_sentence or first.isupper() or first.isdigit())
 
     # -- output -----------------------------------------------------------------------
@@ -644,7 +675,24 @@ def _page_margins(lines: list[BodyLine], body_size: float) -> _Margins:
         return _Margins(left=0.0, right=0.0)
     rights.sort()
     # The leftmost edge shared by a fair share of lines: in dialogue most lines are
-    # indented speaker turns, so the most common edge would be the indent.
-    shared = [x for x, n in lefts.items() if n >= max(2, 0.2 * len(rights))]
+    # indented speaker turns, so the most common edge would be the indent. Counted with
+    # the buckets either side: the Timeo's turns start at 51.6-54.4, across two.
+    least = max(2, 0.2 * len(rights))
+    shared = [x for x in lefts if lefts[x - 3] + lefts[x] + lefts[x + 3] >= least]
     left = min(shared) if shared else lefts.most_common(1)[0][0]
-    return _Margins(left=float(left), right=rights[int(len(rights) * 0.8)])
+    right = rights[int(len(rights) * 0.8)]
+    support = lefts[left - 3] + lefts[left] + lefts[left + 3]
+    return _Margins(float(left), right, _hanging(lines, left, right, body_size), support)
+
+
+def _hanging(lines: list[BodyLine], left: float, right: float, body_size: float) -> bool:
+    """Hanging indents (the Abada Timeo's dialogue): a full line at the margin is
+    followed by an indented one, where with first-line indents the paragraph goes on
+    at the margin."""
+    body = [bl.line for bl in lines if bl.text.strip() and abs(bl.line.size - body_size) < 0.6]
+    after_full = [
+        b.x0 > left + 0.8 * body_size
+        for a, b in pairwise(body)
+        if a.x0 <= left + 0.8 * body_size and a.x1 >= right - _SHORT_LINE_EMS * body_size
+    ]
+    return len(after_full) >= 3 and sum(after_full) >= 0.8 * len(after_full)

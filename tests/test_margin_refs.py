@@ -8,7 +8,7 @@ from pdf_worker.epub import write_epub
 from pdf_worker.footnotes import BodyLine
 from pdf_worker.inline import MarginRef, margin_ref, pieces, plain
 from pdf_worker.layout import DocumentProfile, Line
-from pdf_worker.margin_estimates import estimate_margin_refs
+from pdf_worker.margin_estimates import estimate_margin_refs, recover_margin_refs
 from pdf_worker.margin_refs import (
     PageScan,
     ScanMark,
@@ -175,7 +175,7 @@ def test_text_and_epub_show_margin_references_apart_from_footnotes(tmp_path):
     assert "muchos [22a] honores" in text and "antigüedades[1] a los" in text
     with pymupdf.open(tmp_path / "book.epub") as doc:
         html = "".join(page.get_text("html") for page in doc)
-    assert stats.margin_refs == 1 and "22a" in html
+    assert stats.margin_refs == 1 and "[22a]" in html  # bracketed: Kindle drops the styling
 
 
 def test_labels_lost_between_two_found_ones_are_estimated_evenly():
@@ -199,6 +199,29 @@ def test_labels_lost_between_two_found_ones_are_estimated_evenly():
     assert plain(out[1].text).split() == words
     assert out[0] == blocks[0]  # 23a: no word between 22e and 23b to put it on
     assert out[2:] == blocks[2:]
+
+
+def test_bracketed_references_misread_between_two_found_ones_are_recovered():
+    # Timeo: 18d and 19c read; 18e, 19a and 19b came out as "b8e]", "[Iga]", "[Igb]".
+    blocks = [
+        Paragraph(margin_ref("18d") + "y para todos. Las alianzas matrimoniales b8e] por medio"),
+        Paragraph("TIM.-Nos acordamos. [Iga]"),
+        Paragraph("¿lo hemos resumido [Igb] o [sic] no? Animales " + margin_ref("19c") + "fin"),
+        Paragraph("por naturaleza y [˒oa] por educación " + margin_ref("20b") + "fin"),
+        Paragraph(margin_ref("22a") + "Deucalión [22h] y [2 3a] dos [23bl " + margin_ref("23c")),
+        Paragraph("después [Igd] nada"),  # no found label after it
+    ]
+
+    out = list(recover_margin_refs(blocks))
+
+    labels = [p.label for b in out for p in pieces(b.text) if isinstance(p, MarginRef)]
+    assert labels == [
+        *("18d", "18e", "19a", "19b", "19c", "20a", "20b"),
+        *("22a", "22b", "23a", "23b", "23c"),
+    ]
+    assert "matrimoniales " + margin_ref("18e") + "por" in out[0].text
+    assert "[sic]" in out[2].text
+    assert out[5] == blocks[5]
 
 
 def test_margin_references_are_off_unless_asked_for():
@@ -244,3 +267,4 @@ def test_reflowed_pdf_sets_margin_references_in_the_margin(tmp_path):
     assert abs(label[0].y1 - word.y1) < 3  # level with its word's line
     assert not any("22a" in line and "honores" in line for line in lines)
     assert foot  # the footnote is still at the foot of the page
+    assert not any("[22a]" in line for line in lines)  # the margin label is bare: "22a"

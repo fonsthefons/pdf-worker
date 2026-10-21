@@ -30,7 +30,7 @@ from pdf_worker.markdown_export import write_markdown
 from pdf_worker.ocr_check import mostly_scanned
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.pdf_export import write_pdf
-from pdf_worker.structure import Block, Heading, Paragraph, iter_blocks
+from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph, iter_blocks
 from pdf_worker.text_export import write_text
 from pdf_worker.tidy import tidy
 
@@ -158,7 +158,7 @@ def convert_pdf(
     with open_pdf(source_pdf) as source:
         info = source.metadata or {}
     facing, reread = set(), 0
-    greek: list[Paragraph] = []  # Greek paragraphs left out of a bilingual edition
+    greek: list[Paragraph] = []  # Greek paragraphs left out
 
     steps = ["re-reading garbled words", "reading the layout", "building the book"]
     steps += ["laying out the PDF"] * (fmt == "pdf") + ["sorting the flagged words"]
@@ -195,13 +195,14 @@ def convert_pdf(
                 skip=facing,
                 on_page=step("building the book"),
             )
-            if facing:
-                blocks = bilingual.drop_greek(blocks, greek)
+            blocks = bilingual.drop_greek(blocks, greek, language)
             if margin_refs is None:
                 marked = sum(bool(page_marks(p)) for p in doc)
                 margin_refs = profile.bracketed_refs or in_book(marked, doc.page_count)
             if not margin_refs:
                 blocks = _without_margin_refs(blocks)
+            elif profile.bracketed_refs:
+                blocks = margin_estimates.recover_margin_refs(blocks)
         meta, sources = book_metadata.find_metadata(
             doc,
             list(_title_page_texts(doc, paddle_rows)),
@@ -217,7 +218,7 @@ def convert_pdf(
         # A born-digital text has no OCR misreadings to flag.
         ocr_text = paddle_rows is not None or mostly_scanned(doc)
         review = Review(read_fixes(fixes_path), meta.language, spelling=ocr_text)
-        blocks = tidy(review.apply(blocks))
+        blocks = _referenced_notes(tidy(review.apply(blocks), meta.language))
         if notes_at == "none":
             blocks = drop_notes(blocks)
         if fmt in ("epub", "html", "pdf"):
@@ -293,6 +294,21 @@ def _title_page_texts(doc, paddle_rows: list[dict] | None) -> Iterator[str]:
                 yield from (b.get("text", "") for b in row["blocks"])
     for page_no in range(min(book_metadata.PAGES, doc.page_count)):
         yield from (b[4] for b in doc.load_page(page_no).get_text("blocks"))
+
+
+def _referenced_notes(blocks: Iterable[Block]) -> Iterator[Block]:
+    """Leave out notes of the notes section that nothing in the text refers to (an
+    reference OCR lost, or one on pages not converted), and stand-ins for missing notes
+    whose reference went (a page number's digit read as one, dropped with it). They come
+    after their references, unlike a page's footnotes, which are kept."""
+    seen: set[str] = set()
+    for block in blocks:
+        stray = isinstance(block, Note) and block.label.startswith(("c", "o"))
+        if stray and block.label not in seen:
+            continue
+        if isinstance(block, Heading | Paragraph | Note):
+            seen.update(REF_RE.findall(block.text))
+        yield block
 
 
 def _without_margin_refs(blocks: Iterable[Block]) -> Iterator[Block]:

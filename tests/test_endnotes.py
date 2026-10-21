@@ -4,6 +4,7 @@ from pdf_worker import endnotes
 from pdf_worker.convert import convert_pdf
 from pdf_worker.drop_notes import drop_notes
 from pdf_worker.inline import margin_ref
+from pdf_worker.layout import NOTE_MARK_RE
 from pdf_worker.structure import Heading, Note, Paragraph
 from pdf_worker.text_extraction import extract_text_to_file
 
@@ -164,3 +165,55 @@ def test_runs_pair_with_groups_by_count_and_order():
     assert notes.refs[(5, 3)] == {0: "c2-3"}
     assert notes.defs[(10, 1)] == "c2-1"
     assert notes.last_in_group == {"c1-10", "c2-3"}
+
+
+def test_a_misread_number_starting_a_notes_line_is_a_mark():
+    assert NOTE_MARK_RE.match("3.¡. Así pues, Timeo y Hermócrates se alojan")
+    assert not NOTE_MARK_RE.match("12 , 1274a 2 2 , Locro recibía sus leyes")  # a citation
+    assert not NOTE_MARK_RE.match("Así pues, Timeo")
+
+
+def test_lossy_notes_pair_from_any_number_and_misread_ones_fill_gaps():
+    # The Timeo: note 1 lost, references 2-12 (and a stray "8" before), notes 2-15
+    # whose 5 and 11 were misread beyond reading ("n"), but hang beside their lines.
+    refs = [(8, (0, 1, 0))] + [(n, (1, n, 0)) for n in range(2, 13)]
+    defs = [(n, (9, 2 * n)) for n in range(2, 16) if n not in (5, 11)]
+    marks = [(9, 2 * n) for n in range(2, 16)]
+
+    notes = endnotes.match_chapter_notes(refs, defs, lossy=True, least=4, marks=marks)
+
+    assert notes.refs[(1, 2)] == {0: "c1-2"} and notes.refs[(1, 12)] == {0: "c1-12"}
+    assert notes.defs[(9, 10)] == "c1-5" and notes.defs[(9, 22)] == "c1-11"
+    assert (0, 1) not in notes.refs
+
+
+def test_misread_note_numbers_fill_by_their_last_digits_then_by_count():
+    # Timeo notes 447-460: 448-451, 453, 455, 456 read; 447 "H7", 452 "45⛨", 454
+    # "4-54-", 457 ".i,57", 458 ".i,58", 459 "-1,59", 460 "4-60"; 446 and 461 read.
+    read = {446, 448, 449, 450, 451, 453, 455, 456, 461}
+    misread = {447: "H7", 452: "45⛨", 454: "4-54-", 457: ".i,57", 458: ".i,58"}
+    misread |= {459: "-1,59", 460: "4-60"}
+    defs = [(n, (9, n)) for n in sorted(read)]
+    marks = [(9, n) for n in misread]
+    readings = {(9, n): reading for n, reading in misread.items()}
+    defined = dict(defs)
+
+    endnotes._fill_gaps(defined, marks, readings)
+
+    assert defined == {n: (9, n) for n in range(446, 462)}
+    # "H7" with both 447 and 457 missing could be either: left to the count.
+    defined = {446: (9, 446), 458: (9, 458)}
+    endnotes._fill_gaps(defined, [(9, 447)], {(9, 447): "H7"})
+    assert set(defined) == {446, 458}
+
+
+def test_a_stray_superscript_among_the_notes_does_not_end_the_references_there():
+    # Timeo 3: references 2-101, then "111" read on the second page of notes 2-116.
+    refs = [(n, (1, n, 0)) for n in range(2, 102)] + [(111, (31, 3, 0))]
+    defs = [(n, (30 + n // 40, n % 40)) for n in range(2, 117)]
+
+    notes = endnotes.match_chapter_notes(refs, defs, lossy=True, least=4)
+
+    assert notes.defs[(30, 2)] == "c1-2" and notes.refs[(1, 2)] == {0: "c1-2"}
+    assert len(notes.defs) == 115
+    assert (31, 3) not in notes.refs

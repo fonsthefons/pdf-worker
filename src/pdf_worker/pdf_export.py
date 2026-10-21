@@ -16,6 +16,7 @@ import os
 import re
 import tempfile
 from collections.abc import Callable, Iterable
+from html import escape as html_escape
 from html import unescape as html_unescape
 from pathlib import Path
 
@@ -32,13 +33,13 @@ MARGIN = 42  # points
 FRAME = PAGE + (MARGIN, MARGIN, -MARGIN, -MARGIN)
 _CSS = """\
 body { font-family: serif; font-size: 11pt; line-height: 1.35; }
-h1, h2, h3, h4, h5, h6 { font-family: sans-serif; }
 p { margin: 0 0 0.3em 0; text-align: justify; }
 img { max-width: 100%; }
 """
-# Same column as the body (``body { margin: 0 5% }`` from the EPUB CSS), smaller type.
+# One font and size for all the text: notes too. Same column as the body
+# (``body { margin: 0 5% }`` from the EPUB CSS).
 _NOTE_CSS = """\
-body { margin: 0 5%; font-family: serif; font-size: 9pt; line-height: 1.25; }
+body { margin: 0 5%; font-family: serif; font-size: 11pt; line-height: 1.35; }
 p { margin: 0 0 2pt 0; text-align: justify; }
 sup { font-size: 0.75em; line-height: 0; }
 """
@@ -58,9 +59,15 @@ _MREF_RE = re.compile(r'<span class="mref[^"]*" id="(m\d+)">([^<]*)</span>(\s*)(
 _MREF_ID_RE = re.compile(r"m\d+")
 _MREF_GAP = 6  # points between the text column and a margin reference
 _MREF_SIZE = 7.5
-_MREF_COLOR = (0.18, 0.49, 0.2)  # green, as in the EPUB
-_MREF_ESTIMATED_COLOR = (0.85, 0.11, 0.38)  # pink, as in the EPUB
+_MREF_COLOR = "#2e7d32"  # green, as in the EPUB
+_MREF_ESTIMATED_COLOR = "#d81b60"  # pink, as in the EPUB
 _FOLIO_SIZE = 9
+# Labels and page numbers are set as HTML, in the text's font (pymupdf can't name
+# MuPDF's Charis SIL for ``insert_text``): one line high, its baseline this far down.
+_LINE_CSS = "* {{ font-family: serif; font-size: {size}pt; line-height: 1; margin: 0; }}"
+_ASCENT = 0.933  # of the font size
+# The text's font has no "↩": the way back from a note at the end is "↑".
+_BACK_ARROW = ("↩</a>", "↑</a>")
 
 
 def write_pdf(
@@ -83,7 +90,7 @@ def write_pdf(
     try:
         page_html = work / "book.html"
         stats = write_html(blocks, page_html, meta, images_dir=work / "images", css=_CSS)
-        html = page_html.read_text(encoding="utf-8")
+        html = page_html.read_text(encoding="utf-8").replace(*_BACK_ARROW)
         html, notes = _split_notes(html) if notes_at == "page" else (html, {})
         html, labels = _margin_refs(html)
         archive = pymupdf.Archive(str(work))
@@ -205,7 +212,7 @@ def _margin_refs(html: str) -> tuple[str, dict[str, str]]:
     labels = {}
 
     def lift(match: re.Match) -> str:
-        labels[match.group(1)] = html_unescape(match.group(2))
+        labels[match.group(1)] = html_unescape(match.group(2)).strip("[]")  # no brackets
         if match.group(4):
             return f'{match.group(3)}<span id="{match.group(1)}">{match.group(4)}</span>'
         return f'{match.group(3)}<span id="{match.group(1)}"></span>'  # a tag follows
@@ -216,34 +223,34 @@ def _margin_refs(html: str) -> tuple[str, dict[str, str]]:
 def _place_margin_refs(doc: pymupdf.Document, marks, labels: dict[str, str]) -> None:
     """Set each margin reference in the right margin, level with its line."""
     x = FRAME.x1 - FRAME.width * 0.05 + _MREF_GAP  # the text column ends at 5% in
-    last = (-1, 0.0, 0.0)  # page, baseline and right end of the last one set
+    rows: list[tuple[int, float, list[str]]] = []  # page, baseline, labels
     for page_no, mark_id, rect in marks:
         label = labels.get(mark_id)
         if not label:
             continue
         baseline = rect.y1 - rect.height * 0.25
-        start = x
-        if last[0] == page_no and abs(last[1] - baseline) < 2:
-            start = last[2] + 3  # two on one line: side by side
-        page = doc[page_no]
-        color = _MREF_ESTIMATED_COLOR if label.startswith(ESTIMATED) else _MREF_COLOR
-        page.insert_text(
-            (start, baseline), label, fontname="hebo", fontsize=_MREF_SIZE, color=color
-        )
-        width = pymupdf.get_text_length(label, fontname="hebo", fontsize=_MREF_SIZE)
-        last = (page_no, baseline, start + width)
+        if rows and rows[-1][0] == page_no and abs(rows[-1][1] - baseline) < 2:
+            rows[-1][2].append(label)  # two on one line: side by side
+        else:
+            rows.append((page_no, baseline, [label]))
+    for page_no, baseline, row in rows:
+        spans = []
+        for label in row:
+            color = _MREF_ESTIMATED_COLOR if label.startswith(ESTIMATED) else _MREF_COLOR
+            spans.append(f'<b style="color: {color}">{html_escape(label)}</b>')
+        _write_line(doc[page_no], x, PAGE.width, baseline, " ".join(spans), _MREF_SIZE)
 
 
 def _number_pages(doc: pymupdf.Document, first: int) -> None:
     for number, page in enumerate(doc, first):
-        label = str(number)
-        width = pymupdf.get_text_length(label, fontname="tiro", fontsize=_FOLIO_SIZE)
-        page.insert_text(
-            ((PAGE.width - width) / 2, PAGE.height - MARGIN / 2),
-            label,
-            fontname="tiro",
-            fontsize=_FOLIO_SIZE,
-        )
+        html = f'<p style="text-align: center">{number}</p>'
+        _write_line(page, 0, PAGE.width, PAGE.height - MARGIN / 2, html, _FOLIO_SIZE)
+
+
+def _write_line(page: pymupdf.Page, x0: float, x1: float, baseline: float, html: str, size):
+    top = baseline - _ASCENT * size
+    rect = pymupdf.Rect(x0, top, x1, top + 2 * size)
+    page.insert_htmlbox(rect, html, css=_LINE_CSS.format(size=size), scale_low=1)
 
 
 def _page_notes(refs, notes) -> dict[int, list[str]]:

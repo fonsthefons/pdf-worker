@@ -78,6 +78,19 @@ def test_epub_numbers_notes_through_the_book(tmp_path):
     assert re.search(r'id="n5" [^>]*><p>5\. Sin referencia', notes)  # last, numbered on
 
 
+def test_epub_keeps_the_number_of_notes_numbered_through_a_chapter(tmp_path):
+    # Chapter notes and references without their note show the number printed.
+    blocks = [
+        Paragraph("tres . . .[^o169-2] el cuarto[^c1-3]."),
+        Note("o169-2", "no footnote content found"),
+        Note("c1-3", "Hermócrates."),
+    ]
+    write_epub(blocks, tmp_path / "b.epub", Metadata("T"))
+    with zipfile.ZipFile(tmp_path / "b.epub") as z:
+        text = z.read("OEBPS/c001.xhtml").decode()
+    assert re.findall(r"<sup>(\w+)</sup>", text) == ["2", "3"]
+
+
 def test_clean_text_has_notes_at_the_end(make_layout_pdf, tmp_path):
     out = tmp_path / "book.txt"
 
@@ -125,7 +138,7 @@ def test_reflowed_pdf_puts_footnotes_at_the_foot_of_their_page(make_layout_pdf, 
     to_note = [link for link in goto if link["from"].y0 < note.y0 <= link["to"].y + 1]
     back = [link for link in goto if link["from"].y0 >= note.y0 - 1]
     assert to_note and back  # reference -> note and back
-    assert "↩" not in "".join(texts)  # a note under its reference needs no arrow
+    assert "↑" not in "".join(texts)  # a note under its reference needs no arrow
 
 
 def test_reflowed_pdf_notes_at_the_end_link_back_with_an_arrow(make_layout_pdf, tmp_path):
@@ -136,7 +149,7 @@ def test_reflowed_pdf_notes_at_the_end_link_back_with_an_arrow(make_layout_pdf, 
     with pymupdf.open(out) as doc:
         ref_page = next(p.number for p in doc if "A claim" in p.get_text())
         page = next(p for p in doc if "The footnote text." in p.get_text())
-        arrow = page.search_for("↩")
+        arrow = page.search_for("↑")
         back = [link["page"] for link in page.get_links() if link["from"].intersects(arrow[0])]
     assert back == [ref_page]
 

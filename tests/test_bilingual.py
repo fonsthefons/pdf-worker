@@ -43,20 +43,22 @@ def test_pages_in_greek_letters_are_left_out_without_spanish_neighbours(tmp_path
         assert facing_pages(doc)[1] == set(range(0, 24, 2))
 
 
-def test_long_greek_paragraphs_are_dropped_short_quotations_kept():
+def test_greek_paragraphs_are_dropped_quotations_in_a_sentence_kept():
     long_greek = Paragraph(f"{page_mark(7, '8')}{GREEK.replace(chr(10), ' ')}", page=7)
+    short = Paragraph("ἑστιατόρων;")
     quote = Paragraph("Platón dice ἔμφρονος y ψυχή en el texto")
-    entry = Paragraph(  # a bibliography entry with a Greek title: 0.8 Greek letters
-        "MPALLA, Khloe: «Κοσμική και πολιτική τάξη στον Πλάτωνα: Από το δημιουργό του "
-        "Τίμαιου στους Κυβερνήτες της Πολιτείας», Palimpseston 12, 1992, pp. 66-80."
-    )
+    # Greek re-read in a page of Greek read as Latin, and a paragraph all read as Latin.
+    mixed = Paragraph("TI ΤΙΜΑΙΟΣ.--᾿Ασθένειά Lá ns aimŀ συνέπεσεν, w Σώκρατες: · ou yap")
+    latin = Paragraph("av É KWV T08E QTTEAELTTETO TŁS owouaías .")
+    reply = Paragraph("TIM.--Sí.")  # none of the book's words either, but between Spanish
     after = Paragraph("Igualmente, en lo que respecta a la sabiduría")
     dropped = []
 
-    kept = list(drop_greek([quote, entry, long_greek, after], dropped))
+    blocks = [quote, short, long_greek, after, reply, after, mixed, latin, mixed, after]
+    kept = list(drop_greek(blocks, dropped, "es"))
 
-    assert dropped == [long_greek]
-    assert kept == [quote, entry, Paragraph(page_mark(7, "8") + after.text)]
+    assert dropped == [short, long_greek, mixed, latin, mixed]
+    assert kept == [quote, Paragraph(page_mark(7, "8") + after.text), reply, after, after]
 
 
 def test_left_out_text_is_listed_as_ignored_once():
