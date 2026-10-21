@@ -198,7 +198,7 @@ class PaddleClips:
 
         if self.failed:
             return None
-        place =f"{page.parent.name}\0{page.number}\0{tuple(round(v) for v in region)}"
+        place = f"{page.parent.name}\0{page.number}\0{tuple(round(v) for v in region)}"
         cached = paddle_ocr.cache_dir() / "clips" / hashlib.sha256(place.encode()).hexdigest()
         try:
             text = cached.read_text(encoding="utf-8")

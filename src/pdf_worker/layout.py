@@ -14,7 +14,8 @@ from pdf_worker.bilingual import apply_words, page_words
 from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.endnotes import ChapterNotes, match_chapter_notes
 from pdf_worker.font_sizes import same_leading_sizes, sizes_by_leading
-from pdf_worker.margin_refs import apply_marks, has_bracketed, in_book, page_marks
+from pdf_worker.glued_refs import apply_refs, page_refs
+from pdf_worker.margin_refs import OCR_DIGITS, apply_marks, has_bracketed, in_book, page_marks
 
 # Text-only extraction flags: never decode images (scanned books would bloat memory).
 _TEXT_FLAGS = pymupdf.TEXTFLAGS_TEXT
@@ -52,6 +53,9 @@ _SAMPLE_CHARS = 20_000
 _BRACKET_RE = re.compile(r"\[(\d{1,4})\]")
 # A line starting a numbered note: "12. Text" (or "12.Text"; not a decimal like "3.14").
 NUMBERED_NOTE_RE = re.compile(r"^\s*(\d{1,4})\.\s*(?=[^\d\s])")
+# ... or with no period: "235 Trato de ..." (footnotes look the same, see below).
+_PLAIN_NOTE_RE = re.compile(r"^\s*(\d{1,4})\s+(?=[^\d\s])")
+_SAME_BASELINE = 0.3  # in sizes: a hung note number sits this close to its line's
 _DIGITS_RE = re.compile(r"\d+")
 # Upper-case Roman numerals of two or more letters (a lone "I" or "V" may be a word).
 _ROMAN_RE = re.compile(r"\b[IVXLC]{2,}\b|\b[VXLC]\b")
@@ -103,11 +107,13 @@ class Line:
 def page_lines(page: pymupdf.Page) -> list[Line]:
     """All text lines of a page in MuPDF reading order, with OCR fixes from
     ``pdf_worker.consensus``, re-read words (``pdf_worker.bilingual``), stored margin
-    references (``pdf_worker.margin_refs``) applied, and sizes evened out by leading
+    references (``pdf_worker.margin_refs``) and note references
+    (``pdf_worker.glued_refs``) applied, and sizes evened out by leading
     where the fonts misreport them (``pdf_worker.font_sizes``)."""
     fixes = page_fixes(page)
     marks = page_marks(page)
     words = page_words(page)
+    glued = page_refs(page)
     lines = []
     for block in page.get_text("rawdict", flags=_TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", ()):
@@ -117,6 +123,8 @@ def page_lines(page: pymupdf.Page) -> list[Line]:
                 apply_fixes([char for span in line["spans"] for char in span["chars"]], fixes)
             if marks:  # after the fixes, which look for letters only
                 apply_marks([char for span in line["spans"] for char in span["chars"]], marks)
+            if glued:
+                apply_refs([char for span in line["spans"] for char in span["chars"]], glued)
             spans = _with_text(line["spans"])
             sizes: Counter[float] = Counter()
             for span in spans:
@@ -153,7 +161,7 @@ def _with_text(spans: list[dict]) -> tuple[dict, ...]:
     for span in spans:
         pieces: list[tuple[bool, list[str], list]] = []  # (superscript, chars, boxes)
         for char in span.pop("chars"):
-            sup = char["c"] in _SUPERSCRIPT_DIGITS
+            sup = char["c"] != "" and char["c"] in _SUPERSCRIPT_DIGITS  # "": a dropped char
             if (
                 prev is not None
                 and not prev["c"].isspace()
@@ -178,7 +186,20 @@ def _with_text(spans: list[dict]) -> tuple[dict, ...]:
                 x0s, y0s, x1s, y1s = zip(*boxes, strict=True)
                 bbox = (min(x0s), min(y0s), max(x1s), max(y1s))
             flags = span["flags"] | SUPERSCRIPT if sup else span["flags"]
-            out_spans.append(dict(span, text="".join(chars), bbox=bbox, flags=flags))
+            text = "".join(chars)
+            last = out_spans[-1] if out_spans else None
+            if sup and last and last["flags"] & SUPERSCRIPT and last["text"].isdigit():
+                # One number set in two fonts ("⁷" "⁴" in the Timeo's redraw)
+                box = last["bbox"]
+                bbox = (
+                    min(box[0], bbox[0]),
+                    min(box[1], bbox[1]),
+                    max(box[2], bbox[2]),
+                    max(box[3], bbox[3]),
+                )
+                out_spans[-1] = dict(last, text=last["text"] + text, bbox=bbox)
+                continue
+            out_spans.append(dict(span, text=text, bbox=bbox, flags=flags))
     return tuple(out_spans)
 
 
@@ -271,6 +292,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     referenced_mid_line: set[int] = set()
     sup_refs: list[tuple[int, tuple[int, int, int]]] = []
     note_lines: list[tuple[int, tuple[int, int]]] = []
+    plain_note_lines: list[tuple[int, tuple[int, int]]] = []
     sample: list[str] = []
     sample_len = 0
     bracketed_pages = 0
@@ -311,6 +333,9 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
             numbered = NUMBERED_NOTE_RE.match(text)
             if numbered:
                 note_lines.append((int(numbered.group(1)), (page_index, line_index)))
+            plain = plain_note_start(lines, line_index)
+            if plain:
+                plain_note_lines.append((plain[0], (page_index, plain[1])))
             for match in _BRACKET_RE.finditer(text):
                 number = int(match.group(1))
                 at_line_start = match.start() == len(text) - len(text.lstrip())
@@ -347,6 +372,14 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     }
     watermark_threshold = max(5, doc.page_count * _WATERMARK_SHARE)
     watermarks = {text for text, n in inner_texts.items() if n >= watermark_threshold}
+    # Notes numbered "235 Text" (OCR'd: numbers lost and garbled), if they link more
+    # references; only as a block after all of their references, as a page's footnotes
+    # ("17 Text" at its foot) look the same.
+    chapter_notes = max(
+        match_chapter_notes(sup_refs, note_lines),
+        match_chapter_notes(sup_refs, plain_note_lines, lossy=True),
+        key=lambda notes: sum(len(refs) for refs in notes.refs.values()),
+    )
     return DocumentProfile(
         watermarks=watermarks,
         body_size=body_size,
@@ -354,7 +387,7 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         heading_sizes=heading_sizes,
         running_texts=running,
         endnote_defs=_endnote_candidates(occurrences, line_starts, referenced_mid_line),
-        chapter_notes=match_chapter_notes(sup_refs, note_lines),
+        chapter_notes=chapter_notes,
         page_labels=_page_labels(doc, offsets),
         body_fonts=_body_fonts(fonts),
         repeated_images={
@@ -366,6 +399,29 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
         page_count=doc.page_count,
         bracketed_refs=in_book(bracketed_pages, doc.page_count),
     )
+
+
+def plain_note_start(lines: list[Line], index: int) -> tuple[int, int] | None:
+    """A note numbered with no period: "235 Trato de ...", or "235" hung in the margin
+    as a line of its own beside the note's first line. Returns (number, index of the
+    note's first line)."""
+    line = lines[index]
+    plain = _PLAIN_NOTE_RE.match(line.text)
+    if plain:
+        return int(plain.group(1)), index
+    # shortcut: OCR misreads of old-style figures seen in the Timeo (".¡." for 4, "o"
+    # for 0, "I" for 1); add others as books show them.
+    digits = "".join(line.text.split()).replace(".¡.", "4").translate(OCR_DIGITS)
+    if not digits.isdigit() or len(digits) > 4:
+        return None
+    beside = [
+        i
+        for i, other in enumerate(lines)
+        if abs(other.baseline - line.baseline) <= _SAME_BASELINE * other.size
+        and other.x0 > line.x1
+        and other.text.strip()
+    ]
+    return (int(digits), min(beside, key=lambda i: lines[i].x0)) if beside else None
 
 
 def _body_fonts(fonts: Counter[str]) -> set[str]:

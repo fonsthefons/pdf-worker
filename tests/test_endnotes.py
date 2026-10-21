@@ -149,7 +149,7 @@ def test_sequences_resume_after_a_list_inside_a_note():
     defs += [(n, (1, n)) for n in (1, 2)]  # "1." and "2." inside note 3
     defs += [(n, (2, n)) for n in (4, 5)]
 
-    groups = endnotes._sequences(defs)
+    groups = endnotes.sequences(defs)
 
     assert [[n for n, _ in g.items] for g in groups] == [[1, 2, 3, 4, 5]]
 

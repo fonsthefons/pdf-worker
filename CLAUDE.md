@@ -23,6 +23,10 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/pdf-worker`
 - Lint: `/Users/fons/Documents/pdf-worker/.venv/bin/ruff check /Users/fons/Documents/pdf-worker`
 - Format: `/Users/fons/Documents/pdf-worker/.venv/bin/ruff format /Users/fons/Documents/pdf-worker`
 - CLI: `/Users/fons/Documents/pdf-worker/.venv/bin/pdf-worker extract-text <pdf> -o /Users/fons/Documents/pdf-worker/scratch/<name>.txt`
+- Dev tools in `tools/` (run with the venv's python): `find_text.py` (pages with a phrase),
+  `page_lines.py` (the lines the pipeline sees on a page), `render_clip.py` (a page area as
+  PNG), `epub_score.py` (an EPUB against a reference). Reuse these before writing scratch
+  scripts; scratch/ is for throwaway files and is emptied from time to time.
 
 # Working rules for this repo
 
