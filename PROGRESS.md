@@ -1791,6 +1791,26 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
 - Same table in the EPUB (seen in iBooks): shows the garbled Latin-letter text. This is
   the same Paddle misreading, not an EPUB/font problem; the fix above covers both.
 
+## TODO after #43/#44 (user, 2026-10-21: keep as the list; suggested order)
+1. Regression check: the lossy note pairing (#44) runs on every book, only the Timeo was
+   rebuilt. Re-score Platón against its baseline (words 1.9%, refs 350/367, notes 358,
+   margin ok 645 / wrong 38 / missing 31 / extra 5) and rebuild philosophy + link check.
+2. Timeo, small (~15-30 min each): title "Platón Time o"; "NOTAS A LA TRADUCCIÓN" not a
+   heading; running head "INTRODUCCIÓN" left in the text; space before punctuation
+   ("nacido ,"); p471 contents lines taken as footnotes; margin ref "[24_.e]" missed.
+3. Timeo, bigger: ~170 notes without a reference (OCR garbled it: "Heracles73•" for 78,
+   "todos'º5" for 105), maybe recover from the number sequence; notes whose number is
+   garbled are folded into the note before; ~115 garbled Greek tokens.
+4. From the TODO above: Paddle wrong letters (~15 min); `--notes page` overlap in the
+   reflowed PDF (Typst ~1-2 h, or patch ~30 min); 5 philosophy notes without a found
+   reference; book note-style profile and more `find_book` sources (user: later).
+5. Housekeeping: `.claude/settings.json.bak` untracked, the user decides.
+
+## Reflowed PDF size (2026-10-21, branch feature/pdf-font-subset)
+The Timeo's reflowed PDF was 39 MB: 611 embedded font objects (MuPDF Story embeds each
+font whole, per use), 1 MB of images. `pdf_export` now calls `doc.subset_fonts()` and
+saves with `garbage=4`: 4.5 MB, same text on all 519 pages, same 1610 links.
+
 ## Philosophy EPUB vs reference (2026-10-19)
 User added `test_pdfs/philosophy_epub_good.epub`. Compared with `scratch/philo/book_1-462.epub`
 via `scratch/epub_compare.py` (structure) and `scratch/epub_worddiff.py` (word counts).
