@@ -1,10 +1,18 @@
-from pdf_worker.bilingual import _choose, apply_words, facing_pages, suspect
+import pymupdf
+
+from pdf_worker.bilingual import _choose, apply_words, drop_greek, facing_pages, suspect
 from pdf_worker.document import open_pdf
+from pdf_worker.fixes import Review
+from pdf_worker.inline import page_mark
+from pdf_worker.structure import Paragraph
 
 SPANISH = "\n".join(
     ["el dios hizo que la tierra y el fuego estuvieran en medio de los otros con una medida"] * 4
 )
 GREEK_AS_LATIN = "\n".join(["Aó'YT)aá am Ta ÉmTax0évrn x0és Í]yoúµEvos orrEp év cirram"] * 5)
+GREEK = "\n".join(
+    ["ἐπιβατὸν ἐπὶ τὰς ἄλλας νήσους τοῖς τότε ἐγίγνετο πορευομένοις ἐκ τῶν νήσων πᾶσαν"] * 5
+)
 TABLE = "\n".join(["µliedro Caras Vértices Aristas Agua Fuego Tierra Aire Elemento"] * 5)
 
 
@@ -18,6 +26,51 @@ def test_the_original_on_facing_pages_is_left_out_but_not_a_lone_table(make_pdf)
 
     assert language == "es"
     assert facing == set(range(4, 28, 2))
+
+
+def test_pages_in_greek_letters_are_left_out_without_spanish_neighbours(tmp_path):
+    # Split words ("p rin cip io") leave the Spanish pages too few stopwords to count.
+    split = "\n".join(["p rin cip io en o rd en to da esa dis po si ción y or ga ni za ción"] * 4)
+    doc = pymupdf.open()
+    for _ in range(12):
+        for text in (GREEK, split):
+            page = doc.new_page()
+            page.insert_font(fontname="G", fontbuffer=pymupdf.Font("notos").buffer)  # has Greek
+            page.insert_text((72, 72), text, fontname="G")
+    doc.save(tmp_path / "greek.pdf")
+
+    with open_pdf(tmp_path / "greek.pdf") as doc:
+        assert facing_pages(doc)[1] == set(range(0, 24, 2))
+
+
+def test_long_greek_paragraphs_are_dropped_short_quotations_kept():
+    long_greek = Paragraph(f"{page_mark(7, '8')}{GREEK.replace(chr(10), ' ')}", page=7)
+    quote = Paragraph("Platón dice ἔμφρονος y ψυχή en el texto")
+    entry = Paragraph(  # a bibliography entry with a Greek title: 0.8 Greek letters
+        "MPALLA, Khloe: «Κοσμική και πολιτική τάξη στον Πλάτωνα: Από το δημιουργό του "
+        "Τίμαιου στους Κυβερνήτες της Πολιτείας», Palimpseston 12, 1992, pp. 66-80."
+    )
+    after = Paragraph("Igualmente, en lo que respecta a la sabiduría")
+    dropped = []
+
+    kept = list(drop_greek([quote, entry, long_greek, after], dropped))
+
+    assert dropped == [long_greek]
+    assert kept == [quote, entry, Paragraph(page_mark(7, "8") + after.text)]
+
+
+def test_left_out_text_is_listed_as_ignored_once():
+    review = Review([], "es")
+    review.finish()
+    assert review.left_out("greek-dropped", [("8", "ἐπιβατὸν ἐπὶ τὰς ἄλλας")]) == 1
+    assert review.left_out("greek-dropped", [("8", "ἐπιβατὸν ἐπὶ τὰς ἄλλας")]) == 0
+    (row,) = review.fixes
+    assert (row.page, row.kind, row.action, row.status) == (
+        "8",
+        "greek-dropped",
+        "ignore",
+        "dropped",
+    )
 
 
 def test_a_few_foreign_pages_are_no_bilingual_edition(make_pdf):

@@ -40,6 +40,10 @@ These rules exist so that every command runs without needing my approval. I ofte
 - Don't use `/tmp`, `/private/tmp`, or any system temp folder. Put temporary and scratch files in `scratch/` inside this repo (it is gitignored).
 - Install Python packages into this repo's virtual environment (`.venv/`) with `/Users/fons/Documents/pdf-worker/.venv/bin/pip install ...`, then add the package to `pyproject.toml` (runtime deps under `dependencies`, tooling under `dev`). Don't use `pip3`.
 - If `.venv/` is missing, recreate it with `python3 -m venv /Users/fons/Documents/pdf-worker/.venv`, then `/Users/fons/Documents/pdf-worker/.venv/bin/pip install -e '/Users/fons/Documents/pdf-worker[dev]'`.
+- Long commands: never use the Bash tool's background mode (Claude Code keeps its output
+  under `/private/tmp`). Start them with `tools/run_logged.py NAME COMMAND...`, which
+  detaches the command and logs to `scratch/logs/NAME.log` (last line: `exit CODE after N s`);
+  `tools/wait_log.py LOG` waits for that line and prints the log's end.
 - Temp files: `TMPDIR` and `PIP_CACHE_DIR` point into `scratch/` (set in `.claude/settings.local.json`), and pytest's `tmp_path` lives in `scratch/pytest` (set in `tests/conftest.py`). If `scratch/tmp` is missing, create it with `mkdir -p`. Code you write must not hard-code `/tmp`.
 - Don't write to Claude's auto-memory folder (it is outside the repo). Record lasting notes in this file or in `PROGRESS.md` instead.
 

@@ -26,7 +26,9 @@ English/German/French/Italian/Latin words of 5+ letters), ``chars`` (odd letters
 macrons outside Latin, Cyrillic look-alikes, stray ``$``; not in bibliographies,
 indexes or ALL CAPS words), ``note-no-ref``,
 ``ref-no-note``, ``margin-est`` (estimated margin references) and ``margin-missing``
-(labels missing between two found ones).
+(labels missing between two found ones). Text the build left out is listed too, set to
+``ignore`` with status ``dropped``: ``greek-dropped`` (a Greek paragraph in a bilingual
+edition, ``bilingual.drop_greek``).
 
 A spelling row's ``type`` is its likely error, most reliable first (new rows are sorted
 so): ``accent`` (one accent off; the fix is pre-filled as ``value``, set the action to
@@ -42,7 +44,7 @@ import csv
 import os
 import re
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from functools import cached_property
 from itertools import combinations
@@ -62,6 +64,7 @@ _MAX_SPELLING_COUNT = 2
 _MIN_FOREIGN = 5  # letters: shorter words aren't excused by the foreign dictionaries
 _MAX_MISSING = 10  # more margin labels lost in a row: the found ones are suspect
 _CONTEXT = 30  # characters each side
+_FIND_CHARS = 60  # a left-out paragraph's row: its start
 _SPLIT_RE = re.compile(f"({PAGE_MARK_RE.pattern})")
 _MARKS_RE = re.compile(f"{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern}|{STYLE_RE.pattern}")
 # A word, a line-break hyphen or space, marks; the next word is only looked at, so it can
@@ -391,9 +394,10 @@ class Review:
         context = text[max(0, match.start() - _CONTEXT) : match.end() + _CONTEXT]
         self.words[(kind, key or find)] = [1, self.page, find, " ".join(context.split())]
 
-    def finish(self) -> dict[str, int]:
-        """Set each row's status and append what was found; returns new rows per kind."""
-        found = self._found()
+    def finish(self, on_word: Callable[[int, int], None] | None = None) -> dict[str, int]:
+        """Set each row's status and append what was found; returns new rows per kind.
+        ``on_word(done, total)`` follows the words flagged."""
+        found = self._found(on_word)
         keys = {(f.kind, f.find, f.page) for f in found}
         for i, fix in enumerate(self.fixes):
             if not fix.action:
@@ -415,7 +419,23 @@ class Review:
             added[fix.kind] = added.get(fix.kind, 0) + 1
         return added
 
-    def _found(self) -> list[Fix]:
+    def left_out(self, kind: str, items: list[tuple[str, str]]) -> int:
+        """List text the build left out, ``(page, text)``, as rows set to ``ignore``: there
+        to check, never sent for review. Call after ``finish``; returns the new rows."""
+        rows = {(kind, text[:_FIND_CHARS], page): text for page, text in items}
+        for fix in self.fixes:
+            if (fix.kind, fix.find, fix.page) in rows:
+                fix.status = "dropped"
+                del rows[(fix.kind, fix.find, fix.page)]
+        next_id = max((int(f.id) for f in self.fixes if f.id.isdigit()), default=0) + 1
+        for n, ((_, find, page), text) in enumerate(rows.items()):
+            context = text[: 2 * _CONTEXT]
+            self.fixes.append(
+                Fix(str(next_id + n), page, kind, find, context, "ignore", "", "dropped")
+            )
+        return len(rows)
+
+    def _found(self, on_word: Callable[[int, int], None] | None = None) -> list[Fix]:
         found = []
         old = self.old_marks >= _MIN_OLD_MARKS and self.old_marks >= self.body_words * _OLD_SHARE
         # Capitalised unknown words with their count over the whole book.
@@ -424,7 +444,9 @@ class Review:
             for (kind, _), e in self.words.items()
             if kind == "spelling" and _is_name(e[2])
         }
-        for (kind, _), (count, page, find, context) in self.words.items():
+        for i, ((kind, _), (count, page, find, context)) in enumerate(self.words.items()):
+            if on_word:
+                on_word(i, len(self.words))
             if kind == "spelling" and count > _MAX_SPELLING_COUNT:
                 continue
             if kind == "spelling" and old and self._old_spelling(find):
@@ -438,6 +460,8 @@ class Review:
                 if near and fix.type == "name":
                     fix.type = f"name: {near}?"
             found.append(fix)
+        if on_word:
+            on_word(len(self.words), len(self.words))
         found += [Fix("", p, "note-no-ref", n) for n, p in self.notes.items() if n not in self.refs]
         found += [Fix("", p, "ref-no-note", r) for r, p in self.refs.items() if r not in self.notes]
         found += [

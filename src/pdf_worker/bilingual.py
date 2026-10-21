@@ -5,7 +5,9 @@ on the right, and quote Greek words in the introduction and notes. A text layer 
 by a Latin-script OCR reads the Greek as look-alikes ("ἔμφρονος" -> "eµ<j>Qovoi;").
 
 The book is converted in its own language: a page that doesn't read as it, between two
-that do, is a facing page and is left out (``facing_pages``). Quoted words that look
+that do, or one set mostly in Greek letters, is a facing page and is left out
+(``facing_pages``); so is a long Greek paragraph on the other pages (``drop_greek``,
+bilingual books only: elsewhere a Greek quotation is the author's). Quoted words that look
 garbled are read again, their line at a time, with Tesseract in Greek and in the book's
 language (as ``pdf_worker.mixed_script`` does): a confident Greek reading replaces the
 token, else a confident reading in the book's language ("Ref>ública" -> "República").
@@ -16,14 +18,20 @@ The replacements are stored on the page in memory (``/PdfWorkerWords``) and appl
 import json
 import re
 import unicodedata
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import pymupdf
 
 from pdf_worker.consensus import _union
+from pdf_worker.inline import PAGE_MARK_RE, plain
 from pdf_worker.margin_refs import has_bracketed
 from pdf_worker.mixed_script import _DPI, GREEK, _overlap, _tsv
+
+if TYPE_CHECKING:
+    from pdf_worker.structure import Block, Paragraph
 
 WORDS_KEY = "PdfWorkerWords"
 _WORD_RE = re.compile(r"[^\W\d_]+")
@@ -38,6 +46,9 @@ _DIGIT_IN_WORD_RE = re.compile(r"[^\W\d_]\d+[^\W\d_]")
 _CASE_FLIP_RE = re.compile(r"[a-zß-ÿ][A-Z]")
 _EDGES = "()[]«»¿?¡!.,;:'\"’‘“”-—–•*"
 _GREEK_SHARE = 0.6
+_MIN_GREEK_WORDS = 15  # a Greek paragraph dropped; shorter ones are quotations
+# Greek pages are 0.94-0.99 Greek letters; a bibliography entry with a Greek title, 0.8.
+_GREEK_PARAGRAPH_SHARE = 0.9
 _MIN_GREEK_CONF, _MIN_NATIVE_CONF = 60, 85
 
 
@@ -52,11 +63,11 @@ def facing_pages(doc: pymupdf.Document) -> tuple[str, set[int]]:
         scores = stopword_scores(text)
         for language, hits in scores.items():
             totals[language] = totals.get(language, 0) + hits
-        pages.append((len(_WORD_RE.findall(text)), scores))
+        pages.append((len(_WORD_RE.findall(text)), scores, _greek_share(text)))
     language = max(totals, key=totals.get) if totals else "en"
 
     def share(i: int) -> float | None:
-        words, scores = pages[i]
+        words, scores, _ = pages[i]
         return scores[language] / words if words >= _MIN_WORDS else None
 
     shares = [share(i) for i in range(len(pages))] + [None, None]  # [-1], [-2]: past the end
@@ -78,7 +89,36 @@ def facing_pages(doc: pymupdf.Document) -> tuple[str, set[int]]:
     }
     # ...and every other page: a lone one is a table or a figure.
     facing = {i for i in between if i - 2 in between or i + 2 in between}
+    # Pages set in Greek letters need no neighbours: a split-word text layer ("p rin cip
+    # io") leaves the translation's pages too few stopwords to count as its language.
+    facing |= {
+        i
+        for i, (words, _, greek) in enumerate(pages)
+        if words >= _MIN_WORDS and greek >= _GREEK_SHARE
+    }
     return language, facing if len(facing) >= _MIN_FACING else set()
+
+
+def drop_greek(blocks: Iterable["Block"], dropped: list["Paragraph"]) -> Iterator["Block"]:
+    """Leave out paragraphs of ``_MIN_GREEK_WORDS`` or more words, nearly all in Greek
+    letters, appending them to ``dropped``. Their page marks go on to the next block."""
+    from pdf_worker.structure import Heading, Note, Paragraph  # it imports layout, which imports us
+
+    marks = ""
+    for block in blocks:
+        if isinstance(block, Paragraph):
+            text = plain(block.text)
+            if (
+                len(text.split()) >= _MIN_GREEK_WORDS
+                and _greek_share(text) >= _GREEK_PARAGRAPH_SHARE
+            ):
+                dropped.append(block)
+                marks += "".join(m.group() for m in PAGE_MARK_RE.finditer(block.text))
+                continue
+        if marks and isinstance(block, Heading | Paragraph | Note):
+            block = replace(block, text=marks + block.text)
+            marks = ""
+        yield block
 
 
 def suspect(token: str) -> bool:
@@ -92,9 +132,15 @@ def suspect(token: str) -> bool:
 
 
 def mark_words(
-    doc: pymupdf.Document, tesseract: str, language: str, skip: Collection[int] = (), jobs: int = 4
+    doc: pymupdf.Document,
+    tesseract: str,
+    language: str,
+    skip: Collection[int] = (),
+    jobs: int = 4,
+    on_line: Callable[[int, int], None] | None = None,
 ) -> int:
-    """Store re-read words on the pages of ``doc`` (in memory); returns how many."""
+    """Store re-read words on the pages of ``doc`` (in memory); returns how many.
+    ``on_line(done, total)`` follows the lines read."""
     lines = [line for i in range(doc.page_count) if i not in skip for line in _lines(doc, i)]
 
     def read(line: tuple) -> list:
@@ -103,8 +149,12 @@ def mark_words(
 
     # Tesseract runs as a subprocess, so threads read lines in parallel (MuPDF stays
     # in this thread: it isn't thread-safe).
+    readings = []
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        readings = list(pool.map(read, lines))
+        for reading in pool.map(read, lines):
+            readings.append(reading)
+            if on_line:
+                on_line(len(readings), len(lines))
     words: dict[int, list[list]] = {}
     for (index, _, _, bad), (greek, native) in zip(lines, readings, strict=True):
         for old, box in bad:

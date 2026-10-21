@@ -106,7 +106,7 @@ def test_reflowed_pdf_has_text_and_links(make_layout_pdf, tmp_path):
 def test_reflowed_pdf_puts_footnotes_at_the_foot_of_their_page(make_layout_pdf, tmp_path):
     out = tmp_path / "out.pdf"
 
-    convert_pdf(_book(make_layout_pdf), out, "pdf")
+    convert_pdf(_book(make_layout_pdf), out, "pdf", notes_at="page")
 
     with pymupdf.open(out) as doc:
         texts = [page.get_text() for page in doc]

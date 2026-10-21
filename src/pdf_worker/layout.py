@@ -6,6 +6,7 @@ sample), never the document text, so it is safe on huge PDFs.
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import pymupdf
@@ -277,8 +278,11 @@ class DocumentProfile:
         return bool(PAGE_NUMBER_RE.match(text)) or running_key(text) in self.running_texts
 
 
-def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
-    """One pass over every page collecting font, spacing, margin and endnote statistics."""
+def analyze_document(
+    doc: pymupdf.Document, on_page: Callable[[int, int], None] | None = None
+) -> DocumentProfile:
+    """One pass over every page collecting font, spacing, margin and endnote statistics.
+    ``on_page(done, total)`` follows the pages."""
     sizes: Counter[float] = Counter()
     gaps: Counter[float] = Counter()
     margin_texts: Counter[str] = Counter()
@@ -297,6 +301,8 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     sample_len = 0
     bracketed_pages = 0
     for page_index in range(doc.page_count):
+        if on_page:
+            on_page(page_index, doc.page_count)
         page = doc.load_page(page_index)
         height = page.rect.height
         lines = page_lines(page)
@@ -356,6 +362,8 @@ def analyze_document(doc: pymupdf.Document) -> DocumentProfile:
     heading_sizes = _cluster_sizes(
         {s: n for s, n in sizes.items() if s >= body_size * HEADING_RATIO and n >= 3}
     )
+    if on_page:
+        on_page(doc.page_count, doc.page_count)
     threshold = max(3, doc.page_count * _RUNNING_SHARE)
     # Per-chapter running heads ("NOTES TO CHAPTER 1") repeat on fewer pages; small
     # type in the margin repeated on a few pages is running text too. Large type is

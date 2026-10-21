@@ -1811,6 +1811,32 @@ The Timeo's reflowed PDF was 39 MB: 611 embedded font objects (MuPDF Story embed
 font whole, per use), 1 MB of images. `pdf_export` now calls `doc.subset_fonts()` and
 saves with `garbage=4`: 4.5 MB, same text on all 519 pages, same 1610 links.
 
+## Progress, notes at the end, Greek dropped (2026-10-21, branch feature/progress-greek)
+User's choices: notes at the end by default; Greek pages dropped by their letters;
+long Greek paragraphs dropped in bilingual books only, listed in the review file as
+`ignore` and never sent to the AI review.
+- Profile of a Timeo-Platón build (`--notes page`, 388 s): 12 layout passes 184 s +
+  measuring the notes 77 s; spelling while building ~47 s, sorting the flagged words 33 s;
+  re-reading garbled words 25 s; layout analysis 6 s.
+- `--notes end` is the default (cli, `convert_pdf`, `write_pdf`): one layout pass.
+- Progress: `convert_pdf(on_step=)`; the CLI passes `_progress` (now with a unit): "Step
+  1/5, re-reading garbled words: 45% (510/1133 lines), under a minute left". Steps:
+  re-reading (lines), layout (pages), building (pages), PDF layout (passes, pdf only),
+  sorting flagged words. A rewritten line on a terminal, a line per 5% in a log.
+- `tools/run_logged.py NAME CMD...` starts a long command detached, log in
+  `scratch/logs/NAME.log` (the Bash tool's background mode keeps output in /private/tmp);
+  `tools/wait_log.py LOG` waits for its end. Rule in CLAUDE.md.
+- `bilingual.facing_pages`: a page of 40+ words with 60%+ Greek letters is a facing page,
+  no neighbours needed (Timeo-Platón's split words left its Spanish pages at 0.16-0.24
+  stopwords, under the 0.25 the old test needs: 42 Greek pages were kept).
+- `bilingual.drop_greek` (bilingual books): paragraphs of 15+ words, 90%+ Greek letters,
+  are left out (their page marks go to the next block); `Review.left_out` lists them as
+  `greek-dropped` rows, action `ignore`, status `dropped`. At 60% it dropped a
+  bibliography entry with a Greek title (Timeo-Platón p146, 0.8).
+- Rebuilds: Timeo_by_Platón 71 s (749 notes, 104 facing pages, unchanged); Timeo-Platón
+  103 s, was 327 s (104 facing pages, was 62; 0 paragraphs dropped). Pages still mostly
+  Greek in its output: 3, the variants table of the "Nota al texto" (kept on purpose).
+
 ## Philosophy EPUB vs reference (2026-10-19)
 User added `test_pdfs/philosophy_epub_good.epub`. Compared with `scratch/philo/book_1-462.epub`
 via `scratch/epub_compare.py` (structure) and `scratch/epub_worddiff.py` (word counts).
