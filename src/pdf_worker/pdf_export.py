@@ -103,7 +103,9 @@ def write_pdf(
             if cover:
                 add_cover_page(doc, meta)
             doc.set_metadata({"title": meta.title, "author": meta.author, "producer": "pdf-worker"})
-            doc.save(tmp_name, garbage=3, deflate=True)
+            # Story embeds each font whole, once per use: 39 MB -> 4.5 MB on the Timeo.
+            doc.subset_fonts()
+            doc.save(tmp_name, garbage=4, deflate=True)
             stats.chapters = doc.page_count  # pages, for the summary
         os.replace(tmp_name, output_path)
     except BaseException:
