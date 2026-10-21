@@ -15,7 +15,7 @@ margin, level with the line of the word they precede.
 import os
 import re
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from html import unescape as html_unescape
 from pathlib import Path
 
@@ -67,13 +67,15 @@ def write_pdf(
     blocks: Iterable[Block],
     output_path: Path,
     meta: Metadata,
-    notes_at: str = "page",
+    notes_at: str = "end",
     cover: bool = False,
+    on_pass: Callable[[int, int], None] | None = None,
 ) -> WriteStats:
     """Lay the book out as an A5 PDF. ``notes_at``: "page" sets each footnote at the foot
     of the page that refers to it, "end" keeps them all in the notes section. ``cover``
     adds a text cover (``pdf_worker.cover``) as page 1. Pages are numbered at the foot
-    with the PDF's own page numbers, the cover unnumbered."""
+    with the PDF's own page numbers, the cover unnumbered. ``on_pass(done, at most)``
+    follows the layout passes (one with the notes at the end)."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.w."))
     fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.")
@@ -86,7 +88,10 @@ def write_pdf(
         html, labels = _margin_refs(html)
         archive = pymupdf.Archive(str(work))
         reserve: dict[int, float] = {}
+        most = _MAX_PASSES if notes else 1
         for passes in range(1, _MAX_PASSES + 1):
+            if on_pass:
+                on_pass(passes - 1, most)
             doc, refs, marks = _typeset(html, archive, reserve)
             need = _room_needed(refs, notes)
             fits = all(height <= reserve.get(page, 0) for page, height in need.items())
@@ -96,6 +101,8 @@ def write_pdf(
             if passes >= _EXACT_PASSES:
                 need = {p: max(h, reserve.get(p, 0)) for p, h in (reserve | need).items()}
             reserve = need
+        if on_pass:
+            on_pass(most, most)
         with doc:
             _place_notes(doc, refs, notes)
             _place_margin_refs(doc, marks, labels)

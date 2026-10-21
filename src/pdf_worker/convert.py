@@ -23,7 +23,7 @@ from pdf_worker.errors import PdfWorkerError
 from pdf_worker.fixes import Review, default_fixes_path, read_fixes, write_fixes
 from pdf_worker.html_export import write_html
 from pdf_worker.index_links import link_index
-from pdf_worker.inline import MARGIN_REF_RE
+from pdf_worker.inline import MARGIN_REF_RE, plain
 from pdf_worker.layout import analyze_document
 from pdf_worker.margin_refs import in_book, page_marks
 from pdf_worker.markdown_export import write_markdown
@@ -112,9 +112,10 @@ def convert_pdf(
     language: str | None = None,
     images: bool = True,
     cover: bool = True,
-    notes_at: str = "page",
+    notes_at: str = "end",
     paddle_rows: list[dict] | None = None,
     on_page: Callable[[int, int], None] | None = None,
+    on_step: Callable[[str, str], Callable[[int, int], None]] | None = None,
     margin_refs: bool | None = None,
     estimate_margin_refs: bool = False,
     fixes_path: str | Path | None = None,
@@ -128,11 +129,12 @@ def convert_pdf(
 
     ``images`` keeps the pictures; ``cover`` adds a text cover (title, author,
     translator; ``pdf_worker.cover``) to an EPUB, PDF or Word book; ``notes_at``
-    ("page" or "end") places a PDF's footnotes, "none" drops the notes and their
+    ("end" or "page") places a PDF's footnotes, "none" drops the notes and their
     references in every format. With ``paddle_rows`` (PaddleOCR-VL's
     blocks, see ``paddle_ocr.paddle_pages``) the book is built from them instead of the
     PDF's text layer (``pdf_worker.paddle_book``); ``on_page(done, total)`` then
-    follows the pages. ``margin_refs`` keeps the margin references of classical editions
+    follows the pages. Built from the text layer, ``on_step(step, unit)`` gives each slow
+    step's ``on_page``. ``margin_refs`` keeps the margin references of classical editions
     ("22b", ``pdf_worker.margin_refs``); other books have none, and ink in their margins
     would only make false ones, so by default (None) they are kept only when found on
     enough pages (``margin_refs.in_book``). ``estimate_margin_refs`` (implies
@@ -156,6 +158,16 @@ def convert_pdf(
     with open_pdf(source_pdf) as source:
         info = source.metadata or {}
     facing, reread = set(), 0
+    greek: list[Paragraph] = []  # Greek paragraphs left out of a bilingual edition
+
+    steps = ["re-reading garbled words", "reading the layout", "building the book"]
+    steps += ["laying out the PDF"] * (fmt == "pdf") + ["sorting the flagged words"]
+
+    def step(name: str, unit: str = "pages") -> Callable[[int, int], None] | None:
+        if not on_step:
+            return None
+        return on_step(f"Step {steps.index(name) + 1}/{len(steps)}, {name}", unit)
+
     with open_pdf(pdf_path) as doc:
         if paddle_rows is not None:
             from pdf_worker.paddle_book import iter_paddle_blocks, text_sample
@@ -172,11 +184,19 @@ def convert_pdf(
         else:
             font_sizes.mark_misreporting(doc)
             language, facing = bilingual.facing_pages(doc)
-            reread = _reread_words(doc, language, facing)
+            reread = _reread_words(doc, language, facing, step("re-reading garbled words", "lines"))
             glued_refs.mark_glued_refs(doc, skip=facing)
-            profile = analyze_document(doc)
+            profile = analyze_document(doc, on_page=step("reading the layout"))
             sample = profile.text_sample
-            blocks = iter_blocks(doc, profile, images=keep_images, skip=facing)
+            blocks = iter_blocks(
+                doc,
+                profile,
+                images=keep_images,
+                skip=facing,
+                on_page=step("building the book"),
+            )
+            if facing:
+                blocks = bilingual.drop_greek(blocks, greek)
             if margin_refs is None:
                 marked = sum(bool(page_marks(p)) for p in doc)
                 margin_refs = profile.bracketed_refs or in_book(marked, doc.page_count)
@@ -205,7 +225,14 @@ def convert_pdf(
         if fmt == "epub":
             stats = write_epub(blocks, output_path, meta, cover=cover_jpeg(meta) if cover else None)
         elif fmt == "pdf":
-            stats = write_pdf(blocks, output_path, meta, notes_at=notes_at, cover=cover)
+            stats = write_pdf(
+                blocks,
+                output_path,
+                meta,
+                notes_at=notes_at,
+                cover=cover,
+                on_pass=step("laying out the PDF", "passes"),
+            )
         elif fmt == "docx":
             stats = write_docx(blocks, output_path, meta, cover=cover)
         else:
@@ -215,7 +242,16 @@ def convert_pdf(
                 "txt": write_text,
             }[fmt]
             stats = writer(blocks, output_path, meta)
-    new_fixes = review.finish()
+    new_fixes = review.finish(on_word=step("sorting the flagged words", "words"))
+    if greek:
+        labels = profile.page_labels
+        new_fixes["greek-dropped"] = review.left_out(
+            "greek-dropped",
+            [
+                (labels[b.page] if 0 <= b.page < len(labels) else str(b.page + 1), plain(b.text))
+                for b in greek
+            ],
+        )
     if review.fixes:
         write_fixes(fixes_path, review.fixes)
     return ConvertReport(
@@ -231,7 +267,12 @@ def convert_pdf(
     )
 
 
-def _reread_words(doc: pymupdf.Document, language: str, facing: set[int]) -> int:
+def _reread_words(
+    doc: pymupdf.Document,
+    language: str,
+    facing: set[int],
+    on_line: Callable[[int, int], None] | None,
+) -> int:
     """Garbled words read again (``bilingual.mark_words``), when Tesseract has the models."""
     from pdf_worker.ocr import GREEK_LANGUAGE, TESSERACT_CODES, available_languages, tesseract_path
 
@@ -239,7 +280,7 @@ def _reread_words(doc: pymupdf.Document, language: str, facing: set[int]) -> int
     try:
         if not code or not {code, GREEK_LANGUAGE} <= available_languages():
             return 0
-        return bilingual.mark_words(doc, tesseract_path(), code, facing)
+        return bilingual.mark_words(doc, tesseract_path(), code, facing, on_line=on_line)
     except PdfWorkerError:  # no Tesseract
         return 0
 

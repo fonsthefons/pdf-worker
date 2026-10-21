@@ -73,7 +73,7 @@ def _apply_engine_options(args: argparse.Namespace) -> None:
         os.environ["PDF_WORKER_PADDLE_CACHE"] = str(args.paddle_cache)
 
 
-def _progress(stage: str):
+def _progress(stage: str, unit: str = "pages"):
     """An ``on_page(done, total)`` that shows ``stage``'s share done and the time left.
 
     On a terminal one line is rewritten; in a log a line is written every 5%."""
@@ -89,7 +89,7 @@ def _progress(stage: str):
         if not tty and pct // 5 == step and done < total:
             return
         step = pct // 5
-        line = f"{stage}: {pct}% ({done}/{total} pages)"
+        line = f"{stage}: {pct}% ({done}/{total} {unit})"
         if first < done < total:
             left = (time.monotonic() - start) / (done - first) * (total - done)
             line += f", {_duration(left)} left"
@@ -310,9 +310,9 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument(
         "--notes",
         choices=conversion.NOTE_PLACES,
-        default="page",
-        help="Reflowed PDF: footnotes at the foot of their page (default) or all at the "
-        "end of the book. 'none' (any format): leave out the notes and their references "
+        default="end",
+        help="Reflowed PDF: footnotes all at the end of the book (default) or at the foot "
+        "of their page. 'none' (any format): leave out the notes and their references "
         "(margin references stay).",
     )
     parser.add_argument(
@@ -380,7 +380,7 @@ def _run_convert(args: argparse.Namespace) -> int:
     with _maybe_ocr(args, output) as pdf:
         # The OCR'd copy has no useful metadata of its own: use the original's.
         report = conversion.convert_pdf(
-            pdf, output, fmt, title=args.title, source_pdf=args.pdf, **options
+            pdf, output, fmt, title=args.title, source_pdf=args.pdf, on_step=_progress, **options
         )
     return _print_convert_summary(report, output, fmt)
 

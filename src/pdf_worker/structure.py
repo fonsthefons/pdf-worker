@@ -7,7 +7,7 @@ paragraph is held in memory. Footnote references in block text use the
 
 import re
 from collections import Counter
-from collections.abc import Collection, Iterator
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field
 
 import pymupdf
@@ -215,15 +215,18 @@ def iter_blocks(
     profile: DocumentProfile,
     images: bool = False,
     skip: Collection[int] = (),
+    on_page: Callable[[int, int], None] | None = None,
 ) -> Iterator[Block]:
     """Yield the document's blocks in reading order, one page loaded at a time.
 
     With ``images``, pictures on each page become ``Image`` blocks. ``skip`` pages
-    (indexes) are left out.
+    (indexes) are left out. ``on_page(done, total)`` follows the pages.
     """
     state = _State(profile)
     previous_label = None
     for index in range(doc.page_count):
+        if on_page:
+            on_page(index, doc.page_count)
         if index in skip:
             continue
         page = doc.load_page(index)
@@ -244,6 +247,8 @@ def iter_blocks(
             images=pictures,
         )
     yield from state.finish()
+    if on_page:
+        on_page(doc.page_count, doc.page_count)
 
 
 def _is_contents_page(lines: list[BodyLine]) -> bool:

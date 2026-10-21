@@ -132,7 +132,7 @@ described in detail under [Features](#features).
   │   status → applied | ambiguous | stale                                            │
   └──────────────────────────────────────┬────────────────────────────────────────────┘
                                          ▼
-  --notes page (default) | end (reflowed PDF) | none (drop notes and their refs)
+  --notes end (default) | page (reflowed PDF) | none (drop notes and their refs)
   --no-images  --no-cover
                                          ▼
   WRITE (atomic)  --to / -o extension:
@@ -470,9 +470,9 @@ pdf-worker convert scan.pdf --ocr redo --ocr-lang spa
   is fast and gives the same text, and an interrupted run goes on where it stopped.
   `convert --ocr redo|force --ocr-engine paddle` builds the book from Paddle's blocks
   themselves (titles, paragraphs, footnotes, running heads), not from a text layer:
-  paragraphs, notes and headings come out much cleaner. Add `--notes end` to keep a
-  reflowed PDF's notes together at the end of the book (each ends with a ↩ link back to
-  the text). A note whose reference the OCR lost is looked for again on its page: in
+  paragraphs, notes and headings come out much cleaner. A reflowed PDF keeps its notes
+  together at the end of the book (each ends with a ↩ link back to the text); add
+  `--notes page` to set them at the foot of their page. A note whose reference the OCR lost is looked for again on its page: in
   the PDF's old text layer, then with Tesseract and Paddle on just those lines. Each
   reference found this way is listed after the summary.
 - **Latin macrons:** Tesseract has no macrons and reads Latin long vowels as accented ones
