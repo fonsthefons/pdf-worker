@@ -11,6 +11,10 @@ build/
 # API keys (GROQ_API_KEY for the model-assisted review).
 .env
 output/
+# `pdf-worker process`: books in, intermediate files, books out.
+file_inbox/
+file_work/
+file_outbox/
 scratch/
 # Sample PDFs are large and copyrighted; keep them local only.
 test_pdfs/

@@ -1,5 +1,78 @@
 # Progress
 
+## TODO: use ai-client's post-checks (`ai_client.check`) (noted 2026-10-22, not started)
+ai-client now has `ai_client.check`: per-language post-checks (split words, names, spelling with suggestions,
+optional LLM context pass) plus learned decisions. See ai-client's README, "Post-checks". Contract: **ai-client only
+checks real text; pdf-worker passes clean body text.**
+
+1. Pass clean text only:
+   - body text (no notes, bibliographies, indexes, ALL CAPS headings), as `Review` already selects;
+   - with ligatures normalized (ﬁ ﬂ ﬀ ﬃ ﬄ → fi fl ff ffi ffl);
+   - never text extracted back from a reflowed PDF (its typesetter adds ~1,000 ligatures).
+2. Per book: `words = check.Words(language)` with the book's detected language ("es" or "en"),
+   `decisions = check.Decisions(language)`, `source` = the PDF stem.
+3. Write the flags into `<stem>.fixes.tsv` as rows with an empty action (kind, page, find, context, value = suggestion),
+   so the existing review page shows them. `split` and `learned` flags may be applied automatically; the rest stay for review.
+4. In review.py's Export (`merge`), for every decided row call
+   `check.record(flag, accepted=..., source=stem, language=language, value=...)`:
+   `replace` → accepted with the new value; `ignore` → rejected (kept: never flagged again).
+5. Then remove the duplication: switch fixes.py's spelling check (`_knows`, the Spanish clitic/superlative rules,
+   foreign dictionaries, `dictionaries/`) to ai-client's `check.Words`. ai-client has the same rules and dictionary
+   files (es, en, de, fr, it, la, es.extra.txt) and vendors spylls. Until then, changes to those rules must be made
+   in both repos.
+
+Baseline (whole raw text layer, no OCR/fixes first): Kant 0.8 flags/1k words, Introducción a la Filosofía 3.8/1k,
+Gibbon 1872 scan 15.8/1k (mostly real OCR errors: Csesar, Eoman, prsefect, plus 1,317 line-break hyphenations
+correctly joined). Known gaps: transliterated Greek (lógos), run-together words (laspalabrasy), first-letter
+OCR errors (lntroduction), Latin/French not in the dictionaries (realitas, coessentiel).
+
+Caveats: this plan leans on transcribe's `course_of` and its knowledge-base glossary, and pdf-worker's Review,
+fixes.tsv columns and merge (found by reading the code). Not checked: whether transcribe has a single review step
+where `record()` fits. The word lists live only on this machine (`~/.cache/ai-client/`); another machine has to
+rebuild them with `python -m ai_client.lexicon es|en`.
+
+## `pdf-worker process`: inbox -> work -> outbox (2026-10-22, branch `feature/inbox`)
+User asked: `file_inbox` (books to convert), an intermediate folder (any name), and
+`file_outbox` (clean files). User decided: one command (no folder watcher); EPUB + PDF for
+every book; drafts in `file_outbox/drafts`, replaced by the finished files in the outbox
+root once reviewed; originals of finished books move to `<intermediate>/converted`.
+- New `inbox.py` + `process` subcommand (`pdf-worker process [FOLDER]`, `--engine`).
+  Intermediate folder: `file_work/<file name>/` holds `<stem>.pdf` (copy / OCR'd copy /
+  ebook laid out), so `pdf-worker review file_work/<name>/<stem>.pdf` needs no options.
+- "Reviewed" = the review file is newer than the `draft` mark written with the drafts
+  (`review` saving decisions rewrites it). Until then the book is reported `waiting`.
+  Born-digital books with no open rows and EPUBs finish in one run.
+- `kindle.ocr_and_vote` pulled out of `make_kindle_book` (no change in behaviour) and reused.
+- `epub_mimetype.py` (from `tools/check_and_fix.py`, which now imports it): EPUB inputs
+  are copied to the outbox with the mimetype entry repaired.
+- `.gitignore`: the three folders. README section "Process a folder of books"; cheat sheet.
+- Tests `tests/test_inbox.py` (2); fast suite 301 passed. Smoke runs in `scratch/inbox_smoke`
+  (Copleston EPUB, 2 born-digital PDFs: finished in one run) and `scratch/inbox_scan`
+  (6 pages rasterized from "Introducción a la Filosofía 1": OCR -> draft with 16 rows ->
+  `waiting` -> decisions saved via `review.merge` (`scratch/fake_review.py`) -> finished).
+- Per-book report (user asked; user decided a low grade does NOT hold a book in drafts):
+  new `book_report.py`; `inbox` writes `file_work/<name>/report.md` on every build and
+  prints the grade. `prepared.json` in the work folder keeps how the text was obtained
+  (assessment numbers, OCR mode/language, second-reading fixes) for the later rebuild.
+  Grade A-D from words kept (book EPUB words / source PDF layer words, letters only),
+  empty pages and open review rows per 1,000 words; OCR'd text in a language without a
+  spelling check (not es/en) is at best B. Calibration on `scratch/report_smoke`:
+  born-digital Ratzinger 100% kept, Trump v CASA 97%, Timeo 99% (all A); 6 rasterized
+  philosophy pages 101%, 27 open rows (10/1,000 words: C, draft); Familia (Latin OCR) B.
+  Tests `tests/test_book_report.py` (3); fast suite 304 passed.
+- Left as is: the reflowed PDF uses `convert`'s default `--notes end` (page-foot notes can
+  overlap the text); a book in both PDF and EPUB form with the same stem writes the same
+  outbox names; Tesseract-OCR'd books get no scan crops on the review page (known, see the
+  PLAN section).
+
+## EPUB mimetype check/fix (2026-10-22, on `main`, not committed)
+VirusTotal reported Copleston volumes 2, 3, 4, 6 and 7 (`test_pdfs/copleston-epubs/`) as
+plain ZIPs: their first entry was `META-INF/`, with `mimetype` as the 4th entry, so the
+`application/epub+zip` signature wasn't at byte 38. New `tools/check_and_fix.py BOOK.epub...`
+checks the OCF rule (first entry, stored, no extra field, exact content) and repacks bad
+books in place (atomic; other entries copied unchanged). Ran it on all 9: 5 fixed, 4 already
+ok. Checked on a copy of vol. 2 that names and contents match the original.
+
 ## AI calls through ai-client (2026-10-22, branch `feature/ai-client`)
 Every AI call now goes through `/Users/fons/Documents/ai-client` (installed with
 `.venv/bin/python -m pip install -e /Users/fons/Documents/ai-client`; listed as `ai-client`
@@ -17,6 +90,13 @@ in `pyproject.toml`).
   says "The MLX-VLM server stopped while starting" (no "for PaddleOCR-VL").
 - Tests: 315/316 pass. `test_convert_endnotes_pdf_to_valid_epub` (244 notes, expected 224)
   fails on main too, so it's unrelated to this refactor.
+- Smoke test after the merge (main): `scratch/mini/run_all.py` (inputs cut by
+  `scratch/mini/make_inputs.py`: 3 digital pages, 2 scan pages with and without text, a small
+  EPUB) ran 20 paths in 106 s, all exit 0. They were extract-text, convert to all 6 formats,
+  convert with a fixes file and with `--ocr redo`, ocr with tesseract and with paddle (the
+  MLX-VLM server via ai-client), convert with `--ocr-engine paddle`, kindle on a scan
+  (Apple Vision second reading) and on a digital PDF, ebook-to-pdf, find-book `--file`,
+  virus-check on a link, and review's Groq step (5 rows, 5 suggestions).
 
 ## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-5 done; Tesseract cache, find_book CCEL + Cervantes done; PRs #31-#38 merged by the user 2026-10-20)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
@@ -1823,6 +1903,12 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
    reflowed PDF (Typst ~1-2 h, or patch ~30 min); 5 philosophy notes without a found
    reference; book note-style profile and more `find_book` sources (user: later).
 5. Housekeeping: `.claude/settings.json.bak` untracked, the user decides.
+6. Ligatures (user, 2026-10-22): typesetters join letter pairs into one glyph ("fi" →
+   ﬁ U+FB01, "fl" → ﬂ), so "ﬁgura" is a different string from "figura" and the
+   dictionary misses it. pdf-worker's own reflowed PDF has ~1,000 (its typesetter uses
+   ligatures); source PDFs can too (Introducción a la Filosofía: 5; Kant, Gibbon: none).
+   Fix in pdf-worker: one line at text extraction turning ligatures back into plain
+   letters. The pipeline hands over pre-typesetting text, so only source PDFs need it.
 
 ## Reflowed PDF size (2026-10-21, branch feature/pdf-font-subset)
 The Timeo's reflowed PDF was 39 MB: 611 embedded font objects (MuPDF Story embeds each

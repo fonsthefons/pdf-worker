@@ -59,30 +59,12 @@ def make_kindle_book(
     ocr_report = vote_report = None
     with ExitStack() as stack:
         source = pdf_path
-        if use_ocr and assessment.mode:
-            source, ocr_report = stack.enter_context(
-                ocr.ocr_temporary_copy(
-                    pdf_path,
-                    output_path.parent,
-                    languages=ocr_languages,
-                    mode=assessment.mode,
-                    progress=progress,
-                    engine=engine,
-                    pages=assessment.pages,
+        if use_ocr:
+            source, ocr_report, vote_report = stack.enter_context(
+                ocr_and_vote(
+                    pdf_path, output_path.parent, assessment, ocr_languages, progress, engine
                 )
             )
-        if use_ocr and assessment.scanned_pages >= 0.5 and engine == "tesseract":
-            voted = stack.enter_context(_temporary_pdf(output_path.parent, pdf_path.stem))
-            languages = ocr_report.languages if ocr_report else ocr.guess_ocr_languages(pdf_path)
-            vote_report = consensus.vote_pdf(
-                source,
-                voted,
-                languages,
-                original=pdf_path if ocr_report else None,
-                redone=_redone_pages(assessment, ocr_report),
-            )
-            if vote_report.pages:
-                source = voted
         conversion = convert.convert_pdf(
             source,
             output_path,
@@ -101,6 +83,48 @@ def make_kindle_book(
         size_bytes=output_path.stat().st_size,
         vote_report=vote_report,
     )
+
+
+@contextmanager
+def ocr_and_vote(
+    pdf_path: Path,
+    folder: Path,
+    assessment: TextLayerReport,
+    ocr_languages: str | None = None,
+    progress: bool = False,
+    engine: str = "tesseract",
+) -> Iterator[tuple[Path, ocr.OcrReport | None, consensus.VoteReport | None]]:
+    """Yield ``(source, ocr_report, vote_report)``: the PDF to convert, which is
+    ``pdf_path`` itself or a temporary copy in ``folder`` OCR'd as ``assessment`` says,
+    with other engines' votes on scanned pages (Tesseract only)."""
+    ocr_report = vote_report = None
+    with ExitStack() as stack:
+        source = pdf_path
+        if assessment.mode:
+            source, ocr_report = stack.enter_context(
+                ocr.ocr_temporary_copy(
+                    pdf_path,
+                    folder,
+                    languages=ocr_languages,
+                    mode=assessment.mode,
+                    progress=progress,
+                    engine=engine,
+                    pages=assessment.pages,
+                )
+            )
+        if assessment.scanned_pages >= 0.5 and engine == "tesseract":
+            voted = stack.enter_context(_temporary_pdf(folder, pdf_path.stem))
+            languages = ocr_report.languages if ocr_report else ocr.guess_ocr_languages(pdf_path)
+            vote_report = consensus.vote_pdf(
+                source,
+                voted,
+                languages,
+                original=pdf_path if ocr_report else None,
+                redone=_redone_pages(assessment, ocr_report),
+            )
+            if vote_report.pages:
+                source = voted
+        yield source, ocr_report, vote_report
 
 
 def _redone_pages(assessment: TextLayerReport, ocr_report: ocr.OcrReport | None) -> list[int]:
