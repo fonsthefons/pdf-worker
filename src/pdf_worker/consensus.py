@@ -11,8 +11,8 @@ The fixes are stored on each page (``/PdfWorkerFixes``: the word's box, the old 
 new word) and applied by ``pdf_worker.layout.page_lines``, so every command reads the
 corrected words while sizes, fonts and positions stay as they were.
 
-Apple Vision comes from ``ocrmac`` (macOS). Without it there is no majority to be had
-and pages are left as they are.
+Apple Vision comes from ``ocrmac`` (macOS), through ``ai_client.apple_vision``. Without
+it there is no majority to be had and pages are left as they are.
 """
 
 import difflib
@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pymupdf
+from ai_client import apple_vision
 
 from pdf_worker import tesseract_cache
 
@@ -61,11 +62,7 @@ class VoteReport:
 
 
 def vision_available() -> bool:
-    try:
-        import ocrmac  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    return apple_vision.available()
 
 
 def vote_pdf(
@@ -267,11 +264,10 @@ def _tesseract_words(gray: "np.ndarray", tesseract: str, language: str) -> list[
 
 
 def _vision_words(gray: "np.ndarray", languages: Collection[str]) -> list[str]:
-    from ocrmac import ocrmac
     from PIL import Image
 
     preferred = [_VISION_LANGUAGES[code] for code in languages if code in _VISION_LANGUAGES]
-    found = ocrmac.OCR(Image.fromarray(gray), language_preference=preferred or None).recognize()
+    found = apple_vision.recognize(Image.fromarray(gray), preferred)
     # (text, confidence, (x, y, w, h)), y measured from the bottom: read top down.
     found.sort(key=lambda item: (-round(item[2][1] + item[2][3], 2), item[2][0]))
     return _words("\n".join(item[0] for item in found))

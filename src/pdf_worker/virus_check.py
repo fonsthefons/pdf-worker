@@ -10,6 +10,7 @@ The free key allows 4 requests a minute, so waiting for an analysis polls slowly
 import base64
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -18,7 +19,6 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from pdf_worker import groq
 from pdf_worker.errors import PdfWorkerError
 
 API_URL = "https://www.virustotal.com/api/v3"
@@ -49,7 +49,12 @@ class Report:
 
 
 def api_key(env_file: Path = Path(".env")) -> str:
-    key = groq.api_key(env_file, KEY_VARIABLE)
+    key = os.environ.get(KEY_VARIABLE, "")
+    if not key and env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            name, separator, value = line.partition("=")
+            if separator and name.strip().removeprefix("export ") == KEY_VARIABLE:
+                key = value.strip().strip("'\"")
     if not key:
         raise VirusTotalError(f"No VirusTotal key: set {KEY_VARIABLE} in the environment or .env.")
     return key

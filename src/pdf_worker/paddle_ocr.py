@@ -3,7 +3,8 @@
 PaddleOCR needs its own Python environment (PaddlePaddle has no wheels for every Python
 version), so it runs out of process:
 
-1. an MLX-VLM server serves the PaddleOCR-VL model on Apple Silicon;
+1. an MLX-VLM server (started by ``ai_client.mlx_vlm``) serves the PaddleOCR-VL model
+   on Apple Silicon;
 2. ``paddle_worker.py`` runs the PaddleOCR-VL pipeline (layout model + server) on the
    page images and writes blocks with labels and boxes as JSON lines;
 3. this module writes the blocks into the PDF as an invisible text layer, in Paddle's
@@ -24,19 +25,16 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
-import time
 import unicodedata
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 import pymupdf
+from ai_client import AIClientError, mlx_vlm
 
 from pdf_worker.convert import guess_language, stopword_scores
 from pdf_worker.document import open_pdf
@@ -222,46 +220,16 @@ def _read_rows(path: Path) -> dict[int, dict]:
     return rows
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 @contextmanager
 def _mlx_server(python: Path, progress: bool = False) -> Iterator[str]:
-    """Start the MLX-VLM server, wait until it answers, and stop it afterwards."""
-    port = _free_port()
-    url = f"http://127.0.0.1:{port}/"
-    env = _paddle_env()
-    process = subprocess.Popen(
-        [str(python), "-m", "mlx_vlm.server", "--port", str(port)],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        # The server downloads the model (~2 GB) on the first request; show its progress.
-        stderr=None if progress else subprocess.DEVNULL,
-    )
+    """Start the MLX-VLM server, wait until it answers, and stop it afterwards.
+
+    The server downloads the model (~2 GB) on the first request; ``progress`` shows it."""
     try:
-        deadline = time.monotonic() + _SERVER_TIMEOUT
-        while True:
-            if process.poll() is not None:
-                raise OcrError("The MLX-VLM server for PaddleOCR-VL stopped while starting")
-            try:
-                urllib.request.urlopen(url, timeout=5)
-                break
-            except urllib.error.HTTPError:
-                break  # any HTTP answer means it is up
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise OcrError("The MLX-VLM server did not start in time") from None
-                time.sleep(2)
-        yield url
-    finally:
-        process.terminate()
-        try:
-            process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        with mlx_vlm.server(python, _paddle_env(), progress, _SERVER_TIMEOUT) as url:
+            yield url
+    except AIClientError as error:
+        raise OcrError(str(error)) from error
 
 
 def _paddle_env() -> dict[str, str]:
