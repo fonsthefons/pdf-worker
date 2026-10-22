@@ -6,6 +6,7 @@ A Python toolkit of PDF processing features, exposed as a `pdf-worker` CLI.
 
 ```bash
 python3 -m venv .venv
+.venv/bin/python -m pip install -e ../ai-client   # AI calls (Groq, MLX-VLM, Apple Vision)
 .venv/bin/pip install -e '.[dev,ocr]'
 brew install tesseract tesseract-lang   # only needed for OCR
 ```
@@ -154,7 +155,8 @@ described in detail under [Features](#features).
 
   book.fixes.tsv ──► open spelling/chars rows (undecided, or a replace that went stale)
                  ──► scan line of each word (Paddle cache + Tesseract) → book.review/crops
-                 ──► gpt-oss-120b via Groq (GROQ_API_KEY; text only; rows asked once,
+                 ──► gpt-oss-120b via Groq (GROQ_API_KEY in the environment or
+                     ai-client/.env; text only; rows asked once,
                      kept in book.review/proposals.jsonl; --no-model to skip)
                  ──► page on http://127.0.0.1:8765 (accept / ignore / edit, j/k a i e c,
                      filters) → "Save decisions" → merged into book.fixes.tsv

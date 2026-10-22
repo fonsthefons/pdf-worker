@@ -1,5 +1,23 @@
 # Progress
 
+## AI calls through ai-client (2026-10-22, branch `feature/ai-client`)
+Every AI call now goes through `/Users/fons/Documents/ai-client` (installed with
+`.venv/bin/python -m pip install -e /Users/fons/Documents/ai-client`; listed as `ai-client`
+in `pyproject.toml`).
+- `groq.py`: thin wrapper over `ai_client.Groq` (same model, temperature 0.2,
+  reasoning_effort low, token budget, 429 retries); `GroqError` kept. The key now comes from
+  the environment or `ai-client/.env`. `virus_check.api_key` keeps its own `.env` lookup.
+- `paddle_ocr._mlx_server` wraps `ai_client.mlx_vlm.server` (new in ai-client PR #2);
+  `consensus` uses `ai_client.apple_vision` (new in ai-client PR #2).
+- Check: `scratch/ai_client_check/check.py before|after --paddle` + `compare.py`. Payloads,
+  Apple Vision words and Paddle rows are identical before and after. Differences: User-Agent
+  `ai-client` instead of `pdf-worker`; error texts ("Groq error 400" instead of "Groq API error
+  400", longer cut-short text, "Groq: " prefix on the too-long prompt); a rate-limit wait now
+  prints "  Groq rate limit reached; waiting Ns"; a Paddle server that exits while starting
+  says "The MLX-VLM server stopped while starting" (no "for PaddleOCR-VL").
+- Tests: 315/316 pass. `test_convert_endnotes_pdf_to_valid_epub` (244 notes, expected 224)
+  fails on main too, so it's unrelated to this refactor.
+
 ## EPUB QUALITY PLAN (agreed with user 2026-10-19; phases 0-5 done; Tesseract cache, find_book CCEL + Cervantes done; PRs #31-#38 merged by the user 2026-10-20)
 From "Philosophy EPUB vs reference" below. The user wants both EPUB (Kindle reading) and
 PDF (annotating) from every book, so fixes go in the shared extraction/cleanup stages, not

@@ -39,7 +39,11 @@ These rules exist so that every command runs without needing my approval. I ofte
 - Never use `cd`. Always pass absolute paths to commands instead.
 - Don't use `/tmp`, `/private/tmp`, or any system temp folder. Put temporary and scratch files in `scratch/` inside this repo (it is gitignored).
 - Install Python packages into this repo's virtual environment (`.venv/`) with `/Users/fons/Documents/pdf-worker/.venv/bin/pip install ...`, then add the package to `pyproject.toml` (runtime deps under `dependencies`, tooling under `dev`). Don't use `pip3`.
-- If `.venv/` is missing, recreate it with `python3 -m venv /Users/fons/Documents/pdf-worker/.venv`, then `/Users/fons/Documents/pdf-worker/.venv/bin/pip install -e '/Users/fons/Documents/pdf-worker[dev]'`.
+- If `.venv/` is missing, recreate it with `python3 -m venv /Users/fons/Documents/pdf-worker/.venv`, then `/Users/fons/Documents/pdf-worker/.venv/bin/python -m pip install -e /Users/fons/Documents/ai-client`, then `/Users/fons/Documents/pdf-worker/.venv/bin/pip install -e '/Users/fons/Documents/pdf-worker[dev]'`.
+- Every AI call (Groq, the MLX-VLM server for PaddleOCR-VL, Apple Vision) goes through the
+  shared `ai-client` repo (`/Users/fons/Documents/ai-client`, stdlib only). Its keys
+  (`GROQ_API_KEY`) come from the environment or `ai-client/.env`, not this repo's `.env`;
+  missing AI features belong in ai-client, not here.
 - Long commands: never use the Bash tool's background mode (Claude Code keeps its output
   under `/private/tmp`). Start them with `tools/run_logged.py NAME COMMAND...`, which
   detaches the command and logs to `scratch/logs/NAME.log` (last line: `exit CODE after N s`);

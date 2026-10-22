@@ -693,7 +693,7 @@ def _add_review_command(subparsers: argparse._SubParsersAction) -> None:
         help="Review a book's suspicious words on a local web page.",
         description="Show the spelling and odd-character rows of the review file still to "
         "decide on a local web page, each with its scan line and a model's suggestion "
-        "(Groq: needs GROQ_API_KEY in the environment or in .env; only text is sent). "
+        "(Groq: needs GROQ_API_KEY in the environment or in ai-client/.env; only text is sent). "
         "'Save decisions' writes them into the review file; convert the PDF again to "
         "apply them.",
     )
