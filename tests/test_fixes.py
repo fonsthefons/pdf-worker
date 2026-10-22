@@ -160,8 +160,9 @@ def test_joins_words_split_at_line_breaks():
         + "gún; cosa-en-sí, físico-químico, sino que, Jean-Jacques, acallar á Don, confies en."
     )
     out, _, _ = _run([], [Paragraph(page_mark(0, "1") + text)])
+    # "place-res": two words, so maybe the author's hyphen (lines are joined before this).
     assert out[0].text == page_mark(0, "1") + (
-        "la inmortalidad y placeres e "
+        "la inmortalidad y place-res e "
         + margin_ref("108d")
         + "invocar porciones "
         + page_mark(1, "2")
@@ -177,12 +178,12 @@ def test_spelling_rows_say_the_likely_error_reliable_first():
     _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
     rows = [(f.kind, f.type, f.find, f.value) for f in review.fixes]
     assert rows[:2] == [("chars", "", "Būtzow", ""), ("ref-no-note", "", "c1-1", "")]
+    # Eutifrón isn't flagged: Wikipedia knows it.
     assert rows[2:] == [
         ("spelling", "accent", "pudieramos", "pudiéramos"),
         ("spelling", "swap", "Bcrvir", "Hervir"),
-        ("spelling", "ocr1: fusible?", "Pusible", ""),
         ("spelling", "name", "Zqxwrt", ""),
-        ("spelling", "name", "Eutifrón", ""),
+        ("spelling", "name: Posible?", "Pusible", ""),
     ]
     assert not any(f.action for f in review.fixes)
 
@@ -197,14 +198,57 @@ def test_no_rows_for_all_caps_or_names_the_book_repeats():
     assert rows == {("spelling", "Bohatcc"): "name: Bohatec?", ("spelling", "Pudieramos"): "accent"}
 
 
-def test_old_spelling_is_not_flagged_in_an_old_edition():
-    words = "Ponia lleuauamos, dezir cabeça; dixo seys veces, yglesia, tauerna, dellas. Fué becho. "
-    old = "Vino á casa ó á la plaza, á pie y á caballo. " * 2
-    _, _, review = _run([], [Paragraph(page_mark(0, "1") + old + words)])
-    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
-    # A modern book keeps them: there they are misreadings.
-    _, _, review = _run([], [Paragraph(page_mark(0, "1") + words)])
-    assert {f.find for f in review.fixes if f.kind == "spelling"} >= {"Ponia", "dezir", "becho"}
+def test_split_and_learned_words_are_fixed_without_review(tmp_path):
+    from ai_client import check
+
+    check.record(check.Flag("spelling", 0, 8, "albedrio", "albedrío", "", ""), True, "book", "es")
+    text = "la inmor-talidad del libre albedrio."
+    review = Review([], "es", source="book")
+    out = list(review.apply([Paragraph(page_mark(0, "1") + text)]))
+    added = review.finish()
+    assert plain(out[0].text) == "la inmortalidad del libre albedrío."
+    rows = [(f.type, f.find, f.action, f.value, f.status) for f in review.fixes]
+    assert rows == [
+        ("auto: split", "inmor-talidad", "replace", "inmortalidad", "applied"),
+        ("auto: learned", "albedrio", "replace", "albedrío", "applied"),
+    ]
+    assert added == {"auto: split": 1, "auto: learned": 1}
+    # Set to ignore, an automatic fix is undone and never comes back.
+    for fix in review.fixes:
+        fix.action = "ignore"
+    review = Review(review.fixes, "es", source="book")
+    out = list(review.apply([Paragraph(page_mark(0, "1") + text)]))
+    review.finish()
+    assert plain(out[0].text) == text
+
+
+def test_decided_word_rows_are_recorded_once():
+    from ai_client import check
+
+    fixes = [
+        Fix("1", "1", "spelling", "becho", "×2 un becho", "replace", "hecho"),
+        Fix("2", "1", "spelling", "Zqxwrt", action="ignore"),
+        Fix("3", "1", "note-no-ref", "4", action="drop"),  # not a word
+        Fix(
+            "4",
+            "1",
+            "spelling",
+            "fil ósofos",
+            action="replace",
+            value="filósofos",
+            type="auto: split",
+        ),
+    ]
+    for _ in range(2):  # a second build records nothing new
+        review = Review(fixes, "es", source="book")
+        list(review.apply([Paragraph(page_mark(0, "1") + "un becho y Zqxwrt")]))
+        review.finish()
+    decisions = check.Decisions("es")
+    assert dict(decisions.history) == {
+        "becho": {("book", "hecho"): 1},
+        "Zqxwrt": {("book", "Zqxwrt"): 1},
+    }
+    assert "Zqxwrt" in decisions.kept
 
 
 def test_spelling_only_in_the_body():
@@ -242,26 +286,22 @@ def test_bibliography_subheadings_of_the_same_level_stay_in_it():
     assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
 
 
-def test_no_spelling_check_for_text_that_was_not_ocrd():
+def test_no_spelling_check_when_turned_off():
     review = Review([], "es", spelling=False)
     list(review.apply(_book()))
     added = review.finish()
-    assert "spelling" not in added and added["chars"]  # "ipodrias" is the author's
+    assert "spelling" not in added and added["chars"]
 
 
-def test_convert_checks_spelling_only_in_ocr_text(make_pdf, tmp_path, monkeypatch):
+def test_convert_checks_spelling_in_born_digital_text_too(make_pdf, tmp_path):
     from pdf_worker import convert
 
     pdf = make_pdf(["Un hombre becho de piedra, dijo el pastor del pueblo."])
-
-    def spelling():
-        return [f.find for f in read_fixes(default_fixes_path(pdf)) if f.kind == "spelling"]
-
     convert.convert_pdf(pdf, tmp_path / "out.txt", "txt", language="es")
-    assert spelling() == []
-    monkeypatch.setattr(convert, "mostly_scanned", lambda doc: True)  # as if OCR'd
-    convert.convert_pdf(pdf, tmp_path / "out.txt", "txt", language="es")
-    assert spelling() == ["becho"]
+    rows = read_fixes(default_fixes_path(pdf))
+    assert [(f.find, f.type, f.value) for f in rows if f.kind == "spelling"] == [
+        ("becho", "swap", "hecho")
+    ]
 
 
 def test_no_spelling_check_for_other_languages():

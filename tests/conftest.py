@@ -20,6 +20,14 @@ def _tesseract_cache_per_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("PDF_WORKER_TESSERACT_CACHE", str(tmp_path / "tesseract-cache"))
 
 
+@pytest.fixture(autouse=True)
+def _decisions_per_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Tests start with no word decisions and never write ai-client's own file.
+    from ai_client import check
+
+    monkeypatch.setattr(check.config, "DECISIONS_FILE", tmp_path / "decisions.tsv")
+
+
 @pytest.fixture
 def make_pdf(tmp_path: Path) -> Callable[..., Path]:
     """Build a small PDF where each entry in ``pages`` is that page's text.
