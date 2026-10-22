@@ -76,6 +76,11 @@ These rules exist so that every command runs without needing my approval. I ofte
 - If a step seems to require breaking one of these rules or going outside the repo, don't do it. Write it down in `PROGRESS.md` under "Blocked", skip it, and continue with the next step.
 - Don't stop to ask me questions while a task is running. Make the most reasonable choice, note it in `PROGRESS.md`, and keep going.
 
+## Pull requests
+
+- Claude can't merge PRs (blocked by permissions). After opening one, always give the user the
+  merge command: `! gh pr merge <N> --repo fonsthefons/pdf-worker --merge --delete-branch`.
+
 ## Progress log
 
 - Keep `PROGRESS.md` up to date: after each phase or major step, add what you did, the main commands you ran, the files you created or changed, and anything that was blocked.

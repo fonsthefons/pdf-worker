@@ -1,5 +1,7 @@
+import pymupdf
+
 from pdf_worker.endnotes import LOSSY_STEP, runs_from_anywhere, sequences
-from pdf_worker.glued_refs import _missing, apply_refs
+from pdf_worker.glued_refs import _missing, apply_refs, mark_glued_refs, page_refs
 from pdf_worker.layout import Line, hung_mark, plain_note_start
 
 
@@ -15,6 +17,15 @@ def test_a_glued_reference_becomes_superscript_and_its_period_comes_back():
     chars = _chars("tud88 • Pe")
     apply_refs(chars, [[30.0, 0.0, 48.0, 10.0]])
     assert "".join(c["c"] for c in chars) == "tud⁸⁸. Pe"
+
+
+def test_numbers_that_only_climb_are_not_references(make_pdf):
+    # A born-digital book's notes: "AAS 42 (1950)", "AAS 53 (1961)", ... climb, with gaps.
+    sparse = "\n".join(f"Carta enc. AAS {n} (19{n})" for n in (7, 20, 33, 42, 53, 63))
+    dense = "\n".join(f"las cosas{n} y otras" for n in (1, 2, 3, 5, 6))
+    with pymupdf.open(make_pdf([sparse, dense])) as doc:
+        assert mark_glued_refs(doc) == 5
+        assert page_refs(doc[0]) == []
 
 
 def test_lossy_runs_skip_lost_numbers_and_stray_ones_dont_end_them():

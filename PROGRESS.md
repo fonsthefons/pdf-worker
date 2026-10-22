@@ -7,7 +7,8 @@ checks real text; pdf-worker passes clean body text.**
 
 1. Pass clean text only:
    - body text (no notes, bibliographies, indexes, ALL CAPS headings), as `Review` already selects;
-   - with ligatures normalized (ﬁ ﬂ ﬀ ﬃ ﬄ → fi fl ff ffi ffl);
+   - with ligatures normalized (ﬁ ﬂ ﬀ ﬃ ﬄ → fi fl ff ffi ffl): done at extraction
+     (`document.TEXT_FLAGS`, 2026-10-22);
    - never text extracted back from a reflowed PDF (its typesetter adds ~1,000 ligatures).
 2. Per book: `words = check.Words(language)` with the book's detected language ("es" or "en"),
    `decisions = check.Decisions(language)`, `source` = the PDF stem.
@@ -30,6 +31,19 @@ Caveats: this plan leans on transcribe's `course_of` and its knowledge-base glos
 fixes.tsv columns and merge (found by reading the code). Not checked: whether transcribe has a single review step
 where `record()` fits. The word lists live only on this machine (`~/.cache/ai-client/`); another machine has to
 rebuild them with `python -m ai_client.lexicon es|en`.
+
+## Encyclical notes test, ligatures (2026-10-22, branch `feature/ligatures-endnotes`)
+- `test_convert_endnotes_pdf_to_valid_epub` (244 notes, expected 224): `glued_refs` took
+  climbing plain numbers for references ("AAS 42 (1950)", "AAS 53 (1961)" in the notes
+  pages, "el pasado 7 de diciembre"), and since 615a167 a superscript with no note gets a
+  stand-in note. A trusted run must now hold half the numbers of its span
+  (`_MIN_RUN_DENSITY`; the Timeo's real runs: 0.76, 0.55; the encyclical's false one 0.18).
+  Encyclical: 224 notes. Timeo_by_Platón: notes with text 774 -> 775, stand-ins 272 -> 160,
+  noterefs 1060 -> 944 (`scratch/glued_check.py`).
+- Ligatures: `document.TEXT_FLAGS` (text-only, without `TEXT_PRESERVE_LIGATURES`): MuPDF
+  splits ﬁ ﬂ ﬀ ﬃ ﬄ into letters. Used by `page_lines`, `consensus`, `glued_refs` and
+  `styles` (so their words match). Introducción a la Filosofía: 5 ligatures -> 0.
+- Tests: 323 passed (full suite, integration included).
 
 ## `pdf-worker process`: inbox -> work -> outbox (2026-10-22, branch `feature/inbox`)
 User asked: `file_inbox` (books to convert), an intermediate folder (any name), and
@@ -1903,7 +1917,7 @@ User's feature list (2026-10-11). Ship each with a PR and merge it:
    reflowed PDF (Typst ~1-2 h, or patch ~30 min); 5 philosophy notes without a found
    reference; book note-style profile and more `find_book` sources (user: later).
 5. Housekeeping: `.claude/settings.json.bak` untracked, the user decides.
-6. Ligatures (user, 2026-10-22): typesetters join letter pairs into one glyph ("fi" →
+6. DONE 2026-10-22 (`document.TEXT_FLAGS`). Ligatures (user, 2026-10-22): typesetters join letter pairs into one glyph ("fi" →
    ﬁ U+FB01, "fl" → ﬂ), so "ﬁgura" is a different string from "figura" and the
    dictionary misses it. pdf-worker's own reflowed PDF has ~1,000 (its typesetter uses
    ligatures); source PDFs can too (Introducción a la Filosofía: 5; Kant, Gibbon: none).
