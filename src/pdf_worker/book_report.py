@@ -23,10 +23,16 @@ KIND_LABELS = {
     "greek-dropped": "Greek passages left out (bilingual edition)",
 }
 FOUND_KINDS = ("chars", "note-no-ref", "ref-no-note")
+AUTO_LABELS = {
+    "auto: split": "words split in two, joined",
+    "auto: learned": "corrections learned from earlier decisions",
+}
 SPELLING_LABELS = {
     "accent": "accent probably lost",
     "swap": "letters OCR often confuses (b/h, c/e...)",
+    "seen": "corrected before, maybe to another word",
     "ocr1": "one letter from a known word",
+    "near": "close to a common word",
     "name": "close to a name used elsewhere in the book",
     "unknown": "not in the dictionary",
 }
@@ -94,7 +100,10 @@ class BookReport:
 def count_rows(report: BookReport, fixes: list[Fix]) -> None:
     """Sort the review file's rows into found, possible, left out and decided."""
     for fix in fixes:
-        if fix.action == "replace" and fix.status == "stale":
+        if fix.type in AUTO_LABELS and fix.action == "replace":
+            label = AUTO_LABELS[fix.type]
+            report.corrected[label] = report.corrected.get(label, 0) + 1
+        elif fix.action == "replace" and fix.status == "stale":
             report.found["review fixes that no longer apply"] += 1
         elif fix.action:
             report.decided += 1

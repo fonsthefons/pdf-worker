@@ -19,8 +19,10 @@ def test_rows_are_sorted_into_found_possible_left_out_and_decided():
             Fix("5", "7", "spelling", "fue", action="ignore"),
             Fix("6", "8", "spelling", "gone", status="stale"),
             Fix("7", "9", "spelling", "x", action="replace", value="y", status="stale"),
+            Fix("8", "9", "spelling", "a b", action="replace", value="ab", type="auto: split"),
         ],
     )
+    assert r.corrected == {"words split in two, joined": 1}  # not a decision
     assert r.found == {
         "odd characters (look-alike letters, stray symbols)": 1,
         "review fixes that no longer apply": 1,

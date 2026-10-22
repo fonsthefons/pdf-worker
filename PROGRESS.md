@@ -1,6 +1,34 @@
 # Progress
 
-## TODO: use ai-client's post-checks (`ai_client.check`) (noted 2026-10-22, not started)
+## Word check handed to ai-client (2026-10-22, branch `feature/ai-client-check`; ai-client PR #4)
+Decided with the user: pdf-worker keeps the structure (headings, notes, margins, metadata,
+styles, OCR votes, macrons); every word-level correction moves to ai-client. pdf-worker
+cleans the text (body only; page marks, margin/note refs and styles taken out) and maps
+the flags back. Born-digital books are checked too, with the normal review (their rare
+words, once kept, teach the check). Old-spelling rules: copied to ai-client
+(`old_spelling.py`), not used. Glossary per book: not now (measure later).
+- ai-client (`feat/ocr-guesses`): pdf-worker's OCR guesses (accent, swap b/h c/e, one
+  edit; `Flag.how`), "ban" -> "han" (a Wikipedia-only word whose swap is 100x as common),
+  pdf-worker's split rules (Hunspell tells fragments; never an author's hyphen: lines are
+  joined before, so "head-master", "vice-versa" stay), a sentence-start word takes the
+  common accents, a pronoun's accent only on the verb's stress, decisions path read when
+  called, guesses cached. 490 accepted / 536 rejected decisions imported from the
+  philosophy and Platón review files (`scratch/import_decisions.py`).
+- pdf-worker `fixes.Review`: `check.text` per body block before the review rows apply;
+  `split` and `learned` flags applied and written as `replace` rows typed `auto: split` /
+  `auto: learned` (status applied; set to `ignore` to undo); other flags become spelling
+  rows (types accent, swap, seen, ocr1, near, name, unknown); decided word rows recorded
+  once in ai-client's decisions at the next build, source = the review file's stem
+  (`merge` doesn't know the book's language). Book-level filters stay here (words seen 3+
+  times, names the book repeats). `dictionaries/` and `spylls` removed; report counts
+  the auto rows under "Fixed automatically". Tests redirect `DECISIONS_FILE` (conftest).
+- Check on books (`scratch/check_books.py`): Introducción 2 open rows; Kant 59 rows,
+  1 auto split ("in tuición"); Gibbon 1872 126 rows, no auto fix (before the split fix
+  Gibbon/Kant got 6 wrong joins each: "head-master", "vice-versa").
+- Not done yet: the LLM pass as the last step before review (replacing `review.propose`),
+  with italic spans' flags dropped.
+
+## TODO: use ai-client's post-checks (`ai_client.check`) (noted 2026-10-22; steps 1-5 done above, LLM pass open)
 ai-client now has `ai_client.check`: per-language post-checks (split words, names, spelling with suggestions,
 optional LLM context pass) plus learned decisions. See ai-client's README, "Post-checks". Contract: **ai-client only
 checks real text; pdf-worker passes clean body text.**

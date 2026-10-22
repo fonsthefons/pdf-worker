@@ -27,7 +27,6 @@ from pdf_worker.inline import MARGIN_REF_RE, plain
 from pdf_worker.layout import analyze_document
 from pdf_worker.margin_refs import in_book, page_marks
 from pdf_worker.markdown_export import write_markdown
-from pdf_worker.ocr_check import mostly_scanned
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph, iter_blocks
@@ -215,9 +214,9 @@ def convert_pdf(
         if estimate_margin_refs:
             blocks = margin_estimates.estimate_margin_refs(blocks)
         fixes_path = Path(fixes_path) if fixes_path else default_fixes_path(pdf_path)
-        # A born-digital text has no OCR misreadings to flag.
-        ocr_text = paddle_rows is not None or mostly_scanned(doc)
-        review = Review(read_fixes(fixes_path), meta.language, spelling=ocr_text)
+        # Born-digital text is checked too: its rare words, once kept, teach the check.
+        source = fixes_path.name.removesuffix(".fixes.tsv")
+        review = Review(read_fixes(fixes_path), meta.language, source=source)
         blocks = _referenced_notes(tidy(review.apply(blocks), meta.language))
         if notes_at == "none":
             blocks = drop_notes(blocks)
