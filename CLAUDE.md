@@ -80,6 +80,8 @@ These rules exist so that every command runs without needing my approval. I ofte
 
 - Claude can't merge PRs (blocked by permissions). After opening one, always give the user the
   merge command: `! gh pr merge <N> --repo fonsthefons/pdf-worker --merge --delete-branch`.
+- Open every PR against `main`, never stacked on another PR's branch: `--delete-branch` on
+  the first one closes the PR built on it (as happened to #52).
 
 ## Progress log
 

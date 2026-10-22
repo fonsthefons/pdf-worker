@@ -1,5 +1,23 @@
 # Progress
 
+## Timeo no-intro: old build vs new word check (2026-10-22, ai-client PR #5)
+User asked to compare `timeo/timeo_no_intro2.epub` (built 2026-10-21, `convert` of
+`test_pdfs/Timeo_by_Platón_no_intro.pdf`, defaults) with the new system.
+`scratch/timeo_compare/build.py` rebuilds it into scratch (review file and ai-client
+decisions copied there); `compare.py` diffs the EPUBs word by word, sorted by cause.
+- Same notes (788), references (789), stand-ins (44), headings, paragraphs and margin
+  labels (354); no note text changed. Body text: only split words joined.
+- The old build had no word check at all for this book (a ClearScan redraw isn't
+  "mostly scanned"); now 48 open spelling rows: accents (probabilidád, razon, segun,
+  todavia), OCR misreadings (rnteligencia, moddo, uniforrne, movimieʜtos, unjuego...),
+  and halves of words a paragraph cut (below).
+- Automatic joins: first 13 (one wrong: "e n e l oro" -> "loro"); after ai-client #5
+  (a hyphen with spaces around it, "acontecimien - tos"; a one-letter tail, "fluj o";
+  spaced-out letters never joined) 23, all right.
+- Left (pdf-worker, structure): a paragraph cut at a line break leaves a soft hyphen at
+  its end ("púr­", "porcio­", "refrige­", "sufi­") and the word's other half starts the next
+  paragraph ("guiendo", "garse"): the two blocks aren't joined across that break.
+
 ## Word check handed to ai-client (2026-10-22, branch `feature/ai-client-check`; ai-client PR #4)
 Decided with the user: pdf-worker keeps the structure (headings, notes, margins, metadata,
 styles, OCR votes, macrons); every word-level correction moves to ai-client. pdf-worker

@@ -22,7 +22,13 @@
       "Bash(git -C /Users/fons/Documents/pdf-worker diff *)",
       "Bash(git -C /Users/fons/Documents/pdf-worker log *)",
       "Bash(git -C /Users/fons/Documents/pdf-worker show *)",
-      "Bash(/opt/homebrew/bin/epubcheck *)"
+      "Bash(/opt/homebrew/bin/epubcheck *)",
+      "Bash(git -C /Users/fons/Documents/ai-client status)",
+      "Bash(git -C /Users/fons/Documents/ai-client status *)",
+      "Bash(git -C /Users/fons/Documents/ai-client diff *)",
+      "Bash(git -C /Users/fons/Documents/ai-client log *)",
+      "Bash(/Users/fons/Documents/pdf-worker/.venv/bin/ruff check /Users/fons/Documents/pdf-worker/src /Users/fons/Documents/pdf-worker/tests)",
+      "Bash(/Users/fons/Documents/pdf-worker/.venv/bin/ruff format --check *)"
     ]
   },
   "hooks": {
