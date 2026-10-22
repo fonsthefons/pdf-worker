@@ -18,6 +18,7 @@ from pdf_worker import (
     ebook_to_pdf,
     find_book,
     groq,
+    inbox,
     kindle,
     ocr,
     review,
@@ -767,6 +768,37 @@ def _run_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "process",
+        help="Turn every book in file_inbox into a clean EPUB and PDF in file_outbox.",
+        description="Build every PDF or ebook in FOLDER/file_inbox into an EPUB and a PDF. "
+        "Books with words to review get drafts in file_outbox/drafts; run `review` on them, "
+        "then `process` again to finish them. Intermediate files go in file_work; finished "
+        "originals move to file_work/converted.",
+    )
+    parser.add_argument(
+        "folder",
+        type=Path,
+        nargs="?",
+        default=Path(),
+        help="Folder holding file_inbox (default: the current folder).",
+    )
+    _add_engine_options(parser)
+    parser.set_defaults(handler=_run_process)
+
+
+def _run_process(args: argparse.Namespace) -> int:
+    _apply_engine_options(args)
+    say = lambda message: print(message, flush=True)  # noqa: E731 (in step with stderr's progress)
+    results = inbox.process(args.folder, args.engine, say=say, on_step=_progress)
+    if not results:
+        print(f"Nothing in {args.folder / inbox.INBOX}.")
+    for result in results:
+        print(f"{result.state:<9} {result.name}" + (f": {result.detail}" if result.detail else ""))
+    return 1 if any(r.state == "failed" for r in results) else 0
+
+
 # The cheat sheet printed by `pdf-worker help`: (section, [(command, what it does)]).
 CHEAT_SHEET = [
     (
@@ -778,6 +810,14 @@ CHEAT_SHEET = [
             ("pdf-worker ebook-to-pdf book.epub", "Lay out an EPUB as an A5 PDF"),
             ("pdf-worker virus-check", "Check a download for malware (VirusTotal)"),
             ("pdf-worker virus-check https://...", "Same, for a link before downloading"),
+        ],
+    ),
+    (
+        "Every book in file_inbox",
+        [
+            ("pdf-worker process", "EPUB + PDF in file_outbox; drafts when words need review"),
+            ("pdf-worker review file_work/<book>/<book>.pdf", "Review a draft's words"),
+            ("pdf-worker process", "Again after reviewing: finished files replace drafts"),
         ],
     ),
     (
@@ -945,6 +985,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_find_book_command(subparsers)
     _add_ebook_to_pdf_command(subparsers)
     _add_review_command(subparsers)
+    _add_process_command(subparsers)
     _add_virus_check_command(subparsers)
     _add_help_command(subparsers)
     return parser

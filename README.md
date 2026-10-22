@@ -235,6 +235,41 @@ out on purpose.
 Forgot a command? `pdf-worker help` (or just `pdf-worker`) lists them all, each with a
 one-line description. `pdf-worker <command> --help` shows every option.
 
+### Process a folder of books
+
+```bash
+pdf-worker process            # handles ./file_inbox (or: pdf-worker process FOLDER)
+pdf-worker review 'file_work/<file>/<stem>.pdf'   # when a book is a draft
+pdf-worker process            # again: reviewed drafts become finished books
+```
+
+Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_inbox/`. Each run:
+
+| Folder | What's in it |
+|---|---|
+| `file_inbox/` | Books still to do; a book leaves once it's finished |
+| `file_work/<file name>/` | Intermediate files: the PDF the book is built from (a copy, an OCR'd copy, or an ebook laid out as a PDF), `<stem>.fixes.tsv`, `<stem>.review/` |
+| `file_work/converted/` | The originals of finished books |
+| `file_outbox/drafts/` | EPUB + PDF of books with words to review |
+| `file_outbox/` | The finished EPUB + PDF of each book |
+
+- **EPUB:** kept as is (its `mimetype` entry repaired if needed, see `tools/check_and_fix.py`), plus a PDF from `ebook-to-pdf`. Done in one run.
+- **PDF:** text layer checked; OCR'd when needed (as `kindle`: Tesseract plus Apple Vision votes, or `--engine paddle`), then `convert` to EPUB and PDF. No rows to review: done in one run. Otherwise drafts go to `file_outbox/drafts` and the run prints the `review` command. The book then waits until `review` saves decisions; the next run rebuilds it into `file_outbox` (rows still undecided are reported), deletes the drafts and moves the original to `file_work/converted`.
+- A failing book is reported and the others go on; other files are skipped.
+- **Report:** every build of a PDF or ebook writes `file_work/<file name>/report.md`, and
+  the run prints its grade. It lists where the text came from and the text-layer check
+  (scanned share, misread words); pages and pages with no text; words kept (the book's
+  words over those of the PDF it was built from); open review rows as *errors found*
+  (odd characters, notes and references that don't match, review fixes that no longer
+  apply) and *possible errors* (spelling by likely cause, estimated margin refs); what
+  was *fixed automatically* (second readings, lost note refs, garbled words read again);
+  and what was *left out* (Greek, facing pages). Grade (thresholds printed in the report):
+  **D** under 70% of words kept or over 10% of pages empty; **C** under 85% kept or over
+  5 open rows per 1,000 words; **B** over 0.5 per 1,000, or OCR'd text with spelling rows
+  open or in a language the spelling check doesn't know (only es, en); **A** otherwise.
+  The grade only reports: a low grade doesn't hold a book in drafts. EPUB inputs aren't
+  rebuilt and get no report.
+
 ### Find a free book online
 
 ```bash
