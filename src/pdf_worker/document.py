@@ -8,6 +8,10 @@ import pymupdf
 
 from pdf_worker.errors import PdfOpenError
 
+# Text-only extraction (never decode images: scanned books would bloat memory), with
+# typeset ligatures split back into letters ("ﬁgura" -> "figura") for the dictionaries.
+TEXT_FLAGS = pymupdf.TEXTFLAGS_TEXT & ~pymupdf.TEXT_PRESERVE_LIGATURES
+
 
 @contextmanager
 def open_pdf(path: str | Path) -> Iterator[pymupdf.Document]:

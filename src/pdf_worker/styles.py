@@ -13,6 +13,7 @@ import unicodedata
 
 import pymupdf
 
+from pdf_worker.document import TEXT_FLAGS
 from pdf_worker.inline import BOLD, END_BOLD, END_ITALIC, ITALIC, plain
 
 _REF_RE = re.compile(r"\[\^[^\]\s]+\]")  # structure.REF_RE; importing it is a cycle
@@ -31,7 +32,7 @@ Word = tuple[str, int]  # text, MuPDF span flags
 def layer_words(page: pymupdf.Page) -> list[tuple[pymupdf.Point, str, int]]:
     """The text layer's words with their centres and span flags."""
     words = []
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", []):
             for span in line["spans"]:
                 x0, y0, x1, y1 = span["bbox"]

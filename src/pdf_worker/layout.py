@@ -14,13 +14,12 @@ import pymupdf
 
 from pdf_worker.bilingual import apply_words, page_words
 from pdf_worker.consensus import apply_fixes, page_fixes
+from pdf_worker.document import TEXT_FLAGS
 from pdf_worker.endnotes import ChapterNotes, lossy_min_run, match_chapter_notes
 from pdf_worker.font_sizes import same_leading_sizes, sizes_by_leading
 from pdf_worker.glued_refs import apply_refs, page_refs
 from pdf_worker.margin_refs import OCR_DIGITS, apply_marks, has_bracketed, in_book, page_marks
 
-# Text-only extraction flags: never decode images (scanned books would bloat memory).
-_TEXT_FLAGS = pymupdf.TEXTFLAGS_TEXT
 SUPERSCRIPT = 1  # MuPDF span flag bits
 BOLD = 16
 # A gap between two letters wider than this share of the font size is a word space
@@ -127,7 +126,7 @@ def page_lines(page: pymupdf.Page) -> list[Line]:
     words = page_words(page)
     glued = page_refs(page)
     lines = []
-    for block in page.get_text("rawdict", flags=_TEXT_FLAGS)["blocks"]:
+    for block in page.get_text("rawdict", flags=TEXT_FLAGS)["blocks"]:
         for line in block.get("lines", ()):
             if words:
                 apply_words([char for span in line["spans"] for char in span["chars"]], words)

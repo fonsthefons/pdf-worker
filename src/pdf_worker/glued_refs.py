@@ -18,6 +18,7 @@ from itertools import pairwise
 import pymupdf
 
 from pdf_worker.consensus import _union
+from pdf_worker.document import TEXT_FLAGS
 from pdf_worker.endnotes import LOSSY_STEP, lossy_min_run, runs_from_anywhere
 from pdf_worker.margin_refs import OCR_DIGITS
 
@@ -45,6 +46,9 @@ _AS_DIGIT = {c: d for d, signs in (_MISREAD | _LOOSE).items() for c in signs}
 # "concierto1112" 122): where a gap holds as many signs glued to words, a digit among
 # them, as numbers are missing, they are those numbers in order. Few at a time only.
 _MAX_COUNTED = 6
+# References count up nearly one by one (the Timeo's: 0.76, 0.55 of the numbers in their
+# span); numbers after words that only climb ("AAS 42 (1950)", "AAS 53", ...) skip most.
+_MIN_RUN_DENSITY = 0.5
 _GLUED_SIGNS_RE = re.compile(
     rf"{_AFTER_WORD}[{re.escape('0123456789' + ''.join(_AS_DIGIT))}]{{1,4}}{_BEFORE_SPACE}"
 )
@@ -60,7 +64,7 @@ def mark_glued_refs(doc: pymupdf.Document, skip: Collection[int] = ()) -> int:
     least = lossy_min_run(doc.page_count - len(skip))
     noted = _note_numbers(lines)
     for run in runs_from_anywhere(found):
-        if len(run.items) >= least:
+        if len(run.items) >= least and _density(run.items) >= _MIN_RUN_DENSITY:
             for _, (index, box, _) in run.items:
                 boxes.setdefault(index, []).append(box)
             for number, (index, box) in _missing(run.items, lines, noted):
@@ -70,6 +74,12 @@ def mark_glued_refs(doc: pymupdf.Document, skip: Collection[int] = ()) -> int:
             doc.load_page(index).xref, REFS_KEY, pymupdf.get_pdf_str(json.dumps(page_boxes))
         )
     return sum(len(page_boxes) for page_boxes in boxes.values())
+
+
+def _density(items: list[tuple[int, tuple]]) -> float:
+    """The share of the numbers from a run's first to its last that it has."""
+    numbers = {n for n, _ in items}
+    return len(numbers) / (max(numbers) - min(numbers) + 1)
 
 
 def _note_numbers(lines: list[tuple[int, list, str, list]]) -> set[int]:
@@ -92,7 +102,7 @@ def _lines(doc: pymupdf.Document, skip: Collection[int]) -> list[tuple[int, list
     for page in doc:
         if page.number in skip:
             continue
-        for block in page.get_text("rawdict", flags=pymupdf.TEXTFLAGS_TEXT)["blocks"]:
+        for block in page.get_text("rawdict", flags=TEXT_FLAGS)["blocks"]:
             for line in block.get("lines", ()):
                 chars, raised = [], []
                 for span in line["spans"]:

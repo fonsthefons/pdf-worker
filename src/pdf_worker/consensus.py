@@ -30,6 +30,7 @@ import pymupdf
 from ai_client import apple_vision
 
 from pdf_worker import tesseract_cache
+from pdf_worker.document import TEXT_FLAGS
 
 if TYPE_CHECKING:
     import numpy as np
@@ -164,7 +165,7 @@ def page_tokens(page: pymupdf.Page) -> list[Token]:
     """The page's words (letter runs) with their boxes, lines top to bottom."""
     lines = [
         line
-        for block in page.get_text("rawdict", flags=pymupdf.TEXTFLAGS_TEXT)["blocks"]
+        for block in page.get_text("rawdict", flags=TEXT_FLAGS)["blocks"]
         for line in block.get("lines", ())
     ]
     lines.sort(key=lambda line: (line["bbox"][1], line["bbox"][0]))

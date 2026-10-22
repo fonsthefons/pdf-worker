@@ -1,9 +1,10 @@
 from pathlib import Path
 
+import pymupdf
 import pytest
 
 from pdf_worker.errors import PdfOpenError
-from pdf_worker.layout import _with_text
+from pdf_worker.layout import _with_text, page_lines
 from pdf_worker.text_extraction import (
     default_output_path,
     extract_text_to_file,
@@ -35,6 +36,17 @@ def test_word_gaps_without_a_space_character_become_spaces():
 
     assert [span["text"] for span in spans] == ["καὶ ἦλ τ", " Ἰο"]
     assert "chars" not in first
+
+
+def test_typeset_ligatures_come_back_as_letters():
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_font(fontname="F0", fontbuffer=pymupdf.Font("notos").buffer)
+    page.insert_text((72, 72), "ﬁgura ﬂor eﬀecto", fontname="F0")
+
+    text = "".join(span["text"] for line in page_lines(page) for span in line.spans)
+
+    assert text == "figura flor effecto"
 
 
 def test_iter_page_texts_yields_each_page_in_order(make_pdf):
