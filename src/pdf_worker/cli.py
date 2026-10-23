@@ -16,6 +16,7 @@ from pathlib import Path
 from pdf_worker import (
     __version__,
     ebook_to_pdf,
+    epub_reader,
     find_book,
     groq,
     inbox,
@@ -688,6 +689,44 @@ def _run_ebook_to_pdf(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_rebuild_epub_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "rebuild-epub",
+        help="Rebuild an EPUB like a converted PDF: pop-up notes, no front matter.",
+        description="Read an EPUB's text and notes and write it again the way `convert` "
+        "writes a PDF: notes that open as pop-ups, the cover, title, copyright and "
+        "contents pages left out, a text cover. Headings come from the book's contents, "
+        "links inside the book go to their place, and tables, quotes, lists and verse "
+        "line breaks are kept.",
+    )
+    parser.add_argument("epub", type=Path, help="Input EPUB file.")
+    parser.add_argument(
+        "-o", "--output", type=Path, help="Output EPUB (default: <name>.rebuilt.epub)."
+    )
+    parser.add_argument(
+        "--no-cover",
+        dest="cover",
+        action="store_false",
+        help="Don't add a text cover (title, author, translator).",
+    )
+    parser.set_defaults(handler=_run_rebuild_epub)
+
+
+def _run_rebuild_epub(args: argparse.Namespace) -> int:
+    output = args.output or epub_reader.default_output_path(args.epub)
+    report = epub_reader.rebuild_epub(args.epub, output, cover=args.cover)
+    stats, meta = report.stats, report.metadata
+    print(f"Wrote {output}: {meta.title!r} by {meta.author or '?'}, language {meta.language}")
+    print(
+        f"{stats.chapters} chapter file(s), {stats.headings} heading(s), "
+        f"{stats.paragraphs} paragraph(s), {stats.notes} note(s), {stats.images} picture(s)"
+    )
+    print(f"Left out: {', '.join(report.dropped) or 'nothing'}")
+    if report.unlinked:
+        print(f"{report.unlinked} note reference(s) lead nowhere (kept as plain text)")
+    return 0
+
+
 def _add_review_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "review",
@@ -808,6 +847,7 @@ CHEAT_SHEET = [
             ('pdf-worker find-book --title "Confesiones" --language es', "Same, no questions"),
             ("pdf-worker find-book --file book.pdf", "Check a book you have; next steps"),
             ("pdf-worker ebook-to-pdf book.epub", "Lay out an EPUB as an A5 PDF"),
+            ("pdf-worker rebuild-epub book.epub", "Pop-up notes, headings, no front matter"),
             ("pdf-worker virus-check", "Check a download for malware (VirusTotal)"),
             ("pdf-worker virus-check https://...", "Same, for a link before downloading"),
         ],
@@ -984,6 +1024,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_kindle_command(subparsers)
     _add_find_book_command(subparsers)
     _add_ebook_to_pdf_command(subparsers)
+    _add_rebuild_epub_command(subparsers)
     _add_review_command(subparsers)
     _add_process_command(subparsers)
     _add_virus_check_command(subparsers)
