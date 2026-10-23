@@ -28,6 +28,8 @@ LEADING_PAGE_MARKS_RE = re.compile("^((?:[^]*)+)(.*)$", re.DOTALL)
 
 
 ITALIC, END_ITALIC, BOLD, END_BOLD = "", "", "", ""
+# A line break inside a paragraph (verse); the EPUB writer makes it <br/>.
+LINE_BREAK = " "
 STYLE_RE = re.compile("[-]")
 _STYLE_SPLIT_RE = re.compile("([-])")
 

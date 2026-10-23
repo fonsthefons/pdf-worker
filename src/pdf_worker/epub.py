@@ -26,6 +26,7 @@ from pdf_worker.footnotes import display_marker
 from pdf_worker.index_links import parse_word_target, word_keys
 from pdf_worker.inline import (
     ESTIMATED,
+    LINE_BREAK,
     LinkClose,
     LinkOpen,
     MarginRef,
@@ -348,7 +349,7 @@ class _EpubBuilder:
                         part.append(self._noteref(match.group(1)))
                     last = match.end()
                 part.append(_esc(piece[last:]))
-                part = "".join(part)
+                part = "".join(part).replace(LINE_BREAK, "<br/>")
                 if styles[True] and part.strip():
                     part = f"<i>{part}</i>"
                 if styles[False] and part.strip():

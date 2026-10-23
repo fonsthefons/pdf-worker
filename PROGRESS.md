@@ -1,5 +1,49 @@
 # Progress
 
+## EPUBs rebuilt like converted PDFs (2026-10-23, branch `feature/epub-reader`)
+Asked by the user: every output EPUB has the same structure, EPUB inputs included (notes
+that open as pop-ups), with the front matter left out and a text cover.
+- New `src/pdf_worker/epub_reader.py`: two passes over the spine (stdlib `html.parser`);
+  the first finds note references and their targets, the second makes structure blocks
+  for `epub.write_epub`. Raises `EpubReadError` when >2 (and >1%) of the note references
+  lead nowhere, or there's no text. New CLI `rebuild-epub`; `process` rebuilds EPUBs
+  (falls back to the old copy-as-is on any error) and lays the PDF out from the rebuilt one.
+- Tests: `tests/test_epub_reader.py` (two note styles, front matter, fallback).
+- Sample run (`scratch/rebuild_samples.py`, 16 EPUBs in `test_pdfs/`): all rebuilt, 0
+  unlinked references. Plato 11.8 MB -> 7.4 MB (6,153 notes); Copleston I-IX 600-1,400
+  notes each, front matter (cover, synopsis, title, info) dropped; The Idiot starts at
+  "PART I". `tools/epub_score.py`: italics and curly quotes identical; words lost are the
+  front matter and contents pages.
+- Size: smaller for big Calibre books, roughly the same (-10% to +6%) for others: the
+  writer gives every paragraph an id and every note two back links, and adds the text
+  cover JPEG.
+- Known gaps: class-styled headings (Wikisource "El imperio jesuítico" has 1 heading),
+  tables, SVG, verse breaks, internal non-note links, Stephanus numbers printed inline
+  (`<span class="numarg">`, Plato) stay inline text, not margin refs.
+- Follow-up (same day): Project Gutenberg's header and licence (`class="pg-boilerplate"`)
+  left out; notes' later paragraphs (no id of their own) joined to their note on notes
+  pages (Copleston and Plato had "Notas" pages left in the text); markers like `[32a]`;
+  pages with an ebook tool's imprint ("ePub r1.4", "Editor digital") dropped anywhere
+  (Plato is 7 volumes joined: 25 pages of repeated front matter out, 7.1 MB); headings
+  right before a note dropped (a notes page's "Notas", often a file of its own). Title
+  and author: the package's when present; the title-page lookup (`book_metadata`, MuPDF
+  layout of the EPUB) only fills missing fields. Tried as the main source it was worse:
+  author found in 1 of 6, Plato -> "Diálogos I", Doña Perfecta -> "pg15725", 9 s on Plato.
+- Follow-up 2 (same day, user picked gaps 1, 4, 5): headings from the NCX contents
+  (Wikisource Lugones 1 -> 11 headings); internal links resolved by giving blocks the
+  document's spine index as `page` and their end position in the source as `top`, so the
+  writer's page-target lookup lands on the block holding the target (Doña Perfecta: 716
+  links to "page, line" anchors land on the right paragraph); `Table` blocks (Plato's
+  textual-variant tables: 14); blockquote/li/dd as `small`, bullets/numbers kept; `<br>`
+  as `inline.LINE_BREAK` (new; the EPUB writer emits `<br/>`); documents whose broken
+  paragraphs mostly start lines in lower case are joined (Gutenberg's printed lines:
+  5,778 `<br/>` in Doña Perfecta -> 0; The Idiot's poems keep theirs); SVG files via
+  `<img>` rasterised. Same 16-book run: all rebuilt, 0 unlinked. Left: inline `<svg>`
+  drawings, nav-only EPUBs (none in the samples), lower-case modern verse would be joined.
+- Local `main` was stale (PR #49); the branch is off `origin/main`. An empty branch
+  `feature/epub-rebuild` (off the stale main) was left behind: delete it with
+  `git branch -d feature/epub-rebuild`.
+
 ## Timeo no-intro: old build vs new word check (2026-10-22, ai-client PR #5)
 User asked to compare `timeo/timeo_no_intro2.epub` (built 2026-10-21, `convert` of
 `test_pdfs/Timeo_by_Platón_no_intro.pdf`, defaults) with the new system.

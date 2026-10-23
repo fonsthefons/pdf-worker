@@ -257,7 +257,7 @@ Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_inbox/`. Each run:
 | `file_outbox/drafts/` | EPUB + PDF of books with words to review |
 | `file_outbox/` | The finished EPUB + PDF of each book |
 
-- **EPUB:** kept as is (its `mimetype` entry repaired if needed, see `tools/check_and_fix.py`), plus a PDF from `ebook-to-pdf`. Done in one run.
+- **EPUB:** rebuilt like a converted PDF (`rebuild-epub`): notes that open as pop-ups, headings from the book's contents, working links, the cover, title, copyright and contents pages left out, a text cover. The PDF is laid out from the rebuilt EPUB with `ebook-to-pdf`. An EPUB whose notes can't be linked up (more than 2, or 1%, of its note references lead nowhere) is kept as is (its `mimetype` entry repaired if needed, see `tools/check_and_fix.py`). Done in one run.
 - **PDF:** text layer checked; OCR'd when needed (as `kindle`: Tesseract plus Apple Vision votes, or `--engine paddle`), then `convert` to EPUB and PDF. No rows to review: done in one run. Otherwise drafts go to `file_outbox/drafts` and the run prints the `review` command. The book then waits until `review` saves decisions; the next run rebuilds it into `file_outbox` (rows still undecided are reported), deletes the drafts and moves the original to `file_work/converted`.
 - A failing book is reported and the others go on; other files are skipped.
 - **Report:** every build of a PDF or ebook writes `file_work/<file name>/report.md`, and
@@ -271,8 +271,8 @@ Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_inbox/`. Each run:
   **D** under 70% of words kept or over 10% of pages empty; **C** under 85% kept or over
   5 open rows per 1,000 words; **B** over 0.5 per 1,000, or OCR'd text with spelling rows
   open or in a language the spelling check doesn't know (only es, en); **A** otherwise.
-  The grade only reports: a low grade doesn't hold a book in drafts. EPUB inputs aren't
-  rebuilt and get no report.
+  The grade only reports: a low grade doesn't hold a book in drafts. EPUB inputs get no
+  report.
 
 ### Find a free book online
 
@@ -283,7 +283,27 @@ pdf-worker find-book --isbn 0140449132 --format epub
 pdf-worker find-book --url https://example.org/libro.pdf   # no search: download and check
 pdf-worker find-book --file ~/Downloads/libro.epub         # no search: just check
 pdf-worker ebook-to-pdf book.epub     # an EPUB laid out as an A5 PDF, with bookmarks
+pdf-worker rebuild-epub book.epub     # book.rebuilt.epub: pop-up notes, headings, no front matter
 ```
+
+`rebuild-epub` reads the EPUB's own HTML (no layout guessing) and writes it with the same
+EPUB writer as `convert`. A note is any link whose text is a marker (`12`, `[12]`, `*`,
+`iv`) or that is marked `epub:type="noteref"`, pointing at an element in the book; that
+element (or the block around it, when it's an inline anchor) becomes the note, without its
+printed number and its link back; on a notes page, the paragraphs after a note are its own.
+Front matter is the leading short pages before the first long one: blank and picture
+pages, contents pages (mostly links), copyright/ISBN/"ePub r1" pages and title pages (title
+and author, under 600 characters); the guide or the EPUB 3 landmarks win when they say
+where the text starts. Anywhere in the book, contents pages and an ebook tool's imprint
+pages ("ePub r1.4", "Editor digital") go, and so do Project Gutenberg's header and licence.
+Title and author come from the EPUB's package; when one is missing, from the title page
+as for a PDF. The EPUB's contents (NCX) make headings of what its entries point to: a
+styled paragraph (`<p class="titulo">`) becomes the heading, or the entry's title goes
+before longer text. Links inside the book land on the block holding their target; tables
+of two columns or more stay tables; quotes and list items (with their bullet or number)
+are set apart; verse keeps its line breaks, while a document of prose broken at every
+printed line (Project Gutenberg's) is joined up. SVG pictures are rasterised. Not yet:
+drawings inline in the HTML (`<svg>` with shapes), the EPUB 3 nav when there's no NCX.
 
 `find-book` searches open, legal libraries at once: Project Gutenberg, Standard Ebooks,
 Internet Archive (freely downloadable items only), Open Library (an ISBN gives the title,

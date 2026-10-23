@@ -10,6 +10,9 @@ waits. Once ``review`` has saved decisions, the next run rebuilds it into ``file
 deletes the drafts and moves the original to ``file_work/converted``. A book with nothing
 to review (an EPUB, most born-digital PDFs) is finished in one run.
 
+An EPUB is rebuilt the same way as a converted PDF (``pdf_worker.epub_reader``): notes
+as pop-ups, no front matter, a text cover. One it can't read is published as it is.
+
 Every build of a PDF or ebook writes ``report.md`` in its work folder: errors found,
 possible errors, what was fixed automatically and a grade (``pdf_worker.book_report``).
 """
@@ -22,7 +25,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from pdf_worker import book_report, convert, ebook_to_pdf, epub_mimetype, kindle, review
+from pdf_worker import (
+    book_report,
+    convert,
+    ebook_to_pdf,
+    epub_mimetype,
+    epub_reader,
+    kindle,
+    review,
+)
 from pdf_worker.document import open_pdf
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.fixes import default_fixes_path, read_fixes
@@ -69,10 +80,11 @@ def _process_book(root, original, engine, say, on_step) -> BookResult:
     suffix = original.suffix.lower()
     outbox = root / OUTBOX
     if suffix == ".epub":
-        _publish_epub(original, outbox / original.name)
+        epub = outbox / original.name
+        detail = _rebuild_epub(original, epub, say)
         say("  laying out the PDF")
-        ebook_to_pdf.ebook_to_pdf(original, outbox / f"{original.stem}.pdf")
-        return _finish(root, original, "EPUB kept, PDF laid out")
+        ebook_to_pdf.ebook_to_pdf(epub, outbox / f"{original.stem}.pdf")
+        return _finish(root, original, f"{detail}, PDF laid out")
     if suffix != ".pdf" and suffix not in EBOOKS:
         return BookResult(original.name, "skipped", "not a PDF or an ebook")
 
@@ -140,6 +152,18 @@ def _write_text(path: Path, text: str) -> None:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def _rebuild_epub(epub: Path, output: Path, say) -> str:
+    """Rebuild the EPUB like a converted PDF (``pdf_worker.epub_reader``); one it can't
+    read is published as it is."""
+    say("  rebuilding the EPUB")
+    try:
+        report = epub_reader.rebuild_epub(epub, output)
+    except Exception as exc:  # an unreadable EPUB must not stop the other books
+        _publish_epub(epub, output)
+        return f"EPUB kept as it is ({exc or type(exc).__name__})"
+    return f"EPUB rebuilt ({report.stats.notes} note(s), {len(report.dropped)} page(s) left out)"
 
 
 def _publish_epub(epub: Path, output: Path) -> None:
