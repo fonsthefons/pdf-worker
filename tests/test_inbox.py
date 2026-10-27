@@ -108,6 +108,35 @@ def test_one_book_with_its_formats_kept_for_the_rebuild(make_pdf, tmp_path, monk
     assert (root / inbox.INBOX / "other.pdf").exists()  # not processed
 
 
+def test_clean_keeps_the_inbox_books_and_the_finished_files(tmp_path):
+    root = tmp_path / "root"
+    work, outbox = root / inbox.WORK, root / inbox.OUTBOX
+    for folder in (root / inbox.INBOX, work / "waiting.pdf", work / "done.pdf",
+                   work / inbox.CONVERTED, outbox / inbox.DRAFTS):  # fmt: skip
+        folder.mkdir(parents=True)
+    for path in (root / inbox.INBOX / "waiting.pdf", work / "waiting.pdf" / "waiting.pdf",
+                 work / "done.pdf" / "done.pdf", work / inbox.CONVERTED / "done.pdf",
+                 outbox / inbox.DRAFTS / "waiting.epub", outbox / inbox.DRAFTS / "gone.epub",
+                 outbox / "done.epub"):  # fmt: skip
+        path.write_text("x")
+
+    found = inbox.cleanable(root)
+    inbox.clean(found)
+
+    assert found == [
+        work / "converted" / "done.pdf",
+        work / "done.pdf",
+        outbox / inbox.DRAFTS / "gone.epub",
+    ]
+    left = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+    assert left == [
+        "file_inbox/waiting.pdf",
+        "file_outbox/done.epub",
+        "file_outbox/drafts/waiting.epub",
+        "file_work/waiting.pdf/waiting.pdf",
+    ]
+
+
 def _mimetype_last(epub, out):
     """A copy of ``epub`` with its mimetype entry moved to the end, as some tools write it."""
     with zipfile.ZipFile(epub) as z, zipfile.ZipFile(out, "w") as o:

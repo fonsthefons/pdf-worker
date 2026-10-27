@@ -149,6 +149,19 @@ def test_process_one_file_with_its_options(monkeypatch, tmp_path, capsys):
     assert options["settings"] == {"title": "T", "margin_refs": False, "formats": ["epub", "md"]}
 
 
+def test_process_clean_deletes_what_no_inbox_book_needs(tmp_path, capsys):
+    old = tmp_path / "file_work" / "old.pdf"
+    old.mkdir(parents=True)
+    (old / "old.pdf").write_text("x")
+
+    assert main(["process", str(tmp_path), "--clean"]) == 0  # no terminal: no question
+
+    assert not old.exists()
+    assert "Deleted 1 item(s)" in capsys.readouterr().out
+    assert main(["process", str(tmp_path), "--clean"]) == 0
+    assert "Nothing to clean" in capsys.readouterr().out
+
+
 def test_process_book_options_need_a_file(tmp_path, capsys):
     assert main(["process", str(tmp_path), "--title", "T"]) == 1
     assert main(["process", str(tmp_path), "--to", "epub,mobi"]) == 1

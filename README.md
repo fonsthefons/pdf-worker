@@ -247,7 +247,13 @@ pdf-worker process book.pdf   # only this book: copied into file_inbox, same fol
 pdf-worker process --to epub,pdf,md,html,txt,docx,searchable   # formats (default epub,pdf)
 pdf-worker process book.pdf --title T --author A --language es --notes page --margin-refs
 pdf-worker process            # again: offers the review of waiting books, finishes reviewed ones
+pdf-worker process --clean    # delete what no book in file_inbox needs; file_outbox stays
 ```
+
+`--clean` deletes, after asking on a terminal, the work folders of books no longer in
+`file_inbox`, the originals in `file_work/converted` and drafts left by such books. Only
+the finished files in `file_outbox` (and books still in `file_inbox`, with their work)
+remain. Their review decisions are already in ai-client's decisions file.
 
 On a terminal, `process` asks for each draft whether to review it now and, after the
 review (Ctrl+C on the review page's terminal once saved), whether to rebuild; no answer
