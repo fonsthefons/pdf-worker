@@ -251,6 +251,14 @@ pdf-worker process            # again: offers the review of waiting books, finis
 pdf-worker process --clean    # delete what no book in file_inbox needs; file_outbox stays
 ```
 
+Several PDFs of one book go in a folder named after the book inside `file_inbox`. `process`
+compares them in a few seconds (`pdf_worker.copies`): first how much OCR each needs
+(none, only pages with no text, the whole book), then single pages before two-page
+spreads, then suspicious words per 1,000 in a 20-page sample. It builds the best one; the
+outputs take the folder's name, and the result line and `report.md` say which copy was
+used and why. The choice is kept for later runs (`file_work/<folder>/copy.json`), and the
+finished folder moves to `file_work/converted`.
+
 `--clean` deletes, after asking on a terminal, the work folders of books no longer in
 `file_inbox`, the originals in `file_work/converted` and drafts left by such books. Only
 the finished files in `file_outbox` (and books still in `file_inbox`, with their work)

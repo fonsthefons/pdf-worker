@@ -868,7 +868,9 @@ def _run_process(args: argparse.Namespace) -> int:
     if args.clean:
         return _clean(args.folder)
     _apply_engine_options(args)
-    args.book = args.folder if args.folder.is_file() else None
+    # A file, or a folder of copies of one book inside an inbox, is one book.
+    one = args.folder.is_file() or args.folder.parent.name == inbox.INBOX
+    args.book = args.folder if one else None
     if args.book:
         in_inbox = args.book.parent.name == inbox.INBOX
         args.folder = args.book.parent.parent if in_inbox else PROCESS_FOLDER

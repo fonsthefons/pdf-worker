@@ -108,6 +108,29 @@ def test_one_book_with_its_formats_kept_for_the_rebuild(make_pdf, tmp_path, monk
     assert (root / inbox.INBOX / "other.pdf").exists()  # not processed
 
 
+def test_a_folder_of_copies_is_built_from_the_best_one(make_pdf, tmp_path):
+    root = tmp_path / "root"
+    folder = root / inbox.INBOX / "My Book"
+    folder.mkdir(parents=True)
+    os.replace(make_pdf(TEXT, name="good.pdf"), folder / "good.pdf")
+    os.replace(make_pdf(["", ""], name="empty.pdf"), folder / "empty.pdf")
+
+    assert inbox.cleanable(root) == []  # a folder in the inbox is a book still to do
+    [result] = inbox.process(root, book=folder)
+
+    assert (result.name, result.state) == ("My Book", "finished")
+    assert result.detail.startswith("copy used: good.pdf (2 pages, OCR: none")
+    assert "not used: empty.pdf" in result.detail
+    out = root / inbox.OUTBOX
+    assert sorted(p.name for p in out.iterdir()) == ["My Book.epub", "My Book.pdf", "drafts"]
+    work = root / inbox.WORK
+    assert "copy used: good.pdf" in (work / "My Book" / "report.md").read_text()
+    assert sorted(p.name for p in (work / inbox.CONVERTED / "My Book").iterdir()) == [
+        "empty.pdf",
+        "good.pdf",
+    ]
+
+
 def test_clean_keeps_the_inbox_books_and_the_finished_files(tmp_path):
     root = tmp_path / "root"
     work, outbox = root / inbox.WORK, root / inbox.OUTBOX
