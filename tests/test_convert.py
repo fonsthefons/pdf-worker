@@ -128,6 +128,27 @@ def test_a_printed_web_page_loses_the_browser_header_and_footer(make_layout_pdf,
     assert text.count("MY BOOK") == 1
 
 
+def test_bold_chapter_lines_near_the_top_are_not_running_heads(tmp_path):
+    # "CHAPTER II", "CHAPTER III"... read alike ("chapter #") in the top margin of 5 of
+    # 30 pages: fewer than a running head's share of the pages, more than a small one's.
+    pdf = tmp_path / "chapters.pdf"
+    doc = pymupdf.open()
+    for n in range(30):
+        page = doc.new_page()
+        if n % 6 == 0:
+            numeral = ("II", "III", "IV", "V", "VI")[n // 6]
+            page.insert_text((250, 60), f"CHAPTER {numeral}", fontsize=BODY, fontname="hebo")
+        word = chr(97 + n // 26) + chr(97 + n % 26)  # each page its own text, or a watermark
+        for i, text in enumerate(FULL):
+            page.insert_text((72, 150 + LINE * i), f"{word} {text}", fontsize=BODY)
+    doc.save(pdf)
+    out = tmp_path / "chapters.md"
+
+    convert_pdf(pdf, out, "md")
+
+    assert out.read_text(encoding="utf-8").count("CHAPTER") == 5
+
+
 def test_hanging_indents_start_paragraphs_at_the_margin(make_layout_pdf, tmp_path):
     # Dialogue set like the Abada Timeo: a turn starts at the margin, its other lines indented.
     page = [

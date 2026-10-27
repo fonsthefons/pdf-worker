@@ -1,5 +1,13 @@
 # Progress
 
+## Chapter lines taken for running heads (2026-10-27, branch `fix/bold-chapter-heads`)
+User: "CAPÍTULO VI" missing in Millán Puelles. It (bold, body size) sits in the top 10% of
+its page, and "CAPÍTULO IV/V/VI/VII/IX/XI" all read "capítulo #": 4+ margin lines at body
+size, so the small-running rule (`_MIN_SMALL_RUNNING`) dropped them (III, VIII, X kept:
+other spelling or lower). Now a margin text seen in bold isn't running by that rule (the
+20%-of-pages rule is unchanged). Book: chapters I-XI all headings again. Test in
+`test_convert.py` (fails without the fix). Full suite passed (320 fast, 17 integration).
+
 ## Note size, browser header and footer (2026-10-27, branch `fix/sizes-and-browser-margins`)
 User asked: one size for all text (headings apart), notes smaller in the notes section,
 no browser header/URL lines. Found: "small" paragraphs already had the body's size in

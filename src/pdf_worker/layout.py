@@ -322,6 +322,7 @@ def analyze_document(
     gaps: Counter[float] = Counter()
     margin_texts: Counter[str] = Counter()
     margin_sizes: dict[str, float] = {}
+    margin_bold: set[str] = set()  # margin texts seen in bold: headings ("CAPÍTULO VI")
     offsets: Counter[int] = Counter()  # printed page number minus page index
     image_pages: Counter[int] = Counter()  # image xref -> pages it is placed on
     fonts: Counter[str] = Counter()  # font name -> characters set in it
@@ -362,6 +363,8 @@ def analyze_document(
                 page_margin_lines.append((key, line.size))
                 browser_page = browser_page or bool(_BROWSER_FOOTER_RE.match(text))
                 margin_sizes[key] = max(margin_sizes.get(key, 0.0), line.size)
+                if line.bold:
+                    margin_bold.add(key)
                 printed = _PRINTED_NUMBER_RE.match(text)
                 if printed:
                     page_offsets.add(int(printed.group(1)) - page_index)
@@ -423,8 +426,8 @@ def analyze_document(
         on_page(doc.page_count, doc.page_count)
     threshold = max(3, doc.page_count * _RUNNING_SHARE)
     # Per-chapter running heads ("NOTES TO CHAPTER 1") repeat on fewer pages; small
-    # type in the margin repeated on a few pages is running text too. Large type is
-    # left alone: it may be a chapter title at the top of every chapter.
+    # type in the margin repeated on a few pages is running text too. Large or bold type
+    # is left alone: it may be a chapter title at the top of every chapter.
     running = {
         text
         for text, n in margin_texts.items()
@@ -432,6 +435,7 @@ def analyze_document(
         or (
             n >= _MIN_SMALL_RUNNING
             and margin_sizes.get(text, 0.0) <= body_size * 1.05
+            and text not in margin_bold
             and sum(c.isalpha() for c in text) >= 6
         )
     }
