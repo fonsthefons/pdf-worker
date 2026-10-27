@@ -213,6 +213,11 @@ def test_split_and_learned_words_are_fixed_without_review(tmp_path):
         ("auto: learned", "albedrio", "replace", "albedrío", "applied"),
     ]
     assert added == {"auto: split": 1, "auto: learned": 1}
+    # Rebuilt, the check makes the same fixes first: the rows stay applied, not stale.
+    review = Review(review.fixes, "es", source="book")
+    list(review.apply([Paragraph(page_mark(0, "1") + text)]))
+    review.finish()
+    assert [f.status for f in review.fixes] == ["applied", "applied"]
     # Set to ignore, an automatic fix is undone and never comes back.
     for fix in review.fixes:
         fix.action = "ignore"
