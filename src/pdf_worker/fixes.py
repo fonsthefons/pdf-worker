@@ -76,6 +76,8 @@ _CYRILLIC_RE = re.compile("[Ѐ-ӿ]")
 _DOLLAR_RE = re.compile(r"\S*\$\S*")
 _BACK_MATTER_RE = re.compile(r"bibliograf|[íi]ndice|\bindex\b|referencias|references", re.I)
 _AUTHOR_ENTRY_RE = re.compile(r"[A-ZÀ-Þ][A-ZÀ-Þ'\- ]{2,},\s+[A-ZÀ-Þ][a-zà-ÿ]?\.")
+# "E. GILSON: L'esprit...; J. MARITAIN: ...": works by author, separated by semicolons.
+_AUTHOR_LIST_RE = re.compile(r"(?:[A-ZÀ-Þ]\.\s*)*[A-ZÀ-Þ][A-ZÀ-Þ'\- ]{2,}\s?:")
 _YEAR_RE = re.compile(r"\b1[5-9]\d\d\b")
 # Whole word: a bibliography's "Capítulos I-II: ..." groups entries, it isn't a chapter.
 _CHAPTER_RE = re.compile(r"(?:cap[íi]tulo|chapter|parte|part|libro|book)\b", re.I)
@@ -475,12 +477,13 @@ class Review:
 
 
 def _is_reference(block: Block) -> bool:
-    """A bibliography entry: "MAIGRON, L., Le roman ...", or a short line with a year and
+    """A bibliography entry: "MAIGRON, L., Le roman ...", a list of works by author
+    ("GILSON: L'esprit ...; MARITAIN: Los grados ..."), or a short line with a year and
     several commas ("Gesammelte Schriften, 6 vols., Halle, 1775")."""
     if not isinstance(block, Paragraph):
         return False
     text = plain(block.text).strip()
-    if _AUTHOR_ENTRY_RE.match(text):
+    if _AUTHOR_ENTRY_RE.match(text) or (_AUTHOR_LIST_RE.match(text) and ";" in text):
         return True
     return len(text) < _MAX_REFERENCE and bool(_YEAR_RE.search(text)) and text.count(",") >= 3
 

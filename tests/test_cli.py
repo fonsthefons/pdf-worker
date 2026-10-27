@@ -70,3 +70,62 @@ def test_extract_text_reports_errors_without_traceback(tmp_path, capsys):
 
     assert exit_code == 1
     assert capsys.readouterr().err.startswith("Error:")
+
+
+def _fake_inbox(monkeypatch, tmp_path, states):
+    """``inbox.process`` returns one book per call, in the given states."""
+    from pdf_worker import inbox
+
+    pdf = tmp_path / "work" / "book.pdf"
+    calls = iter(states)
+    monkeypatch.setattr(
+        inbox,
+        "process",
+        lambda *a, **k: [
+            inbox.BookResult("book.pdf", state, "", pdf if state != "finished" else None)
+            for state in [next(calls)]
+        ],
+    )
+    return pdf
+
+
+def test_process_prints_next_steps_without_a_terminal(monkeypatch, tmp_path, capsys):
+    pdf = _fake_inbox(monkeypatch, tmp_path, ["draft"])
+
+    main(["process", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert f"1. pdf-worker review {pdf}" in out
+    assert f"2. pdf-worker process {tmp_path}" in out
+
+
+def test_process_reviews_and_rebuilds_when_asked(monkeypatch, tmp_path, capsys):
+    from pdf_worker import cli
+
+    pdf = _fake_inbox(monkeypatch, tmp_path, ["draft", "finished"])
+    reviewed = []
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_ask_yes", lambda prompt: True)
+    monkeypatch.setattr(cli, "_run_review", lambda args: reviewed.append(args.pdf))
+
+    main(["process", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert reviewed == [pdf]
+    assert "finished  book.pdf" in out
+    assert "To finish later" not in out
+
+
+def test_process_review_now_but_rebuild_later(monkeypatch, tmp_path, capsys):
+    from pdf_worker import cli
+
+    _fake_inbox(monkeypatch, tmp_path, ["draft"])
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_ask_yes", lambda prompt: prompt.startswith("Review"))
+    monkeypatch.setattr(cli, "_run_review", lambda args: None)
+
+    main(["process", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert f"1. pdf-worker process {tmp_path}" in out
+    assert "pdf-worker review" not in out.split("To finish later")[1]

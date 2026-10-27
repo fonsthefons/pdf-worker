@@ -4,6 +4,7 @@ import argparse
 import codecs
 import os
 import re
+import select
 import shlex
 import subprocess
 import sys
@@ -807,6 +808,9 @@ def _run_review(args: argparse.Namespace) -> int:
     return 0
 
 
+PROCESS_FOLDER = Path("file_conversion")
+
+
 def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "process",
@@ -820,8 +824,8 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
         "folder",
         type=Path,
         nargs="?",
-        default=Path(),
-        help="Folder holding file_inbox (default: the current folder).",
+        default=PROCESS_FOLDER,
+        help="Folder holding file_inbox (default: ./file_conversion).",
     )
     _add_engine_options(parser)
     parser.set_defaults(handler=_run_process)
@@ -829,13 +833,62 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
 
 def _run_process(args: argparse.Namespace) -> int:
     _apply_engine_options(args)
+    results = _process_folder(args)
+    rebuild = "pdf-worker process" + (
+        "" if args.folder == PROCESS_FOLDER else f" {shlex.quote(str(args.folder))}"
+    )
+    later, reviewed = [], False
+    for result in (r for r in results if r.review_pdf):
+        if sys.stdin.isatty() and _ask_yes(f"Review {result.name} now?"):
+            _run_review(
+                argparse.Namespace(
+                    pdf=result.review_pdf,
+                    fixes=None,
+                    no_model=False,
+                    port=review.PORT,
+                    paddle_cache=args.paddle_cache,
+                )
+            )
+            reviewed = True
+        else:
+            later.append(_review_command(result))
+    if reviewed and _ask_yes("Rebuild the reviewed books now?"):
+        results = _process_folder(args)
+        # Still a draft or waiting after the rebuild: nothing was saved in review, or skipped.
+        later = [_review_command(r) for r in results if r.review_pdf]
+    elif reviewed:
+        later.append(rebuild)
+    if later:
+        if later[-1] != rebuild:
+            later.append(rebuild)
+        print("To finish later, run:")
+        for step, command in enumerate(later, 1):
+            print(f"  {step}. {command}")
+    return 1 if any(r.state == "failed" for r in results) else 0
+
+
+def _review_command(result: inbox.BookResult) -> str:
+    return f"pdf-worker review {shlex.quote(str(result.review_pdf))}"
+
+
+def _process_folder(args: argparse.Namespace) -> list[inbox.BookResult]:
     say = lambda message: print(message, flush=True)  # noqa: E731 (in step with stderr's progress)
     results = inbox.process(args.folder, args.engine, say=say, on_step=_progress)
     if not results:
         print(f"Nothing in {args.folder / inbox.INBOX}.")
     for result in results:
         print(f"{result.state:<9} {result.name}" + (f": {result.detail}" if result.detail else ""))
-    return 1 if any(r.state == "failed" for r in results) else 0
+    return results
+
+
+def _ask_yes(prompt: str, seconds: int = 60) -> bool:
+    """A y/N question on the terminal; no answer within ``seconds`` counts as no."""
+    print(f"{prompt} [y/N] (no answer in {seconds} s = no): ", end="", flush=True)
+    ready, _, _ = select.select([sys.stdin], [], [], seconds)
+    if not ready:
+        print("no answer")
+        return False
+    return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
 # The cheat sheet printed by `pdf-worker help`: (section, [(command, what it does)]).
@@ -853,10 +906,13 @@ CHEAT_SHEET = [
         ],
     ),
     (
-        "Every book in file_inbox",
+        "Every book in file_conversion/file_inbox",
         [
             ("pdf-worker process", "EPUB + PDF in file_outbox; drafts when words need review"),
-            ("pdf-worker review file_work/<book>/<book>.pdf", "Review a draft's words"),
+            (
+                "pdf-worker review file_conversion/file_work/<book>/<book>.pdf",
+                "Review a draft's words",
+            ),
             ("pdf-worker process", "Again after reviewing: finished files replace drafts"),
         ],
     ),

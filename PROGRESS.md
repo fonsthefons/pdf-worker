@@ -1,5 +1,24 @@
 # Progress
 
+## `process` folders moved under `file_conversion/` (2026-10-26, branch `feature/epub-reader`)
+User renamed the repo's `pdf-worker/` subfolder to `file_conversion/` (holds `file_inbox`,
+`file_work`, `file_outbox`). `pdf-worker process` now defaults to `./file_conversion`
+(cli.py); `help` examples, README and `.gitignore` updated. Fast suite 311 passed.
+- `process` follow-up (user asked): for each draft/waiting book it asks "Review now?" (y/N,
+  60 s timeout = no; only on a terminal) and runs `review`; after a review it asks
+  "Rebuild now?" and runs `process` again. Whatever is declined is printed as numbered
+  commands ("To finish later, run:"). `BookResult.review_pdf` carries the PDF for review.
+  Tests in `tests/test_cli.py` (3); fast suite 314 passed.
+- Bibliography entries "AUTHOR: Title; AUTHOR: Title" (Millán Puelles, whose
+  "BIBLIOGRAFÍA Cap 2" titles are body-size paragraphs, not headings) are now reference
+  paragraphs: no spelling rows (`fixes._AUTHOR_LIST_RE`, needs a ";"). On that book it
+  catches 27 paragraphs, all bibliography. Test added to `test_fixes.py`.
+- ai-client PR #7 (`fix/foreign-accents`): a word with more accents than the Spanish form,
+  spelled so in another language ("médiéval"), is no longer an `accent` flag.
+  `Words.foreign(accented=True)` skips languages that ignore accents: the Latin dictionary
+  (ICONV strips them) accepts "cambiár" as "cambiar". Also opened PR #6 for the unmerged
+  `feat/whisper-dir-and-sweep` commit; the two don't overlap.
+
 ## EPUBs rebuilt like converted PDFs (2026-10-23, branch `feature/epub-reader`)
 Asked by the user: every output EPUB has the same structure, EPUB inputs included (notes
 that open as pop-ups), with the front matter left out and a text cover.
