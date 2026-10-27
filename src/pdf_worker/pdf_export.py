@@ -36,10 +36,10 @@ body { font-family: serif; font-size: 11pt; line-height: 1.35; }
 p { margin: 0 0 0.3em 0; text-align: justify; }
 img { max-width: 100%; }
 """
-# One font and size for all the text: notes too. Same column as the body
-# (``body { margin: 0 5% }`` from the EPUB CSS).
+# One font for all the text; notes at 0.9 of the body's size, as at the end of the book
+# (``aside.note`` in the EPUB CSS). Same column as the body (``body { margin: 0 5% }``).
 _NOTE_CSS = """\
-body { margin: 0 5%; font-family: serif; font-size: 11pt; line-height: 1.35; }
+body { margin: 0 5%; font-family: serif; font-size: 9.9pt; line-height: 1.35; }
 p { margin: 0 0 2pt 0; text-align: justify; }
 sup { font-size: 0.75em; line-height: 0; }
 """

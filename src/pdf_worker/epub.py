@@ -87,7 +87,7 @@ span.mref { color: #2e7d32; font-family: sans-serif; font-weight: bold; font-siz
   padding: 0 0.2em; }
 span.mref.est { color: #d81b60; }
 sup { font-size: 0.75em; line-height: 0; }
-aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; }
+aside.note p { text-indent: 0; margin: 0 0 0.6em; text-align: left; font-size: 0.9em; }
 div.gloss { margin: 0.4em 0 0.8em 1em; padding-left: 0.6em;
   border-left: 2px solid #999; }
 div.gloss p { text-indent: 0; text-align: left; }
