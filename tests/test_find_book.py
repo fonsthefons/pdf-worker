@@ -225,6 +225,45 @@ def test_elejandria_searches_the_sitemap_and_reads_the_formats_from_the_page(mon
     assert pdf_only.fmt == "pdf"
 
 
+OML_RESULTS = b"""<div class="item_img"><a
+href="/index.php/es/libros/literatura/book/literatura-espanola-132/niebla-1433"><img
+src="/components/x_thm.jpg" alt="Niebla - Miguel de Unamuno" /></a></div>
+<div class="item_img"><a
+href="/index.php/es/libros/literatura/book/literatura-norteamericana-175/cartas-866"><img
+src="/components/y_thm.jpg" alt="Cartas desde La Tierra - Mark Twain" /></a></div>"""
+OML_BOOK = b"""<a target="_blank" class="" href="https://onemorelibrary.com/index.php?option=com_djclassifieds&amp;format=raw&amp;view=download&amp;task=download&amp;fid=24006"><div
+class="iconos-de-descarga"><img src="/images/icon-download-pdf.png"></div><div
+class="djc_file"><span>Niebla - Miguel de Unamuno - PDF</span><br
+/><span class="djc_filesize small">pdf | 915.33 KB | 7825 descargas</span></div></a>
+<a target="_blank" class="" href="https://onemorelibrary.com/index.php?option=com_djclassifieds&amp;format=raw&amp;view=download&amp;task=download&amp;fid=24008"><div
+class="djc_file"><span>Niebla - Miguel de Unamuno - EPUB</span><br
+/><span class="djc_filesize small">epub | 300 KB | 10 descargas</span></div></a>
+<a href="https://onemorelibrary.com/index.php?option=com_djclassifieds&amp;format=raw&amp;view=download&amp;task=download&amp;fid=24009"><div
+class="djc_file"><span>Niebla - MOBI</span><br
+/><span class="djc_filesize small">mobi | 400 KB | 3 descargas</span></div></a>"""
+
+
+def test_one_more_library_searches_then_reads_the_book_page(monkeypatch):
+    pages = {"search=Niebla": OML_RESULTS, "/niebla-1433": OML_BOOK}
+    monkeypatch.setattr(find_book, "_get", fake_get(pages))
+
+    [found] = find_book._onemorelibrary(BookQuery(title="Niebla", author="Unamuno"))
+
+    assert (found.title, found.authors, found.language) == ("Niebla", "Miguel de Unamuno", "es")
+    assert (found.fmt, found.url[-9:]) == ("epub", "fid=24008")
+    [as_pdf] = find_book._onemorelibrary(BookQuery(title="Niebla", fmt="pdf"))
+    assert (as_pdf.fmt, as_pdf.url[-9:]) == ("pdf", "fid=24006")
+    # A title the site doesn't hold word for word: the author's books are searched.
+    pages = {
+        "search=Niebla+nivola": b"0 libros",
+        "search=Unamuno": OML_RESULTS,
+        "/niebla": OML_BOOK,
+    }
+    monkeypatch.setattr(find_book, "_get", fake_get(pages))
+    [by_author] = find_book._onemorelibrary(BookQuery(title="Niebla nivola", author="Unamuno"))
+    assert by_author.title == "Niebla"
+
+
 GLOBAL_GREY_SITEMAP = b"""<urlset>
 <url><loc>https://www.globalgreyebooks.com/recently-added.html</loc></url>
 <url><loc>https://www.globalgreyebooks.com/online-ebooks/marcus-aurelius_meditations_complete-text.html</loc></url>

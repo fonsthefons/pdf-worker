@@ -1,5 +1,15 @@
 # Progress
 
+## find-book: One More Library (2026-10-27, branch `feature/onemorelibrary`)
+User asked to add onemorelibrary.com/index.php/es/. A Joomla (DJ-Classifieds) site, no
+sitemap, no API. `find_book._onemorelibrary` (Spanish only): its search page
+(`resultados-de-busqueda?se=1&layout=blog&search=`) wants every word, so the title's key
+words are searched, then the author's when nothing comes back; results are "Title -
+Author" cover labels; the first 5 book pages are read for their files (PDF, EPUB; MOBI and
+others skipped). Live: Niebla, Rinconete y Cortadillo (EPUB 33 KB valid, PDF 29 pages
+good); no Quijote of Cervantes in its catalogue. Test with the site's markup in
+`test_find_book.py`. Prototype scripts `scratch/oml_*.py`.
+
 ## `process --clean` (2026-10-27, branch `feature/process-clean`)
 User asked: delete everything not still in the inbox or outbox. `inbox.cleanable(root)`
 lists work folders of books not in `file_inbox`, everything in `file_work/converted` and
