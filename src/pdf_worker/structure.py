@@ -577,7 +577,7 @@ class _State:
             if size != self.profile.body_size:
                 spacing = self.profile.size_spacing.get(size, spacing)
             gap = line.baseline - prev.baseline
-            if gap > spacing * _PARAGRAPH_GAP:
+            if gap - line.superscript_rise > spacing * _PARAGRAPH_GAP:
                 return True
             if gap < -spacing * 0.5:
                 return ends_sentence  # jumped up to a new column

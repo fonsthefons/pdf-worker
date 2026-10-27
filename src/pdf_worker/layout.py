@@ -102,6 +102,18 @@ class Line:
         return sitting.most_common(1)[0][0] if sitting else self.top
 
     @property
+    def superscript_rise(self) -> float:
+        """How far the line's highest superscript sits above its baseline (0 if none). A
+        browser printing a web page lowers a line with a note number ("PLATÓN[2]") by
+        about this much, which looked like a paragraph's extra space."""
+        rises = [
+            self.baseline - span["origin"][1]
+            for span in self.spans
+            if span["text"].strip() and "origin" in span and span["flags"] & SUPERSCRIPT
+        ]
+        return max([0.0, *rises])
+
+    @property
     def x0(self) -> float:
         return self.bbox[0]
 

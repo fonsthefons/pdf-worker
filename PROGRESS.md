@@ -1,5 +1,16 @@
 # Progress
 
+## Paragraphs cut before a note number (2026-10-27, branch `fix/superscript-gap`)
+Millán Puelles (a web page printed by a browser): a line holding a superscript note number
+("PLATÓN[2]") is set lower by the number's rise (11 pt at 17.5 pt), so its gap was 1.42
+lines and `structure._starts_paragraph` (> 1.3) cut the paragraph. Now the gap is measured
+less `Line.superscript_rise`. Book: mid-sentence paragraph breaks 106 -> 8, paragraphs
+1239 -> 1135 (`scratch/mid_sentence_splits.py`). Test in `test_convert.py`. Full suite
+passed (integration: 17).
+- Seen, not fixed: the browser's running head ("FUNDAMENTOS DE LA FILOSOFÍA", 9 pt) and
+  footer URL stay in the text as small paragraphs; 376 of 1163 paragraphs are small type
+  (notes 12.9 pt, bibliography 14, contents 15 in the original; body 17.5).
+
 ## Review counts, auto rows, links (2026-10-27, branch `fix/auto-rows-stale`)
 - The draft line's "90 open rows" (book_report: found + possible) vs "70 rows to review"
   (`review.open_rows`) on Millán Puelles: 28 note rows (ref-no-note 21, note-no-ref 7)
