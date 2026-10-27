@@ -837,6 +837,13 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
         help=f"Formats to make, comma-separated, from {', '.join(inbox.FORMATS)} "
         "('searchable': the OCR'd copy of the original PDF). Default: epub,pdf.",
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Only delete what belongs to no book left in file_inbox: work folders, the "
+        "finished books' originals (file_work/converted) and drafts. The finished files in "
+        "file_outbox stay. Asks first on a terminal.",
+    )
     book = parser.add_argument_group("one book only (with FILE)")
     book.add_argument("--title", help="Book title (default: found in the book).")
     book.add_argument("--author", help="Author (default: found in the book).")
@@ -857,6 +864,8 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _run_process(args: argparse.Namespace) -> int:
+    if args.clean:
+        return _clean(args.folder)
     _apply_engine_options(args)
     args.book = args.folder if args.folder.is_file() else None
     if args.book:
@@ -913,6 +922,25 @@ def _run_process(args: argparse.Namespace) -> int:
     return 1 if any(r.state == "failed" for r in results) else 0
 
 
+def _clean(folder: Path) -> int:
+    if not folder.is_dir():
+        raise PdfWorkerError(f"--clean needs the folder holding file_inbox, not {folder}")
+    paths = inbox.cleanable(folder)
+    if not paths:
+        print(f"Nothing to clean in {folder}.")
+        return 0
+    size = sum(f.stat().st_size for p in paths for f in [p, *p.rglob("*")] if f.is_file())
+    print("To delete (no book in file_inbox needs them):")
+    for path in paths:
+        print(f"  {path}")
+    if sys.stdin.isatty() and not _ask_yes(f"Delete {len(paths)} item(s), {size / 2**20:.1f} MB?"):
+        print("Nothing deleted.")
+        return 0
+    inbox.clean(paths)
+    print(f"Deleted {len(paths)} item(s), {size / 2**20:.1f} MB.")
+    return 0
+
+
 def _process_folder(args: argparse.Namespace) -> list[inbox.BookResult]:
     say = lambda message: print(message, flush=True)  # noqa: E731 (in step with stderr's progress)
     results = inbox.process(
@@ -961,6 +989,7 @@ CHEAT_SHEET = [
             ("pdf-worker process book.pdf", "Only this book (copied into file_inbox)"),
             ("pdf-worker process --to epub,md,searchable", "Other formats (kept for rebuilds)"),
             ("pdf-worker process", "Again later: reviews waiting books, finishes reviewed ones"),
+            ("pdf-worker process --clean", "Delete work files and originals of finished books"),
         ],
     ),
     (

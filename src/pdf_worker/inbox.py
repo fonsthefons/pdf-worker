@@ -94,6 +94,35 @@ def process(
     return results
 
 
+def cleanable(root: str | Path) -> list[Path]:
+    """What belongs to no book left in the inbox: work folders, the finished books'
+    originals (``file_work/converted``) and drafts. The outbox's finished files stay."""
+    root = Path(root)
+    pending = [p.name for p in _listed(root / INBOX) if p.is_file() and not p.name.startswith(".")]
+    out = []
+    for path in _listed(root / WORK):
+        if path.name == CONVERTED:
+            out += _listed(path)
+        elif path.name not in pending:
+            out.append(path)
+    stems = [Path(name).stem + "." for name in pending]  # "book." + "epub", "searchable.pdf"
+    out += [p for p in _listed(root / OUTBOX / DRAFTS) if not p.name.startswith(tuple(stems))]
+    return out
+
+
+def clean(paths: list[Path]) -> None:
+    """Delete what ``cleanable`` listed."""
+    for path in paths:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+
+
+def _listed(folder: Path) -> list[Path]:
+    return sorted(folder.iterdir()) if folder.is_dir() else []
+
+
 def _process_book(root, original, engine, say, on_step, given) -> BookResult:
     suffix = original.suffix.lower()
     outbox = root / OUTBOX

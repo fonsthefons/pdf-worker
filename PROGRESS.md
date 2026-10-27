@@ -1,5 +1,13 @@
 # Progress
 
+## `process --clean` (2026-10-27, branch `feature/process-clean`)
+User asked: delete everything not still in the inbox or outbox. `inbox.cleanable(root)`
+lists work folders of books not in `file_inbox`, everything in `file_work/converted` and
+drafts of books not in `file_inbox`; `inbox.clean` deletes them. `process --clean` prints
+the list and size, asks on a terminal (`_ask_yes`, 60 s = no), then deletes; it builds
+nothing. Tests in test_inbox and test_cli. On `file_conversion` it would leave only the
+outbox's EPUB + PDF (dry run, `scratch/clean_dry_run.py`); not run there.
+
 ## Contents pages and outlines (2026-10-27, branch `feature/contents-pages`)
 User: the PDF had no clickable contents. Found: EPUBs kept their contents only as the
 reader's menu (nav not in the spine); an EPUB input's PDF came from `ebook_to_pdf` (outline
