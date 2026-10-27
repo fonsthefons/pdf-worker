@@ -91,6 +91,26 @@ def test_paragraph_continues_across_pages(make_layout_pdf, tmp_path):
     assert f"{FULL[2]} and it ends on the next page.\n\n" in text
 
 
+def test_a_line_lowered_for_its_note_number_stays_in_the_paragraph(make_layout_pdf, tmp_path):
+    # A web page printed by a browser: the line with "[2]" is set lower by the number's rise.
+    rise = 6
+    second = 100 + LINE + rise
+    x = 72 + pymupdf.get_text_length(FULL[1], fontsize=BODY)
+    after = x + pymupdf.get_text_length("[2]", fontsize=BODY)
+    page = [
+        _body(100, FULL[0]),
+        _body(second, FULL[1]),
+        (x, second - rise, "[2]", BODY),
+        (after, second, " and", BODY),
+        _body(second + LINE, "the end of it."),
+        *_paragraph(second + LINE * 3, FULL[:1], "Next paragraph."),
+    ]
+    text, report = _md(make_layout_pdf, tmp_path, [page])
+
+    assert FULL[0] + " " + FULL[1] in text
+    assert report.stats.paragraphs == 2
+
+
 def test_hanging_indents_start_paragraphs_at_the_margin(make_layout_pdf, tmp_path):
     # Dialogue set like the Abada Timeo: a turn starts at the margin, its other lines indented.
     page = [

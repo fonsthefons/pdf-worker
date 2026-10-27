@@ -1,5 +1,16 @@
 # Progress
 
+## Paragraphs cut before a note number (2026-10-27, branch `fix/superscript-gap`)
+Millán Puelles (a web page printed by a browser): a line holding a superscript note number
+("PLATÓN[2]") is set lower by the number's rise (11 pt at 17.5 pt), so its gap was 1.42
+lines and `structure._starts_paragraph` (> 1.3) cut the paragraph. Now the gap is measured
+less `Line.superscript_rise`. Book: mid-sentence paragraph breaks 106 -> 8, paragraphs
+1239 -> 1135 (`scratch/mid_sentence_splits.py`). Test in `test_convert.py`. Full suite
+passed (integration: 17).
+- Seen, not fixed: the browser's running head ("FUNDAMENTOS DE LA FILOSOFÍA", 9 pt) and
+  footer URL stay in the text as small paragraphs; 376 of 1163 paragraphs are small type
+  (notes 12.9 pt, bibliography 14, contents 15 in the original; body 17.5).
+
 ## PLAN: one command, `process` (user, 2026-10-27; phase 1 built, branch `feature/process-options`)
 Phase 1 done: `inbox.process(book=, settings=)`, `settings.json` per work folder,
 `FORMATS`/`DEFAULT_FORMATS`/`BOOK_OPTIONS` in inbox.py; the EPUB is always built (the
