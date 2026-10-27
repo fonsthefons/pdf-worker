@@ -95,8 +95,10 @@ def test_process_prints_next_steps_without_a_terminal(monkeypatch, tmp_path, cap
     main(["process", str(tmp_path)])
 
     out = capsys.readouterr().out
-    assert f"1. pdf-worker review {pdf}" in out
-    assert f"2. pdf-worker process {tmp_path}" in out
+    assert "To review and finish later, run (every book in turn, or just one):" in out
+    assert f"  pdf-worker process {tmp_path}\n" in out
+    assert f"  pdf-worker process {tmp_path / 'file_inbox' / 'book.pdf'}\n" in out
+    assert str(pdf) not in out
 
 
 def test_process_reviews_and_rebuilds_when_asked(monkeypatch, tmp_path, capsys):
@@ -127,5 +129,29 @@ def test_process_review_now_but_rebuild_later(monkeypatch, tmp_path, capsys):
     main(["process", str(tmp_path)])
 
     out = capsys.readouterr().out
-    assert f"1. pdf-worker process {tmp_path}" in out
-    assert "pdf-worker review" not in out.split("To finish later")[1]
+    assert f"  pdf-worker process {tmp_path / 'file_inbox' / 'book.pdf'}\n" in out
+
+
+def test_process_one_file_with_its_options(monkeypatch, tmp_path, capsys):
+    from pdf_worker import inbox
+
+    calls = []
+    monkeypatch.setattr(inbox, "process", lambda *a, **k: calls.append((a, k)) or [])
+    book = tmp_path / "file_inbox" / "book.pdf"
+    book.parent.mkdir()
+    book.write_bytes(b"%PDF")
+
+    main(["process", str(book), "--to", "epub,md", "--title", "T", "--no-margin-refs"])
+
+    (root, _), options = calls[0]
+    assert root == tmp_path
+    assert options["book"] == book
+    assert options["settings"] == {"title": "T", "margin_refs": False, "formats": ["epub", "md"]}
+
+
+def test_process_book_options_need_a_file(tmp_path, capsys):
+    assert main(["process", str(tmp_path), "--title", "T"]) == 1
+    assert main(["process", str(tmp_path), "--to", "epub,mobi"]) == 1
+    err = capsys.readouterr().err
+    assert "need a single FILE" in err
+    assert "unknown format(s) for --to: mobi" in err
