@@ -198,6 +198,18 @@ def test_no_rows_for_all_caps_or_names_the_book_repeats():
     assert rows == {("spelling", "Bohatcc"): "name: Bohatec?", ("spelling", "Pudieramos"): "accent"}
 
 
+def test_no_rows_for_words_in_italics_unless_scanned():
+    # Born-digital italics set apart foreign words and titles; in a scan they are misread
+    # like the rest, so their words keep their rows.
+    text = f"Según {styled('Zqxwrt philosophie', italic=True)} y Pudieramos."
+    blocks = [Paragraph(page_mark(0, "1") + text)]
+    for scanned, rows in ((False, ["Pudieramos"]), (True, ["Pudieramos", "Zqxwrt"])):
+        review = Review([], "es", italics=scanned)
+        list(review.apply(blocks))
+        review.finish()
+        assert sorted(f.find for f in review.fixes) == rows
+
+
 def test_split_and_learned_words_are_fixed_without_review(tmp_path):
     from ai_client import check
 

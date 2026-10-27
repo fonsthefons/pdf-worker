@@ -54,7 +54,16 @@ from pathlib import Path
 
 from ai_client import check
 
-from pdf_worker.inline import ESTIMATED, MARGIN_REF_RE, PAGE_MARK_RE, STYLE_RE, margin_ref, plain
+from pdf_worker.inline import (
+    END_ITALIC,
+    ESTIMATED,
+    ITALIC,
+    MARGIN_REF_RE,
+    PAGE_MARK_RE,
+    STYLE_RE,
+    margin_ref,
+    plain,
+)
 from pdf_worker.margin_estimates import label_value, value_label
 from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph
 
@@ -134,10 +143,20 @@ def write_fixes(path: Path, fixes: list[Fix]) -> None:
 class Review:
     """Applies ``fixes`` to a stream of blocks and collects what looks wrong in it."""
 
-    def __init__(self, fixes: list[Fix], language: str, spelling: bool = True, source: str = ""):
+    def __init__(
+        self,
+        fixes: list[Fix],
+        language: str,
+        spelling: bool = True,
+        source: str = "",
+        italics: bool = True,
+    ):
         """``spelling=False``: no word check. ``source`` names the book in ai-client's
-        decisions (the review file's stem): without it, decisions are used but not recorded."""
+        decisions (the review file's stem): without it, decisions are used but not recorded.
+        ``italics=False``: no rows for words in italics (born-digital text, where they set
+        apart foreign words and titles; in a scan they are misread like any other)."""
         self.fixes = fixes
+        self.italics = italics
         self.lexicon = _words(language) if spelling and language in SPELL_LANGUAGES else None
         self.decisions = check.Decisions(language) if self.lexicon else None
         self.source = source
@@ -237,7 +256,7 @@ class Review:
                         f"auto: {flag.kind}",
                     )
                 )
-            elif flag.kind != "context":
+            elif flag.kind != "context" and (self.italics or not _in_italics(text, at[flag.start])):
                 kind, value = _row_type(flag)
                 entry = self.words.get(("spelling", find.lower()))
                 if entry:
@@ -506,6 +525,11 @@ def _clean(text: str) -> tuple[str, list[int]]:
         last = match.end()
     at += range(last, len(text))
     return "".join(text[i] for i in at), at
+
+
+def _in_italics(text: str, index: int) -> bool:
+    """Is ``index`` of a block's text inside italics (its last style mark turned them on)?"""
+    return text.rfind(ITALIC, 0, index) > text.rfind(END_ITALIC, 0, index)
 
 
 def _page_at(text: str, index: int, page: str) -> str:
