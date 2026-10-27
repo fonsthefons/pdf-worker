@@ -95,7 +95,9 @@ def test_process_prints_next_steps_without_a_terminal(monkeypatch, tmp_path, cap
     main(["process", str(tmp_path)])
 
     out = capsys.readouterr().out
-    assert f"To review and finish book.pdf later, run: pdf-worker process {tmp_path}" in out
+    assert "To review and finish later, run (every book in turn, or just one):" in out
+    assert f"  pdf-worker process {tmp_path}\n" in out
+    assert f"  pdf-worker process {tmp_path / 'file_inbox' / 'book.pdf'}\n" in out
     assert str(pdf) not in out
 
 
@@ -127,7 +129,7 @@ def test_process_review_now_but_rebuild_later(monkeypatch, tmp_path, capsys):
     main(["process", str(tmp_path)])
 
     out = capsys.readouterr().out
-    assert f"finish the reviewed books later, run: pdf-worker process {tmp_path}" in out
+    assert f"  pdf-worker process {tmp_path / 'file_inbox' / 'book.pdf'}\n" in out
 
 
 def test_process_one_file_with_its_options(monkeypatch, tmp_path, capsys):

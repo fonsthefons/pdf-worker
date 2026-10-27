@@ -251,8 +251,9 @@ pdf-worker process            # again: offers the review of waiting books, finis
 
 On a terminal, `process` asks for each draft whether to review it now and, after the
 review (Ctrl+C on the review page's terminal once saved), whether to rebuild; no answer
-within a minute means no, and it prints the `process` command to run later (it asks
-again then). `--to` and the one-book options (`--title`, `--author`, `--language`,
+within a minute means no, and it prints what to run later (it asks again then):
+`pdf-worker process` for every waiting book in turn, and one
+`pdf-worker process file_conversion/file_inbox/<file>` line per book to review just that one. `--to` and the one-book options (`--title`, `--author`, `--language`,
 `--notes`, `--margin-refs`; only with a FILE) are saved in
 `file_work/<file name>/settings.json` and used by the book's later runs. `searchable` is
 the PDF the book was built from (OCR'd when needed), as `<stem>.searchable.pdf`; not made

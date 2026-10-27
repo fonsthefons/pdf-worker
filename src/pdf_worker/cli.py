@@ -882,7 +882,7 @@ def _run_process(args: argparse.Namespace) -> int:
     rebuild = "pdf-worker process" + (
         "" if args.folder == PROCESS_FOLDER else f" {shlex.quote(str(args.folder))}"
     )
-    later, reviewed = [], False
+    later, reviewed = [], []
     for result in (r for r in results if r.review_pdf):
         if sys.stdin.isatty() and _ask_yes(f"Review {result.name} now?"):
             _run_review(
@@ -894,7 +894,7 @@ def _run_process(args: argparse.Namespace) -> int:
                     paddle_cache=args.paddle_cache,
                 )
             )
-            reviewed = True
+            reviewed.append(result.name)
         else:
             later.append(result.name)
     if reviewed and _ask_yes("Rebuild the reviewed books now?"):
@@ -902,11 +902,14 @@ def _run_process(args: argparse.Namespace) -> int:
         results = _process_folder(args)
         # Still a draft or waiting after the rebuild: nothing was saved in review, or skipped.
         later = [r.name for r in results if r.review_pdf]
-    elif reviewed:
-        later.append("the reviewed books")
+    else:
+        later += reviewed
     if later:
         # `process` offers the review of a waiting book, then the rebuild.
-        print(f"To review and finish {', '.join(later)} later, run: {rebuild}")
+        print("To review and finish later, run (every book in turn, or just one):")
+        print(f"  {rebuild}")
+        for name in later:
+            print(f"  pdf-worker process {shlex.quote(str(args.folder / inbox.INBOX / name))}")
     return 1 if any(r.state == "failed" for r in results) else 0
 
 
