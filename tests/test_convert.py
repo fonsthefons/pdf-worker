@@ -111,6 +111,23 @@ def test_a_line_lowered_for_its_note_number_stays_in_the_paragraph(make_layout_p
     assert report.stats.paragraphs == 2
 
 
+def test_a_printed_web_page_loses_the_browser_header_and_footer(make_layout_pdf, tmp_path):
+    # Two pages only (too few to repeat), the header also the title in large type.
+    pages = [
+        [
+            (40, 12, "MY BOOK", 9),
+            *([(72, 60, "MY BOOK", 24)] if n == 1 else []),
+            *_paragraph(120, FULL[:2], "It ends here."),
+            (40, 835, f"http://example.org/book/cover.htm ({n} de 2)04/12/2006 23:18:49", 9),
+        ]
+        for n in (1, 2)
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "example.org" not in text
+    assert text.count("MY BOOK") == 1
+
+
 def test_hanging_indents_start_paragraphs_at_the_margin(make_layout_pdf, tmp_path):
     # Dialogue set like the Abada Timeo: a turn starts at the margin, its other lines indented.
     page = [

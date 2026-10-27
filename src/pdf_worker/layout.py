@@ -39,6 +39,8 @@ _MARGIN_ZONE = 0.1
 # A margin line repeated on at least this share of pages (and 3 pages) is running text.
 _RUNNING_SHARE = 0.2
 _MIN_SMALL_RUNNING = 4
+# A browser's footer on a printed web page: the address, "(3 de 32)", the print date.
+_BROWSER_FOOTER_RE = re.compile(r"^\s*(?:https?|file)://\S+\s*\(\d+ (?:de|of|sur|von|di) \d+\)")
 # The printed page numbers must agree on this share of all pages.
 _MIN_PRINTED_SHARE = 0.25
 _REPEATED_IMAGE_SHARE = 0.3
@@ -258,6 +260,9 @@ class DocumentProfile:
     heading_sizes: list[float] = field(default_factory=list)
     # Normalised texts of running headers/footers (see ``running_key``).
     running_texts: set[str] = field(default_factory=set)
+    # Small margin lines of pages printed from a web page (``_BROWSER_FOOTER_RE``): the
+    # browser's header (the page's title) and footer, however few pages repeat them.
+    browser_margins: set[str] = field(default_factory=set)
     # Lines repeated mid-page on most pages ("Page Proof Pending Publication").
     watermarks: set[str] = field(default_factory=set)
     # Endnote number -> (page index, line index) of the line that defines it.
@@ -300,7 +305,12 @@ class DocumentProfile:
         text = line.text
         if page_height * _MARGIN_ZONE < line.top < page_height * (1 - _MARGIN_ZONE):
             return running_key(text) in self.watermarks
-        return bool(PAGE_NUMBER_RE.match(text)) or running_key(text) in self.running_texts
+        key = running_key(text)
+        return (
+            bool(PAGE_NUMBER_RE.match(text))
+            or key in self.running_texts
+            or (key in self.browser_margins and line.size < self.body_size)
+        )
 
 
 def analyze_document(
@@ -327,6 +337,7 @@ def analyze_document(
     sample: list[str] = []
     sample_len = 0
     bracketed_pages = 0
+    browser_lines: list[tuple[str, float]] = []  # (key, size) of browser-printed margins
     for page_index in range(doc.page_count):
         if on_page:
             on_page(page_index, doc.page_count)
@@ -334,6 +345,8 @@ def analyze_document(
         height = page.rect.height
         lines = page_lines(page)
         page_margin_texts = set()
+        page_margin_lines: list[tuple[str, float]] = []
+        browser_page = False
         page_inner_texts = set()
         page_offsets: set[int] = set()
         image_pages.update({info[0] for info in page.get_images(full=False)})
@@ -346,6 +359,8 @@ def analyze_document(
             if text.strip() and not height * _MARGIN_ZONE < line.top < height * (1 - _MARGIN_ZONE):
                 key = running_key(text)
                 page_margin_texts.add(key)
+                page_margin_lines.append((key, line.size))
+                browser_page = browser_page or bool(_BROWSER_FOOTER_RE.match(text))
                 margin_sizes[key] = max(margin_sizes.get(key, 0.0), line.size)
                 printed = _PRINTED_NUMBER_RE.match(text)
                 if printed:
@@ -384,6 +399,8 @@ def analyze_document(
                     line_starts[number] = (page_index, line_index)
                 occurrences[number] += 1
         margin_texts.update(page_margin_texts)
+        if browser_page:
+            browser_lines += page_margin_lines
         inner_texts.update(page_inner_texts)
         offsets.update(page_offsets)
 
@@ -437,6 +454,7 @@ def analyze_document(
     )
     return DocumentProfile(
         watermarks=watermarks,
+        browser_margins={key for key, size in browser_lines if size < body_size},
         body_size=body_size,
         line_spacing=line_spacing,
         size_spacing=size_spacing,

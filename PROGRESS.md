@@ -1,5 +1,17 @@
 # Progress
 
+## Note size, browser header and footer (2026-10-27, branch `fix/sizes-and-browser-margins`)
+User asked: one size for all text (headings apart), notes smaller in the notes section,
+no browser header/URL lines. Found: "small" paragraphs already had the body's size in
+every writer (EPUB CSS only drops the indent), and notes were 11 pt like the body.
+- Notes: `aside.note p { font-size: 0.9em }` (EPUB, and the PDF's notes at the end);
+  page-foot notes `_NOTE_CSS` 9.9 pt.
+- `layout._BROWSER_FOOTER_RE` (URL, "(3 de 32)", date): on a page with that footer, its
+  small margin lines (< body size) are running text (`DocumentProfile.browser_margins`),
+  however few pages repeat them. Millán Puelles' contents (header = the 30 pt title,
+  protected) and prólogo (2 pages, under `_MIN_SMALL_RUNNING`) kept them; now 0 left,
+  the title kept. Test in `test_convert.py`. Full suite passed (319 fast, 17 integration).
+
 ## Paragraphs cut before a note number (2026-10-27, branch `fix/superscript-gap`)
 Millán Puelles (a web page printed by a browser): a line holding a superscript note number
 ("PLATÓN[2]") is set lower by the number's rise (11 pt at 17.5 pt), so its gap was 1.42
