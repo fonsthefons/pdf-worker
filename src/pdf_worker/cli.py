@@ -533,8 +533,8 @@ def _add_find_book_command(subparsers: argparse._SubParsersAction) -> None:
         "-d",
         "--dir",
         type=Path,
-        default=Path("."),
-        help="Folder for the download (default: the current folder).",
+        default=Path("file_conversion") / "file_inbox",
+        help="Folder for the download (default: ./file_conversion/file_inbox, for `process`).",
     )
     parser.set_defaults(handler=_run_find_book)
 
@@ -814,18 +814,43 @@ PROCESS_FOLDER = Path("file_conversion")
 def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "process",
-        help="Turn every book in file_inbox into a clean EPUB and PDF in file_outbox.",
-        description="Build every PDF or ebook in FOLDER/file_inbox into an EPUB and a PDF. "
-        "Books with words to review get drafts in file_outbox/drafts; run `review` on them, "
-        "then `process` again to finish them. Intermediate files go in file_work; finished "
-        "originals move to file_work/converted.",
+        help="Turn every book in file_inbox (or one file) into a clean EPUB and PDF in "
+        "file_outbox.",
+        description="Build every PDF or ebook in FOLDER/file_inbox into an EPUB and a PDF "
+        "(OCR when needed). Given a FILE, only that book: it is copied into "
+        "./file_conversion/file_inbox and goes through the same folders. Books with words "
+        "to review get drafts in file_outbox/drafts; `process` offers the review, then the "
+        "rebuild. Intermediate files go in file_work; finished originals move to "
+        "file_work/converted. A book's --to and options are kept for its later runs.",
     )
     parser.add_argument(
         "folder",
         type=Path,
         nargs="?",
         default=PROCESS_FOLDER,
-        help="Folder holding file_inbox (default: ./file_conversion).",
+        metavar="FOLDER_OR_FILE",
+        help="Folder holding file_inbox (default: ./file_conversion), or one book.",
+    )
+    parser.add_argument(
+        "--to",
+        type=lambda text: [f.strip() for f in text.split(",") if f.strip()],
+        help=f"Formats to make, comma-separated, from {', '.join(inbox.FORMATS)} "
+        "('searchable': the OCR'd copy of the original PDF). Default: epub,pdf.",
+    )
+    book = parser.add_argument_group("one book only (with FILE)")
+    book.add_argument("--title", help="Book title (default: found in the book).")
+    book.add_argument("--author", help="Author (default: found in the book).")
+    book.add_argument("--language", help="Language code such as 'es' (default: guessed).")
+    book.add_argument(
+        "--notes",
+        choices=conversion.NOTE_PLACES,
+        help="Reflowed PDF: notes at the end (default) or at the foot of their page; "
+        "'none' leaves notes out.",
+    )
+    book.add_argument(
+        "--margin-refs",
+        action=argparse.BooleanOptionalAction,
+        help="Keep the margin section numbers of classical editions (default: when found).",
     )
     _add_engine_options(parser)
     parser.set_defaults(handler=_run_process)
@@ -833,6 +858,26 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
 
 def _run_process(args: argparse.Namespace) -> int:
     _apply_engine_options(args)
+    args.book = args.folder if args.folder.is_file() else None
+    if args.book:
+        in_inbox = args.book.parent.name == inbox.INBOX
+        args.folder = args.book.parent.parent if in_inbox else PROCESS_FOLDER
+    options = {
+        "title": args.title,
+        "author": args.author,
+        "language": args.language,
+        "notes_at": args.notes,
+        "margin_refs": args.margin_refs,
+    }
+    args.settings = {k: v for k, v in options.items() if v is not None}
+    if args.settings and not args.book:
+        raise PdfWorkerError(
+            "--title, --author, --language, --notes and --margin-refs need a single FILE."
+        )
+    if args.to:
+        if unknown := set(args.to) - set(inbox.FORMATS):
+            raise PdfWorkerError(f"unknown format(s) for --to: {', '.join(sorted(unknown))}")
+        args.settings["formats"] = args.to
     results = _process_folder(args)
     rebuild = "pdf-worker process" + (
         "" if args.folder == PROCESS_FOLDER else f" {shlex.quote(str(args.folder))}"
@@ -851,29 +896,30 @@ def _run_process(args: argparse.Namespace) -> int:
             )
             reviewed = True
         else:
-            later.append(_review_command(result))
+            later.append(result.name)
     if reviewed and _ask_yes("Rebuild the reviewed books now?"):
+        args.settings = {}  # saved with each book on the first run
         results = _process_folder(args)
         # Still a draft or waiting after the rebuild: nothing was saved in review, or skipped.
-        later = [_review_command(r) for r in results if r.review_pdf]
+        later = [r.name for r in results if r.review_pdf]
     elif reviewed:
-        later.append(rebuild)
+        later.append("the reviewed books")
     if later:
-        if later[-1] != rebuild:
-            later.append(rebuild)
-        print("To finish later, run:")
-        for step, command in enumerate(later, 1):
-            print(f"  {step}. {command}")
+        # `process` offers the review of a waiting book, then the rebuild.
+        print(f"To review and finish {', '.join(later)} later, run: {rebuild}")
     return 1 if any(r.state == "failed" for r in results) else 0
-
-
-def _review_command(result: inbox.BookResult) -> str:
-    return f"pdf-worker review {shlex.quote(str(result.review_pdf))}"
 
 
 def _process_folder(args: argparse.Namespace) -> list[inbox.BookResult]:
     say = lambda message: print(message, flush=True)  # noqa: E731 (in step with stderr's progress)
-    results = inbox.process(args.folder, args.engine, say=say, on_step=_progress)
+    results = inbox.process(
+        args.folder,
+        args.engine,
+        say=say,
+        on_step=_progress,
+        book=args.book,
+        settings=args.settings,
+    )
     if not results:
         print(f"Nothing in {args.folder / inbox.INBOX}.")
     for result in results:
@@ -908,12 +954,10 @@ CHEAT_SHEET = [
     (
         "Every book in file_conversion/file_inbox",
         [
-            ("pdf-worker process", "EPUB + PDF in file_outbox; drafts when words need review"),
-            (
-                "pdf-worker review file_conversion/file_work/<book>/<book>.pdf",
-                "Review a draft's words",
-            ),
-            ("pdf-worker process", "Again after reviewing: finished files replace drafts"),
+            ("pdf-worker process", "EPUB + PDF in file_outbox; offers review, then rebuild"),
+            ("pdf-worker process book.pdf", "Only this book (copied into file_inbox)"),
+            ("pdf-worker process --to epub,md,searchable", "Other formats (kept for rebuilds)"),
+            ("pdf-worker process", "Again later: reviews waiting books, finishes reviewed ones"),
         ],
     ),
     (

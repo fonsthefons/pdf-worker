@@ -39,7 +39,6 @@ import pymupdf
 from pdf_worker.document import open_pdf
 from pdf_worker.ebook_to_pdf import quiet_mupdf
 from pdf_worker.errors import PdfWorkerError
-from pdf_worker.ocr import default_output_path as ocr_default_output_path
 from pdf_worker.ocr_check import assess_text_layer
 
 USER_AGENT = "pdf-worker/0.1 (personal book finder)"
@@ -57,7 +56,6 @@ _LANGUAGES = {
     "el": ("el", "gre", "ell", "grc", "greek"),
     "pt": ("pt", "por", "portuguese"),
 }
-_TESSERACT = {"en": "eng", "es": "spa", "la": "lat", "fr": "fra", "de": "deu", "it": "ita"}
 _STOPWORDS = {
     "the", "and", "for", "with", "los", "las", "del", "con", "por", "una", "une", "des",
     "der", "die", "das",
@@ -1071,32 +1069,13 @@ def check_download(path: Path, language: str | None = None) -> QualityCheck:
     with open_pdf(path) as doc:
         pages = doc.page_count
         report = assess_text_layer(doc)
-    ocr_lang = _TESSERACT.get(language or "")
-    name = str(path)
+    steps = [NextStep("Make a clean EPUB and PDF (OCR when needed)", ["process", str(path)])]
     if report.mode is None:
-        return QualityCheck(
-            "pdf",
-            f"{pages} pages; {report.reason}. Usable as it is.",
-            [
-                NextStep("Make an EPUB", ["convert", name, "--to", "epub"]),
-                NextStep("Make a clean, reflowed A5 PDF", ["convert", name, "--to", "pdf"]),
-            ],
-        )
-    lang = ["--lang", ocr_lang] if ocr_lang else []
-    ocr_copy = str(ocr_default_output_path(path))
+        return QualityCheck("pdf", f"{pages} pages; {report.reason}. Usable as it is.", steps)
     return QualityCheck(
         "pdf",
-        f"{pages} pages; {report.reason}: it needs OCR ({report.mode}) before converting.",
-        [
-            NextStep("OCR it into a searchable PDF", ["ocr", name, "--mode", report.mode, *lang]),
-            NextStep(
-                "Make an EPUB of the OCR'd copy (after 1)", ["convert", ocr_copy, "--to", "epub"]
-            ),
-            NextStep(
-                "Make a clean A5 PDF of the OCR'd copy (after 1)",
-                ["convert", ocr_copy, "--to", "pdf"],
-            ),
-        ],
+        f"{pages} pages; {report.reason}: it needs OCR ({report.mode}), `process` runs it.",
+        steps,
     )
 
 
@@ -1110,7 +1089,7 @@ def _check_epub(path: Path) -> QualityCheck:
             pages = book.page_count
             sample = range(0, pages, max(1, pages // 20))
             chars = sum(len(book.load_page(i).get_text().strip()) for i in sample)
-    steps = [NextStep("Make a PDF of it", ["ebook-to-pdf", str(path)])]
+    steps = [NextStep("Make a clean EPUB and PDF of it", ["process", str(path)])]
     if not pages or chars < 200 * len(sample):
         summary = (
             "An EPUB with little text (pages as pictures, or empty): try the source's PDF, "

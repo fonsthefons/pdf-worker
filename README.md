@@ -243,13 +243,21 @@ one-line description. `pdf-worker <command> --help` shows every option.
 
 ```bash
 pdf-worker process            # handles ./file_conversion/file_inbox (or: pdf-worker process FOLDER)
-pdf-worker review 'file_conversion/file_work/<file>/<stem>.pdf'   # when a book is a draft
-pdf-worker process            # again: reviewed drafts become finished books
+pdf-worker process book.pdf   # only this book: copied into file_inbox, same folders
+pdf-worker process --to epub,pdf,md,html,txt,docx,searchable   # formats (default epub,pdf)
+pdf-worker process book.pdf --title T --author A --language es --notes page --margin-refs
+pdf-worker process            # again: offers the review of waiting books, finishes reviewed ones
 ```
 
 On a terminal, `process` asks for each draft whether to review it now and, after the
 review (Ctrl+C on the review page's terminal once saved), whether to rebuild; no answer
-within a minute means no, and the commands left to run are printed.
+within a minute means no, and it prints the `process` command to run later (it asks
+again then). `--to` and the one-book options (`--title`, `--author`, `--language`,
+`--notes`, `--margin-refs`; only with a FILE) are saved in
+`file_work/<file name>/settings.json` and used by the book's later runs. `searchable` is
+the PDF the book was built from (OCR'd when needed), as `<stem>.searchable.pdf`; not made
+with `--engine paddle`. EPUB inputs give EPUB + PDF only. `find-book` downloads into
+`file_conversion/file_inbox` and suggests `process`.
 
 Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_conversion/file_inbox/`. Each run
 (folders below are inside `file_conversion/`):
@@ -263,7 +271,7 @@ Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_conversion/file_inbox/`. Eac
 | `file_outbox/` | The finished EPUB + PDF of each book |
 
 - **EPUB:** rebuilt like a converted PDF (`rebuild-epub`): notes that open as pop-ups, headings from the book's contents, working links, the cover, title, copyright and contents pages left out, a text cover. The PDF is laid out from the rebuilt EPUB with `ebook-to-pdf`. An EPUB whose notes can't be linked up (more than 2, or 1%, of its note references lead nowhere) is kept as is (its `mimetype` entry repaired if needed, see `tools/check_and_fix.py`). Done in one run.
-- **PDF:** text layer checked; OCR'd when needed (as `kindle`: Tesseract plus Apple Vision votes, or `--engine paddle`), then `convert` to EPUB and PDF. No rows to review: done in one run. Otherwise drafts go to `file_outbox/drafts` and the run prints the `review` command. The book then waits until `review` saves decisions; the next run rebuilds it into `file_outbox` (rows still undecided are reported), deletes the drafts and moves the original to `file_work/converted`.
+- **PDF:** text layer checked; OCR'd when needed (as `kindle`: Tesseract plus Apple Vision votes, or `--engine paddle`), then `convert` to EPUB and PDF. No rows to review: done in one run. Otherwise drafts go to `file_outbox/drafts` and the run offers the review. The book then waits until `review` saves decisions; the next run rebuilds it into `file_outbox` (rows still undecided are reported), deletes the drafts and moves the original to `file_work/converted`.
 - A failing book is reported and the others go on; other files are skipped.
 - **Report:** every build of a PDF or ebook writes `file_work/<file name>/report.md`, and
   the run prints its grade. It lists where the text came from and the text-layer check
