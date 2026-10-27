@@ -500,10 +500,10 @@ def _add_find_book_command(subparsers: argparse._SubParsersAction) -> None:
         "find-book",
         help="Find a free book online, download the best copy and check its quality.",
         description="Search open libraries (Project Gutenberg, Standard Ebooks, Internet "
-        "Archive, Open Library, Wikisource, OpenAlex, Elejandría, textos.info, DOAB, "
-        "HathiTrust, and sites from the config file) for a book, download the best match "
-        "and suggest what to do next. Without options it asks for the details. With --url "
-        "or --file it skips the search and checks that book.",
+        "Archive, Open Library, Wikisource, OpenAlex, Elejandría, textos.info, One More "
+        "Library, DOAB, HathiTrust, and sites from the config file) for a book, download the "
+        "best match and suggest what to do next. Without options it asks for the details. "
+        "With --url or --file it skips the search and checks that book.",
     )
     given = parser.add_mutually_exclusive_group()
     given.add_argument(
@@ -599,7 +599,8 @@ def _run_find_book(args: argparse.Namespace) -> int:
     extra = "".join(f", {site.name}" for site in settings.sites)
     print(
         "Searching Project Gutenberg, Standard Ebooks, Internet Archive, Open Library, "
-        f"Wikisource, OpenAlex, Elejandría, textos.info, DOAB, HathiTrust{extra}..."
+        f"Wikisource, OpenAlex, Elejandría, textos.info, One More Library, DOAB, "
+        f"HathiTrust{extra}..."
     )
     result = find_book.find_candidates(query, settings)
     for warning in result.warnings:

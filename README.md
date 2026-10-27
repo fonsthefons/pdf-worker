@@ -213,6 +213,7 @@ Only when your languages include Spanish (or none are given):
 |---|---|---|---|
 | Elejandría (elejandria.com) | Its sitemap (robots.txt blocks `/buscar`) | PDF or EPUB, found at download | 10 |
 | textos.info | Atom search feed | EPUB/PDF | 8 |
+| One More Library (onemorelibrary.com, Spanish catalogue) | Its search (every word must match; the author's books when the title finds nothing), then the book's page | EPUB or PDF | 8 |
 
 Only when your languages include English (or none are given):
 
@@ -331,7 +332,7 @@ Internet Archive (freely downloadable items only), Open Library (an ISBN gives t
 author and language), Wikisource (any language, exported as EPUB), OpenAlex (recent
 open-access academic books, with their free PDF when there is one), the open textbooks of
 OpenStax and the Open Textbook Library, Global Grey (edited English classics), the
-Spanish libraries Elejandría and textos.info, and DOAB and HathiTrust (links to open in a browser: their
+Spanish libraries Elejandría, textos.info and One More Library, and DOAB and HathiTrust (links to open in a browser: their
 downloads sit behind bot checks or a login). It ranks the results by title, author
 (other spellings allowed), translator, language, year and format, and lists the best 10.
 It downloads the one you pick (Enter: the best), checks it (a valid EPUB with text? a PDF

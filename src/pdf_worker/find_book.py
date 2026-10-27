@@ -226,6 +226,7 @@ def find_candidates(query: BookQuery, settings: Settings | None = None) -> Searc
         searches["CCEL"] = lambda: _ccel(query)
     if not query.languages or "es" in query.languages:
         searches["Elejandría"] = lambda: _elejandria(query)
+        searches["One More Library"] = lambda: _onemorelibrary(query)
         searches["Cervantes Virtual"] = lambda: _cervantes(query)
         searches["textos.info"] = lambda: _site(TEXTOS_INFO, query)
     for site in settings.sites:
@@ -641,6 +642,51 @@ def _elejandria_files(page_url: str) -> dict[str, str]:
         for book, file, fmt in buttons
         if fmt.lower() in FORMATS
     }
+
+
+_OML = "https://onemorelibrary.com"
+# A search result: the book's page, then its cover labelled "Title - Author".
+_OML_RESULT_RE = re.compile(
+    r'<a\s+href="(/index\.php/es/libros/[^"]*/book/[^"]+)"><img[^>]*alt="([^"]+)"'
+)
+# A file on a book's page: its download link, then its type ("pdf | 915.33 KB | ...").
+_OML_FILE_RE = re.compile(
+    r'href="([^"]*task=download&(?:amp;)?fid=\d+)".*?djc_filesize[^>]*>\s*(\w+) \|', re.S
+)
+_OML_PAGES = 5  # book pages read for their files
+
+
+def _onemorelibrary(query: BookQuery) -> list[Candidate]:
+    """One More Library's Spanish catalogue: public-domain books, PDF and EPUB each.
+
+    Its search wants every word (a long title with words it doesn't hold finds nothing),
+    so the title's words are tried, then the author's."""
+    candidates = []
+    for words in (_key_terms(query), _terms(query.author).split()):
+        if not words or candidates:
+            continue
+        search = urllib.parse.quote_plus(" ".join(words))
+        url = f"{_OML}/index.php/es/resultados-de-busqueda?se=1&layout=blog&search={search}"
+        page = _get(url).decode("utf-8", "replace")
+        for path, label in dict.fromkeys(_OML_RESULT_RE.findall(page)):
+            title, _, author = html.unescape(label).rpartition(" - ")
+            candidate = Candidate(
+                source="One More Library",
+                title=title or html.unescape(label),
+                authors=author if title else "",
+                language="es",
+                page=_OML + path,
+                quality=8,
+            )
+            if score_candidate(candidate, query) is not None:
+                candidates.append(candidate)
+    for candidate in candidates[:_OML_PAGES]:
+        book = _get(candidate.page).decode("utf-8", "replace")
+        files = {fmt.lower(): html.unescape(link) for link, fmt in _OML_FILE_RE.findall(book)}
+        if files := {fmt: link for fmt, link in files.items() if fmt in FORMATS}:
+            candidate.fmt = query.fmt if query.fmt in files else min(files)  # "epub" < "pdf"
+            candidate.url = files[candidate.fmt]
+    return candidates
 
 
 _FILE_LINK_RE = re.compile(
