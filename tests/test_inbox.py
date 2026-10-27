@@ -69,6 +69,35 @@ def test_book_to_review_waits_in_drafts_until_reviewed(make_pdf, tmp_path, monke
     assert not (work / inbox.DRAFT_MARK).exists()
 
 
+def test_one_book_with_its_formats_kept_for_the_rebuild(make_pdf, tmp_path, monkeypatch):
+    monkeypatch.setattr(inbox.review, "open_rows", lambda fixes: ["row"])
+    root = tmp_path / "root"
+    (root / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "other.pdf")
+    book = make_pdf(TEXT, name="sample.pdf")
+
+    settings = {"formats": ["md", "searchable"], "title": "My Title"}
+    [first] = inbox.process(root, book=book, settings=settings)
+
+    assert first.state == "draft"
+    assert book.exists()  # copied, not moved
+    drafts = root / inbox.OUTBOX / inbox.DRAFTS
+    assert sorted(p.name for p in drafts.iterdir()) == ["sample.md", "sample.searchable.pdf"]
+    assert "My Title" in (drafts / "sample.md").read_text()
+    work = root / inbox.WORK / "sample.pdf"
+    fixes = work / "sample.fixes.tsv"
+    fixes.write_text("id\n")
+    later = (work / inbox.DRAFT_MARK).stat().st_mtime + 10
+    os.utime(fixes, (later, later))
+
+    [second] = inbox.process(root, book=root / inbox.INBOX / "sample.pdf")  # no settings now
+
+    assert second.state == "finished"
+    out = root / inbox.OUTBOX
+    assert sorted(p.name for p in out.iterdir()) == ["drafts", "sample.md", "sample.searchable.pdf"]
+    assert (root / inbox.INBOX / "other.pdf").exists()  # not processed
+
+
 def _mimetype_last(epub, out):
     """A copy of ``epub`` with its mimetype entry moved to the end, as some tools write it."""
     with zipfile.ZipFile(epub) as z, zipfile.ZipFile(out, "w") as o:

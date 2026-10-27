@@ -15,6 +15,9 @@ as pop-ups, no front matter, a text cover. One it can't read is published as it 
 
 Every build of a PDF or ebook writes ``report.md`` in its work folder: errors found,
 possible errors, what was fixed automatically and a grade (``pdf_worker.book_report``).
+
+A book's settings (the formats to make, title, author...) are kept in its work folder's
+``settings.json``, so the rebuild after the review makes the same files.
 """
 
 import json
@@ -45,6 +48,11 @@ EBOOKS = {".fb2", ".mobi", ".txt"}  # laid out as a PDF, then built like a PDF
 PADDLE_MARK = "paddle"  # in a work folder: build from PaddleOCR-VL's blocks
 DRAFT_MARK = "draft"  # in a work folder: drafts are out, waiting for the review
 PREPARED = "prepared.json"  # in a work folder: how the text was obtained
+SETTINGS = "settings.json"  # in a work folder: the book's formats and convert options
+# What a book can be made into; "searchable" is the PDF the book was built from (OCR'd).
+FORMATS = (*convert.FORMATS, "searchable")
+DEFAULT_FORMATS = ("epub", "pdf")
+BOOK_OPTIONS = ("title", "author", "language", "notes_at", "margin_refs")  # convert_pdf's
 
 
 @dataclass
@@ -60,24 +68,33 @@ def process(
     engine: str = "tesseract",
     say: Callable[[str], None] = lambda message: None,
     on_step: Callable[[str, str], Callable[[int, int], None]] | None = None,
+    book: str | Path | None = None,
+    settings: dict | None = None,
 ) -> list[BookResult]:
-    """Process every file in ``root/file_inbox``; a failing book doesn't stop the rest."""
+    """Process every file in ``root/file_inbox``; a failing book doesn't stop the rest.
+    ``book``: only this file, copied into the inbox first if it isn't there. ``settings``
+    (``formats``, ``BOOK_OPTIONS``) are saved for each book processed and used by its
+    later runs too."""
     root = Path(root)
     for folder in (root / INBOX, root / WORK / CONVERTED, root / OUTBOX / DRAFTS):
         folder.mkdir(parents=True, exist_ok=True)
+    if book and Path(book).resolve().parent != (root / INBOX).resolve():
+        shutil.copy2(book, root / INBOX / Path(book).name)
     results = []
     for path in sorted((root / INBOX).iterdir()):
         if path.name.startswith(".") or not path.is_file():
             continue
+        if book and path.name != Path(book).name:
+            continue
         say(f"{path.name}:")
         try:
-            results.append(_process_book(root, path, engine, say, on_step))
+            results.append(_process_book(root, path, engine, say, on_step, settings or {}))
         except PdfWorkerError as exc:
             results.append(BookResult(path.name, "failed", str(exc)))
     return results
 
 
-def _process_book(root, original, engine, say, on_step) -> BookResult:
+def _process_book(root, original, engine, say, on_step, given) -> BookResult:
     suffix = original.suffix.lower()
     outbox = root / OUTBOX
     if suffix == ".epub":
@@ -85,41 +102,57 @@ def _process_book(root, original, engine, say, on_step) -> BookResult:
         detail = _rebuild_epub(original, epub, say)
         say("  laying out the PDF")
         ebook_to_pdf.ebook_to_pdf(epub, outbox / f"{original.stem}.pdf")
-        return _finish(root, original, f"{detail}, PDF laid out")
+        # shortcut: EPUB inputs always give EPUB + PDF; convert reads PDFs only.
+        other = [f for f in given.get("formats", ()) if f not in DEFAULT_FORMATS]
+        skipped = f"; not made from an EPUB: {', '.join(other)}" if other else ""
+        return _finish(root, original, f"{detail}, PDF laid out{skipped}")
     if suffix != ".pdf" and suffix not in EBOOKS:
         return BookResult(original.name, "skipped", "not a PDF or an ebook")
 
     work = root / WORK / original.name
     work.mkdir(exist_ok=True)
+    settings = _settings(work, given)
+    formats = settings.get("formats", DEFAULT_FORMATS)
     pdf = work / f"{original.stem}.pdf"
     fixes = default_fixes_path(pdf)
     draft_mark = work / DRAFT_MARK
     reviewed = draft_mark.exists()
     if reviewed and not (fixes.exists() and fixes.stat().st_mtime > draft_mark.stat().st_mtime):
-        return BookResult(original.name, "waiting", f"review it: pdf-worker review '{pdf}'", pdf)
+        return BookResult(original.name, "waiting", "to review", pdf)
     if not pdf.exists():
         _prepare(original, pdf, engine, say)
 
     target = outbox if reviewed else outbox / DRAFTS
-    say("  building the EPUB and the PDF")
-    conversion = _build(original, pdf, target, on_step)
+    say(f"  building: {', '.join(formats)}")
+    conversion = _build(original, pdf, target, on_step, settings)
+    note = ""
+    if "searchable" in formats and (work / PADDLE_MARK).exists():
+        note = "; no searchable PDF (PaddleOCR-VL adds no text layer)"
+    elif "searchable" in formats:
+        _copy(pdf, _outputs(target, original, ["searchable"])[0])
     rows = read_fixes(fixes)
     left = len(review.open_rows(rows))
     final = reviewed or not left
-    graded = _write_report(original, pdf, conversion, rows, "final" if final else "draft")
+    graded = _write_report(original, pdf, conversion, rows, "final" if final else "draft") + note
     if final:
         if target != outbox:
-            for out in _outputs(target, original):
-                os.replace(out, outbox / out.name)
+            for out in _outputs(target, original, formats):
+                if out.exists():
+                    os.replace(out, outbox / out.name)
         undecided = f"; {left} row(s) to review left undecided" if left else ""
         return _finish(root, original, graded + undecided)
     draft_mark.touch()
-    return BookResult(
-        original.name,
-        "draft",
-        f"{graded}; {left} row(s) to review: pdf-worker review '{pdf}'",
-        pdf,
-    )
+    return BookResult(original.name, "draft", f"{graded}; {left} row(s) to review", pdf)
+
+
+def _settings(work: Path, given: dict) -> dict:
+    """The book's saved settings, updated with (and saved with) the ones ``given`` now."""
+    path = work / SETTINGS
+    saved = json.loads(path.read_text()) if path.exists() else {}
+    if given:
+        saved |= given
+        _write_text(path, json.dumps(saved))
+    return saved
 
 
 def _write_report(original, pdf, conversion, rows, state) -> str:
@@ -246,33 +279,41 @@ def _copy(source: Path, target: Path) -> None:
         raise
 
 
-def _build(original: Path, pdf: Path, folder: Path, on_step) -> convert.ConvertReport:
-    """Write the EPUB and the PDF into ``folder``; return the EPUB's report."""
+def _build(original: Path, pdf: Path, folder: Path, on_step, settings) -> convert.ConvertReport:
+    """Write the book's formats into ``folder``; return the EPUB's report. The EPUB is
+    always made (the report counts its words): in the work folder when not asked for."""
     rows = None
     if (pdf.parent / PADDLE_MARK).exists():
         from pdf_worker.paddle_ocr import paddle_pages
 
         with open_pdf(pdf) as doc:
             rows = paddle_pages(pdf, list(range(doc.page_count)))
+    formats = settings.get("formats", DEFAULT_FORMATS)
+    built = ["epub", *(f for f in formats if f not in ("epub", "searchable"))]
+    homes = [folder if f in formats else pdf.parent for f in built]
     reports = [
         convert.convert_pdf(
             pdf,
-            out,
+            _outputs(home, original, [fmt])[0],
             fmt,
             paddle_rows=rows,
             on_step=None if rows else on_step,
             # The original's PDF metadata and file name, not the copy's.
             source_pdf=original if original.suffix.lower() == ".pdf" else pdf,
+            **{k: settings[k] for k in BOOK_OPTIONS if k in settings},
         )
-        for fmt, out in zip(("epub", "pdf"), _outputs(folder, original), strict=True)
+        for fmt, home in zip(built, homes, strict=True)
     ]
     return reports[0]
 
 
-def _outputs(folder: Path, original: Path) -> list[Path]:
+def _outputs(folder: Path, original: Path, formats=FORMATS) -> list[Path]:
     # shortcut: book.pdf and book.epub in one inbox write the same outputs; the later
     # one wins. Name them by file name if both forms of a book ever arrive together.
-    return [folder / f"{original.stem}.epub", folder / f"{original.stem}.pdf"]
+    return [
+        folder / f"{original.stem}{'.searchable.pdf' if f == 'searchable' else convert.FORMATS[f]}"
+        for f in formats
+    ]
 
 
 def _finish(root: Path, original: Path, detail: str) -> BookResult:

@@ -576,21 +576,21 @@ def test_download_refuses_a_web_page(monkeypatch, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_check_pdf_with_text_suggests_converting(make_pdf):
-    check = find_book.check_download(make_pdf(["Some text"] * 3))
+def test_check_pdf_with_text_suggests_processing(make_pdf):
+    pdf = make_pdf(["Some text"] * 3)
+    check = find_book.check_download(pdf)
 
     assert "Usable as it is" in check.summary
-    assert [s.argv[-1] for s in check.steps] == ["epub", "pdf"]
+    assert [s.argv for s in check.steps] == [["process", str(pdf)]]
 
 
-def test_check_scan_suggests_ocr_in_the_book_language(make_pdf):
+def test_check_scan_says_it_needs_ocr(make_pdf):
     pdf = make_pdf(["", "", ""])
 
     check = find_book.check_download(pdf, language="la")
 
     assert "needs OCR" in check.summary
-    assert check.steps[0].argv == ["ocr", str(pdf), "--mode", "skip", "--lang", "lat"]
-    assert check.steps[1].argv == ["convert", str(pdf.with_suffix(".ocr.pdf")), "--to", "epub"]
+    assert [s.argv for s in check.steps] == [["process", str(pdf)]]
 
 
 def test_check_epub_and_lay_it_out_as_pdf(tmp_path):
@@ -600,7 +600,7 @@ def test_check_epub_and_lay_it_out_as_pdf(tmp_path):
     pages = ebook_to_pdf(epub, tmp_path / "book.pdf")
 
     assert "valid EPUB" in check.summary
-    assert check.steps[0].argv == ["ebook-to-pdf", str(epub)]
+    assert check.steps[0].argv == ["process", str(epub)]
     with pymupdf.open(tmp_path / "book.pdf") as pdf:
         assert pdf.page_count == pages
         assert pdf.metadata["title"] == "Test Book"
@@ -629,7 +629,7 @@ def test_find_book_cli_downloads_the_best_and_suggests_steps(monkeypatch, make_p
     assert "2. Crime and Punishment [Internet Archive, pdf]" in captured.out
     assert "1. Crime and Punishment [DOAB, web page only]" in captured.out
     assert f"Saved {pdf}" in captured.out
-    assert "pdf-worker convert" in captured.out
+    assert f"pdf-worker process {pdf}" in captured.out
     assert "Warning: skipped DOAB: timed out" in captured.err
 
 
@@ -645,10 +645,14 @@ def test_find_book_cli_checks_a_given_file(make_pdf, capsys):
 
     out = capsys.readouterr().out
     assert "needs OCR" in out
-    assert f"pdf-worker ocr {pdf} --mode skip --lang spa" in out
+    assert f"pdf-worker process {pdf}" in out
 
 
-def test_find_book_asks_for_details_and_runs_the_chosen_step(monkeypatch, make_pdf, capsys):
+def test_find_book_asks_for_details_and_runs_the_chosen_step(
+    monkeypatch, make_pdf, tmp_path, capsys
+):
+    from pdf_worker import cli
+
     pdf = make_pdf(["Some text"] * 2)
     queries = []
 
@@ -657,10 +661,12 @@ def test_find_book_asks_for_details_and_runs_the_chosen_step(monkeypatch, make_p
         return find_book.SearchResult(query, [book(fmt="pdf", url="u")])
 
     # Title, author, ISBN, year, translator, languages, format; then the download
-    # choice (Enter: the best) and the step to run (2: the A5 PDF).
-    answers = iter(["Confesiones", "Agustín", "", "1905", "", "es", "pdf", "", "2"])
+    # choice (Enter: the best) and the step to run (1: process).
+    answers = iter(["Confesiones", "Agustín", "", "1905", "", "es", "pdf", "", "1"])
+    monkeypatch.chdir(tmp_path)  # process's folder is ./file_conversion
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(cli, "_ask_yes", lambda prompt: False)
     monkeypatch.setattr(find_book, "find_candidates", find_candidates)
     monkeypatch.setattr(find_book, "download", lambda c, folder: pdf)
 
@@ -669,4 +675,5 @@ def test_find_book_asks_for_details_and_runs_the_chosen_step(monkeypatch, make_p
     assert queries == [
         BookQuery(title="Confesiones", author="Agustín", year=1905, languages=("es",), fmt="pdf")
     ]
-    assert f"Wrote {pdf.with_suffix('.reflowed.pdf')}" in capsys.readouterr().out
+    outbox = tmp_path / "file_conversion" / "file_outbox"
+    assert list(outbox.rglob(f"{pdf.stem}.epub"))

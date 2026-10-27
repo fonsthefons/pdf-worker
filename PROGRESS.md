@@ -11,6 +11,29 @@ passed (integration: 17).
   footer URL stay in the text as small paragraphs; 376 of 1163 paragraphs are small type
   (notes 12.9 pt, bibliography 14, contents 15 in the original; body 17.5).
 
+## PLAN: one command, `process` (user, 2026-10-27; phase 1 built, branch `feature/process-options`)
+Phase 1 done: `inbox.process(book=, settings=)`, `settings.json` per work folder,
+`FORMATS`/`DEFAULT_FORMATS`/`BOOK_OPTIONS` in inbox.py; the EPUB is always built (the
+report counts its words), into the work folder when not asked for; `searchable` =
+`<stem>.searchable.pdf` (not with Paddle); EPUB inputs: EPUB + PDF only (noted in the
+result). `process` prints only `pdf-worker process` for later (it re-offers the review).
+`find-book` downloads into `file_conversion/file_inbox`, its one next step is
+`process FILE` (the OCR mode/language hints are gone: `process` decides). Tests:
+test_inbox (one book + formats + rebuild), test_cli (2 new), test_find_book updated.
+Fast suite 317 passed. Not checked on a real book yet.
+
+Keep `process`, `find-book`, `virus-check` (+ `help`). Phase 1, `process` gets:
+- `--to epub,pdf,md,html,txt,docx,searchable` (default `epub,pdf`); `searchable` hands
+  out the OCR'd PDF from `file_work` (replaces `ocr`).
+- A FILE instead of the folder: that one book, copied into `file_inbox` and run through
+  every folder like the rest (user: a single file must go through all the folders).
+  `--title/--author/--language/--notes/--margin-refs` allowed only with a file.
+- `review` no longer typed: `process` asks (waiting books are asked again).
+- `find-book` saves into `file_inbox` by default.
+Phase 2 (later, once phase 1 is checked to replace them): delete `convert`, `kindle`,
+`ocr`, `rebuild-epub`, `ebook-to-pdf`, `review`; `extract-text` becomes a `tools/` script.
+Update tests and README with each phase.
+
 ## Review counts, auto rows, links (2026-10-27, branch `fix/auto-rows-stale`)
 - The draft line's "90 open rows" (book_report: found + possible) vs "70 rows to review"
   (`review.open_rows`) on Millán Puelles: 28 note rows (ref-no-note 21, note-no-ref 7)
