@@ -41,6 +41,7 @@ from pdf_worker.inline import (
     uri_target,
 )
 from pdf_worker.output import Metadata, WriteStats
+from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import Block, Heading, Image, Note, Paragraph, Table
 
 _BLOCKS = {
@@ -107,11 +108,14 @@ def default_output_path(epub_path: str | Path) -> Path:
 
 
 def rebuild_epub(
-    epub_path: str | Path, output_path: str | Path, cover: bool = True
+    epub_path: str | Path,
+    output_path: str | Path,
+    cover: bool = True,
+    pdf_path: str | Path | None = None,
 ) -> RebuildReport:
     """Rebuild ``epub_path`` at ``output_path`` (atomically). Raises ``EpubReadError``
     when its notes can't be linked up or it has no text, so the caller can keep it as
-    it is."""
+    it is. ``pdf_path``: also lay the book out there as a converted PDF is."""
     epub_path, output_path = Path(epub_path), Path(output_path)
     if output_path.resolve() == epub_path.resolve():
         raise EpubReadError(f"The output would overwrite the input: {output_path}")
@@ -138,11 +142,13 @@ def rebuild_epub(
             by_name = {s.name: s for s in scans}
             index = {s.name: i for i, s in enumerate(scans)}
             context = _Book(zf, notes, backrefs, markers, book.toc, by_name, index)
-            blocks = _without_notes_titles(b for s in kept for b in _blocks(context, s.name))
+            blocks = list(_without_notes_titles(b for s in kept for b in _blocks(context, s.name)))
             stats = write_epub(blocks, Path(tmp), meta, cover=cover_jpeg(meta) if cover else None)
             if not stats.paragraphs:
                 raise EpubReadError(f"No text found in {epub_path}")
             os.replace(tmp, output_path)
+            if pdf_path:
+                write_pdf(blocks, Path(pdf_path), meta, cover=cover)
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise

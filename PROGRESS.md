@@ -1,5 +1,19 @@
 # Progress
 
+## Contents pages and outlines (2026-10-27, branch `feature/contents-pages`)
+User: the PDF had no clickable contents. Found: EPUBs kept their contents only as the
+reader's menu (nav not in the spine); an EPUB input's PDF came from `ebook_to_pdf` (outline
+only); a converted PDF had a contents page but no outline.
+- `epub.py`: nav in the spine after the cover, styled (`nav#toc`, no list numbers).
+- `epub_reader.rebuild_epub(pdf_path=)`: also lays the book out with `pdf_export.write_pdf`;
+  `inbox` uses it for EPUB inputs (`ebook_to_pdf` only for an EPUB kept as it is).
+- `pdf_export`: outline from the headings MuPDF's Story reports while laying out
+  (`_outline`; the contents page's own heading, the title, left out).
+- Millán Puelles from mercaba.org (scraped, `scratch/mercaba_*.py`): 22 chapters, 154
+  notes, epubcheck clean; PDF contents pp. 2-9 with links, 164 outline entries.
+- Not done: bracketed `[n]` notes restarting per chapter (the PDF edition's), user: skip.
+Full suite passed (320 fast, 17 integration).
+
 ## Chapter lines taken for running heads (2026-10-27, branch `fix/bold-chapter-heads`)
 User: "CAPÍTULO VI" missing in Millán Puelles. It (bold, body size) sits in the top 10% of
 its page, and "CAPÍTULO IV/V/VI/VII/IX/XI" all read "capítulo #": 4+ margin lines at body
