@@ -353,11 +353,13 @@ class Review:
         ``on_word(done, total)`` follows the words flagged."""
         found = self._found(on_word)
         keys = {(f.kind, f.find, f.page) for f in found}
+        # An auto row from an earlier build: the check made the same fix again, before it.
+        redone = {(f.type, f.find, f.page) for f in self.auto}
         for i, fix in enumerate(self.fixes):
             if not fix.action:
                 fix.status = "" if (fix.kind, fix.find, fix.page) in keys else "stale"
             elif not self.done[i]:
-                fix.status = "stale"
+                fix.status = "applied" if (fix.type, fix.find, fix.page) in redone else "stale"
             else:
                 ambiguous = fix.page != "*" and self.hits[i] > 1
                 fix.status = "ambiguous" if ambiguous else "applied"

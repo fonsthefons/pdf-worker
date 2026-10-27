@@ -1,5 +1,17 @@
 # Progress
 
+## Review counts, auto rows, links (2026-10-27, branch `fix/auto-rows-stale`)
+- The draft line's "90 open rows" (book_report: found + possible) vs "70 rows to review"
+  (`review.open_rows`) on Millán Puelles: 28 note rows (ref-no-note 21, note-no-ref 7)
+  count in the report but review only shows spelling/chars (decided in the TSV); and 8
+  `auto: split` rows were `stale` on the rebuild, so review showed them as "replacements
+  that no longer apply" and kept the book a draft. Cause: `_check` makes the fix again
+  before the review rows apply, so the row's `find` is gone. `Review.finish` now marks an
+  auto row the check redid as `applied` (test in `test_split_and_learned_words_...`).
+  Script: `scratch/count_kinds.py <fixes.tsv>`.
+- ai-client PR (`fix/skip-links`): words inside web addresses and emails aren't checked
+  ("mercaba.org/Filosofia/Millan" gave accent rows).
+
 ## `process` folders moved under `file_conversion/` (2026-10-26, branch `feature/epub-reader`)
 User renamed the repo's `pdf-worker/` subfolder to `file_conversion/` (holds `file_inbox`,
 `file_work`, `file_outbox`). `pdf-worker process` now defaults to `./file_conversion`
