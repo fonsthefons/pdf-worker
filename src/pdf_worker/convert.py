@@ -27,6 +27,7 @@ from pdf_worker.inline import MARGIN_REF_RE, plain
 from pdf_worker.layout import analyze_document
 from pdf_worker.margin_refs import in_book, page_marks
 from pdf_worker.markdown_export import write_markdown
+from pdf_worker.ocr_check import assess_text_layer
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph, iter_blocks
@@ -216,7 +217,8 @@ def convert_pdf(
         fixes_path = Path(fixes_path) if fixes_path else default_fixes_path(pdf_path)
         # Born-digital text is checked too: its rare words, once kept, teach the check.
         source = fixes_path.name.removesuffix(".fixes.tsv")
-        review = Review(read_fixes(fixes_path), meta.language, source=source)
+        scanned = paddle_rows is not None or assess_text_layer(doc).scanned_pages >= 0.5
+        review = Review(read_fixes(fixes_path), meta.language, source=source, italics=scanned)
         blocks = _referenced_notes(tidy(review.apply(blocks), meta.language))
         if notes_at == "none":
             blocks = drop_notes(blocks)

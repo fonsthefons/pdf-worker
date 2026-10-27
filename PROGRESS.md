@@ -10,6 +10,19 @@ others skipped). Live: Niebla, Rinconete y Cortadillo (EPUB 33 KB valid, PDF 29 
 good); no Quijote of Cervantes in its catalogue. Test with the site's markup in
 `test_find_book.py`. Prototype scripts `scratch/oml_*.py`.
 
+## No spelling rows for italics in born-digital books (2026-10-27, branch `feature/no-italic-flags`)
+User asked to drop flags inside italic text. `Review(italics=False)` gives no rows for
+words in italics (auto split/learned fixes still apply); `convert_pdf` passes
+`italics=scanned` (Paddle, or `assess_text_layer` scanned share >= 0.5): in a scan italic
+words are misread like the rest (Lugones: 83 of 557 rows were italic, many OCR errors
+like "seftores", "fdcil"), so scans keep them. Born-digital: Bourdieu 38 -> 34
+(aisthesis, askesis, experimentalis, Republique); Trump v CASA 137 -> 121, 10 of the 16
+real problems hidden: lost ligatures ("Griffn", "Mayfower") and split halves ("ployees")
+in italic case names. Italics come only from fonts flagged italic (Kant, Dilexit nos,
+Magnifica Humanitas have none). Scripts: `scratch/spelling_rows.py`, `rows_diff.py`.
+- `test_pdfs/` lacks "Familia Romana Lingua Latina.pdf" and the Ratzinger PDF now: 3
+  integration tests skip.
+
 ## `process --clean` (2026-10-27, branch `feature/process-clean`)
 User asked: delete everything not still in the inbox or outbox. `inbox.cleanable(root)`
 lists work folders of books not in `file_inbox`, everything in `file_work/converted` and
