@@ -264,6 +264,9 @@ def test_spelling_only_in_the_body():
         Paragraph("Otra vez mendaba."),
         Paragraph("MAIGRON, L., Le roman historique, París, 1898, $ Būtzow."),
         Paragraph("Gesammelte kleinere Schriften, 6 vols., Halle, 1775."),
+        # Works by author under a title that is only a paragraph ("BIBLIOGRAFÍA Cap 2").
+        Paragraph("E.  GILSON: L'esprit de la philosophie; J. MARITAIN: Los dcdicaban."),
+        Paragraph("ARISTÓTELES : Met., VI, 1; SANTO TOMÁS: Sum. dcdicaban."),
     ]
     _, _, review = _run([], blocks)
     assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho", "mendaba"}

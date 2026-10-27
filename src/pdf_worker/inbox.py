@@ -52,6 +52,7 @@ class BookResult:
     name: str
     state: str  # finished, draft, waiting, skipped, failed
     detail: str = ""
+    review_pdf: Path | None = None  # draft/waiting: the PDF to give `pdf-worker review`
 
 
 def process(
@@ -95,7 +96,7 @@ def _process_book(root, original, engine, say, on_step) -> BookResult:
     draft_mark = work / DRAFT_MARK
     reviewed = draft_mark.exists()
     if reviewed and not (fixes.exists() and fixes.stat().st_mtime > draft_mark.stat().st_mtime):
-        return BookResult(original.name, "waiting", f"review it: pdf-worker review '{pdf}'")
+        return BookResult(original.name, "waiting", f"review it: pdf-worker review '{pdf}'", pdf)
     if not pdf.exists():
         _prepare(original, pdf, engine, say)
 
@@ -114,7 +115,10 @@ def _process_book(root, original, engine, say, on_step) -> BookResult:
         return _finish(root, original, graded + undecided)
     draft_mark.touch()
     return BookResult(
-        original.name, "draft", f"{graded}; {left} row(s) to review: pdf-worker review '{pdf}'"
+        original.name,
+        "draft",
+        f"{graded}; {left} row(s) to review: pdf-worker review '{pdf}'",
+        pdf,
     )
 
 

@@ -12,9 +12,7 @@ build/
 .env
 output/
 # `pdf-worker process`: books in, intermediate files, books out.
-file_inbox/
-file_work/
-file_outbox/
+file_conversion/
 scratch/
 # Sample PDFs are large and copyrighted; keep them local only.
 test_pdfs/

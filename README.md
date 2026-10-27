@@ -242,12 +242,17 @@ one-line description. `pdf-worker <command> --help` shows every option.
 ### Process a folder of books
 
 ```bash
-pdf-worker process            # handles ./file_inbox (or: pdf-worker process FOLDER)
-pdf-worker review 'file_work/<file>/<stem>.pdf'   # when a book is a draft
+pdf-worker process            # handles ./file_conversion/file_inbox (or: pdf-worker process FOLDER)
+pdf-worker review 'file_conversion/file_work/<file>/<stem>.pdf'   # when a book is a draft
 pdf-worker process            # again: reviewed drafts become finished books
 ```
 
-Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_inbox/`. Each run:
+On a terminal, `process` asks for each draft whether to review it now and, after the
+review (Ctrl+C on the review page's terminal once saved), whether to rebuild; no answer
+within a minute means no, and the commands left to run are printed.
+
+Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_conversion/file_inbox/`. Each run
+(folders below are inside `file_conversion/`):
 
 | Folder | What's in it |
 |---|---|
