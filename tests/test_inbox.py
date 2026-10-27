@@ -1,6 +1,8 @@
 import os
 import zipfile
 
+import pymupdf
+
 from pdf_worker import epub_mimetype, inbox
 from pdf_worker.convert import convert_pdf
 
@@ -30,6 +32,14 @@ def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):
     ]
     assert epub_mimetype.problem(out / "book.epub") is None
     assert epub_mimetype.problem(out / "sample.epub") is None
+    # Every EPUB has its contents as a page; an EPUB input's PDF is laid out like a
+    # converted PDF's: a contents page with links (after the cover) and an outline.
+    for stem in ("book", "sample"):
+        with zipfile.ZipFile(out / f"{stem}.epub") as z:
+            assert '<itemref idref="nav"/>' in z.read("OEBPS/content.opf").decode()
+    with pymupdf.open(out / "book.pdf") as pdf:
+        assert pdf.get_toc()
+        assert any(link["kind"] == pymupdf.LINK_GOTO for link in pdf[1].get_links())
     assert sorted(p.name for p in (root / inbox.WORK / inbox.CONVERTED).iterdir()) == [
         "book.epub",
         "sample.pdf",

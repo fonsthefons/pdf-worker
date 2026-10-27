@@ -99,7 +99,7 @@ def write_pdf(
         for passes in range(1, _MAX_PASSES + 1):
             if on_pass:
                 on_pass(passes - 1, most)
-            doc, refs, marks = _typeset(html, archive, reserve)
+            doc, refs, marks, headings = _typeset(html, archive, reserve)
             need = _room_needed(refs, notes)
             fits = all(height <= reserve.get(page, 0) for page, height in need.items())
             if fits or passes == _MAX_PASSES:
@@ -116,6 +116,7 @@ def write_pdf(
             _number_pages(doc, first=2 if cover else 1)
             if cover:
                 add_cover_page(doc, meta)
+            doc.set_toc(_outline(headings, first_page=2 if cover else 1, title=meta.title))
             doc.set_metadata({"title": meta.title, "author": meta.author, "producer": "pdf-worker"})
             # Story embeds each font whole, once per use: 39 MB -> 4.5 MB on the Timeo.
             doc.subset_fonts()
@@ -175,18 +176,22 @@ def _height(page: pymupdf.Page, body: str) -> float:
 def _typeset(html: str, archive, reserve: dict[int, float]):
     """Lay the book out, the text of each page ending above its ``reserve``.
 
-    Returns the document, the references to notes: ``[(page, note id, rect)]``, and
-    where the margin references go: ``[(page, id, rect)]``.
+    Returns the document, the references to notes: ``[(page, note id, rect)]``, where
+    the margin references go: ``[(page, id, rect)]``, and the headings for the outline:
+    ``[(level, text, page)]``.
     """
     story = pymupdf.Story(html=html, archive=archive)
     refs = []
     marks: dict[str, tuple[int, str, pymupdf.Rect]] = {}
+    headings: list[tuple[int, str, int]] = []
     seen = set()
 
     def rect_fn(rect_num, filled):
         return PAGE, FRAME + (0, 0, 0, -reserve.get(rect_num, 0)), None
 
     def position_fn(position):
+        if position.heading and position.open_close & 1 and position.text.strip():
+            headings.append((position.heading, position.text.strip(), position.page_num))
         if not position.id:
             return
         rect = pymupdf.Rect(position.rect)
@@ -201,7 +206,21 @@ def _typeset(html: str, archive, reserve: dict[int, float]):
             seen.add(position.id)
             refs.append((position.page_num - 1, f"n{match.group(1)}", rect))
 
-    return story.write_with_links(rect_fn, position_fn), refs, list(marks.values())
+    doc = story.write_with_links(rect_fn, position_fn)
+    return doc, refs, list(marks.values()), headings
+
+
+def _outline(headings: list[tuple[int, str, int]], first_page: int, title: str) -> list[list]:
+    """The PDF outline (bookmarks): a level may only go one deeper than the one before.
+    The contents page's heading (the book's title) is left out: the rest would nest
+    under it."""
+    if headings and headings[0][1] == title:
+        headings = headings[1:]
+    toc, previous = [], 0
+    for level, text, page in headings:
+        previous = min(level, previous + 1)
+        toc.append([previous, text, page + first_page - 1])
+    return toc
 
 
 def _margin_refs(html: str) -> tuple[str, dict[str, str]]:

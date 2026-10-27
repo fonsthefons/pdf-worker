@@ -98,14 +98,13 @@ def _process_book(root, original, engine, say, on_step, given) -> BookResult:
     suffix = original.suffix.lower()
     outbox = root / OUTBOX
     if suffix == ".epub":
-        epub = outbox / original.name
-        detail = _rebuild_epub(original, epub, say)
-        say("  laying out the PDF")
-        ebook_to_pdf.ebook_to_pdf(epub, outbox / f"{original.stem}.pdf")
+        detail = _rebuild_epub(
+            original, outbox / original.name, outbox / f"{original.stem}.pdf", say
+        )
         # shortcut: EPUB inputs always give EPUB + PDF; convert reads PDFs only.
         other = [f for f in given.get("formats", ()) if f not in DEFAULT_FORMATS]
         skipped = f"; not made from an EPUB: {', '.join(other)}" if other else ""
-        return _finish(root, original, f"{detail}, PDF laid out{skipped}")
+        return _finish(root, original, f"{detail}{skipped}")
     if suffix != ".pdf" and suffix not in EBOOKS:
         return BookResult(original.name, "skipped", "not a PDF or an ebook")
 
@@ -191,16 +190,19 @@ def _write_text(path: Path, text: str) -> None:
         raise
 
 
-def _rebuild_epub(epub: Path, output: Path, say) -> str:
-    """Rebuild the EPUB like a converted PDF (``pdf_worker.epub_reader``); one it can't
-    read is published as it is."""
-    say("  rebuilding the EPUB")
+def _rebuild_epub(epub: Path, output: Path, pdf: Path, say) -> str:
+    """Rebuild the EPUB and lay out its PDF like a converted PDF's
+    (``pdf_worker.epub_reader``); one it can't read is published as it is, its PDF
+    laid out from it."""
+    say("  rebuilding the EPUB and laying out the PDF")
     try:
-        report = epub_reader.rebuild_epub(epub, output)
+        report = epub_reader.rebuild_epub(epub, output, pdf_path=pdf)
     except Exception as exc:  # an unreadable EPUB must not stop the other books
         _publish_epub(epub, output)
-        return f"EPUB kept as it is ({exc or type(exc).__name__})"
-    return f"EPUB rebuilt ({report.stats.notes} note(s), {len(report.dropped)} page(s) left out)"
+        ebook_to_pdf.ebook_to_pdf(output, pdf)
+        return f"EPUB kept as it is ({exc or type(exc).__name__}), PDF laid out"
+    notes, dropped = report.stats.notes, len(report.dropped)
+    return f"EPUB rebuilt ({notes} note(s), {dropped} page(s) left out), PDF laid out"
 
 
 def _publish_epub(epub: Path, output: Path) -> None:

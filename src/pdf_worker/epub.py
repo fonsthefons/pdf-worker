@@ -82,6 +82,9 @@ h4, h5, h6 { font-size: 1em; }
 p { margin: 0; text-indent: 1.2em; text-align: justify; }
 h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p { text-indent: 0; }
 p.small { text-indent: 0; margin: 0.4em 0; }
+nav#toc ol { list-style: none; padding-left: 1.2em; }
+nav#toc > ol { padding-left: 0; }
+nav#toc li { margin: 0.2em 0; }
 a.noteref { text-decoration: none; }
 span.mref { color: #2e7d32; font-family: sans-serif; font-weight: bold; font-size: 0.95em;
   padding: 0 0.2em; }
@@ -597,6 +600,7 @@ def _opf(
         )
         items.append(f'<item id="cover" href="{_COVER_PAGE}" media-type="application/xhtml+xml"/>')
         spine.append('<itemref idref="cover"/>')
+    spine.append('<itemref idref="nav"/>')  # the contents, as a page too (not just a menu)
     for index, name in enumerate(images, start=1):
         items.append(f'<item id="img{index}" href="{name}" media-type="image/jpeg"/>')
     for index, name in enumerate(chapters, start=1):
