@@ -26,7 +26,10 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/pdf-worker`
 - Dev tools in `tools/` (run with the venv's python): `find_text.py` (pages with a phrase),
   `page_lines.py` (the lines the pipeline sees on a page), `render_clip.py` (a page area as
   PNG), `epub_score.py` (an EPUB against a reference), `check_and_fix.py` (EPUBs whose
-  `mimetype` entry isn't first/stored get repacked in place; `--check` only reports). Reuse these before writing scratch
+  `mimetype` entry isn't first/stored get repacked in place; `--check` only reports),
+  `regression.py` (`build OUT_DIR` converts the eight test books to Markdown with their
+  numbers; `compare BEFORE AFTER` shows numbers, headings lost/added and writes diffs:
+  run it before and after a change to the pipeline). Reuse these before writing scratch
   scripts; scratch/ is for throwaway files and is emptied from time to time.
 
 # Working rules for this repo
@@ -78,8 +81,7 @@ These rules exist so that every command runs without needing my approval. I ofte
 
 ## Pull requests
 
-- Claude can't merge PRs (blocked by permissions). After opening one, always give the user the
-  merge command: `! gh pr merge <N> --repo fonsthefons/pdf-worker --merge --delete-branch`.
+- You are free to merge PRs
 - Open every PR against `main`, never stacked on another PR's branch: `--delete-branch` on
   the first one closes the PR built on it (as happened to #52).
 
