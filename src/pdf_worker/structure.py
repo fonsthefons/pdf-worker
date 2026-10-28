@@ -584,7 +584,10 @@ class _State:
         if margins.hanging:
             if line.x0 <= margins.left + 0.8 * size:
                 return True
-        elif indented:
+        elif indented and (line.x0 > prev.x0 + 0.5 * size or ends_sentence):
+            # Set in from the line before, or after a sentence's end (a list of one-line
+            # entries): a block set in as a whole (a quotation in smaller type) has every
+            # line in from the margin, not each a paragraph.
             return True
         first = text.lstrip()[:1]
         outdent = margins.left - line.x0

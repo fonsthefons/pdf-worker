@@ -149,6 +149,22 @@ def test_bold_chapter_lines_near_the_top_are_not_running_heads(tmp_path):
     assert out.read_text(encoding="utf-8").count("CHAPTER") == 5
 
 
+def test_a_block_set_in_from_the_margin_is_one_paragraph(make_layout_pdf, tmp_path):
+    # A quotation set in as a whole: every line starts in from the margin, the first more.
+    inset = ["The quick brown fox jumps over the lazy dog and", "keeps running far away across"]
+    page = [
+        *_paragraph(100, FULL[:1], "Its first paragraph ends."),
+        (110, 100 + LINE * 2, inset[0], BODY),
+        (95, 100 + LINE * 3, inset[1], BODY),
+        (95, 100 + LINE * 4, "the green fields.", BODY),
+        (90, 100 + LINE * 5, "Then the text goes on with a new paragraph of its own.", BODY),
+    ]
+    text, report = _md(make_layout_pdf, tmp_path, [page])
+
+    assert f"{inset[0]} {inset[1]} the green fields.\n" in text
+    assert report.stats.paragraphs == 3
+
+
 def test_hanging_indents_start_paragraphs_at_the_margin(make_layout_pdf, tmp_path):
     # Dialogue set like the Abada Timeo: a turn starts at the margin, its other lines indented.
     page = [
