@@ -1,5 +1,67 @@
 # Progress
 
+## Layout plan, Phase 1: headers and footers by repetition (2026-10-28, branch `layout/phase-1`) — STOPPED, needs the user
+Built as the plan says: `layout.running_key` (case folded, accents dropped, letters and
+digits only, digit runs `#`; `_ROMAN_RE` gone), `PAGE_NUMBER_RE`/`_PRINTED_NUMBER_RE`
+take OCR-spaced digits ("1 5 6"), new `layout.edge_rows`, `DocumentProfile.edge_pages` +
+`furniture(page_index, lines)` in place of `running_texts`/`browser_margins`/`is_running`
+(`_MARGIN_ZONE`, `_RUNNING_SHARE`, `_MIN_SMALL_RUNNING`, `_BROWSER_FOOTER_RE` deleted);
+`footnotes.layout_page` drops furniture first (`PageLayout.furniture`, also the `skip`
+of `_find_region`); `structure._running_title` (top-row furniture; `_HEAD_ZONE` and the
+`is_running`/heads filters gone; `add_page` lost its unused `page_height`). New
+`tools/page_parts.py PDF PAGE`. Six new tests in `test_convert.py` (1, 4, 5 failed on
+main as required). `extract-text` now loses headers, footers and page numbers too.
+
+Test changes (my choice, not in the plan):
+- `test_footnotes.py::test_page_footnote_is_linked_and_moved_to_page_end` asserted the
+  page number "7" under the notes stays in the body; the plan leaves furniture out of the
+  body, so it now asserts "7" is gone (the plan said this file passes unchanged; it can't).
+- `test_images.py::_digital_book`: its two pages were word for word the same, so the top
+  and bottom lines became running heads; each page now has its own word.
+
+Regression (`scratch/regress/base` -> `scratch/regress/phase1`, 622 s):
+
+| Book | Paragraphs | Headings | Notes | Splits |
+|---|---|---|---|---|
+| kant | same | same | same | same (diff empty) |
+| timeo_web | same | same | same | same (diff empty) |
+| metafisica | 2,192 -> 1,980 | 68 -> 67 | 18 -> 6 | **510 -> 412** |
+| lugones | 1,129 -> 1,114 | 12 | 3 -> 1 | 122 -> 115 |
+| dilexit | same | same | same | same (diff empty) |
+| dialogos | 1,486 -> 1,489 | 28 | 413 | 22 -> 19 |
+| timeo_greek | 309 -> 292 | 7 -> 6 | 786 | 95 -> 86 |
+| niebla | 4,311 -> 4,391 | **56 -> 136** | 1 | 2,002 -> 2,069 |
+
+Metafísica's lost notes were page numbers read as notes ("[^p19-2]: 3", "5 9") and two
+notes-section pages glued into one bogus page footnote (p. 196, 206): no real note lost.
+Lugones: OCR-spaced page numbers ("17 1 -", "24 1 -", "23-") leave the text and their
+sentences join (2 bogus notes gone); the title page's "1904" goes (a bare number in the
+bottom row); one page number misread "II -" is now kept mid-sentence ("justo me- / II - /
+dio"; it was dropped by the old Roman-numeral key).
+
+**Why stopped (the plan: "if a book gets worse, record the page and line and ask"):**
+1. **Niebla gets worse**: 80 running heads "MIGUEL DE UNAMUNO" / "NIEBLA" (e.g. PDF
+   p. 40, top row "34" + "MIGUEL  DE  UNAMUNO") are kept and become headings. They are
+   9.9 pt, body 9.2 pt: over the rule's `size <= body_size * 1.05` (9.66), so neither 2a
+   (the row holds "34") nor 2b applies; 120 of 123 copies kept
+   (`scratch/head_sizes.py`). The old 20%-of-pages rule dropped them.
+2. **A body line beside a gutter line number goes** (`test_margins.py::
+   test_glosses_are_separated_from_the_body` fails, left failing): the last body line
+   "and that is the end." shares the bottom row with the line number "10", which rule 1
+   takes for a page number, so rule 2a drops the line. Any book with line numbers in
+   the margin (Platón editions) loses such lines.
+3. **Timeo Greek**: a "TIMEO" head (6.1 pt) with no page number on its row and no copy in
+   the top row 2 pages away is kept, now mid-sentence (PDF p. 8, "TIMEO" above "han de
+   administrar justicia"); the first "TIMEO" joins the title ("TIMEO PLATÓN TIMAIO:E",
+   was the heading "PLATÓN TIMAIO:E"). Its "TI MEO" and "2 33" heads/numbers do go.
+
+Questions for the user: (1) loosen the size limit (how far: Niebla needs ~1.08), or keep
+the old share-of-pages rule beside it for bigger heads? (2) For rule 2a, should a
+"page number" be required to be the only number of its row / not in a column of
+numbers, or should 2a go? (3) Timeo Greek p. 8: accept as a known limit?
+Diffs: `scratch/regress/phase1/*.diff`. Fast tests: 333 passed, 1 failed (point 2);
+ruff clean.
+
 ## Layout plan, Phase 0: before/after tool and baseline (2026-10-28, branch `layout/phase-0`)
 New `tools/regression.py`: `build OUT_DIR` converts the plan's eight test books to
 Markdown (title = label, author "-", no cover, review file in `OUT_DIR`) and writes

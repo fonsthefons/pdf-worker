@@ -34,7 +34,14 @@ from pdf_worker.inline import (
     plain,
     uri_target,
 )
-from pdf_worker.layout import HEADING_RATIO, PAGE_NUMBER_RE, DocumentProfile, Line, page_lines
+from pdf_worker.layout import (
+    HEADING_RATIO,
+    PAGE_NUMBER_RE,
+    DocumentProfile,
+    Line,
+    edge_rows,
+    page_lines,
+)
 from pdf_worker.margin_refs import bracketed, has_letter, next_label
 from pdf_worker.margins import split_columns
 
@@ -71,9 +78,7 @@ _NUMBERING_RE = re.compile(r"^\s*(?:\d{1,3}|[IVXLC]{1,6})\.?\s*$")
 REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
 _REF_ONLY_RE = re.compile(r"^(?:\[\^[^\]\s]+\])+$")
 _LEADING_REFS_RE = re.compile(f"^((?:{MARGIN_REF_RE.pattern}\\s*)+)")
-# Running heads sit in this top share of the page; some share a line with the page
-# number: "TIMEO 163", "164 DIÁLOGOS".
-_HEAD_ZONE = 0.1
+# A running head may share a line with the page number: "TIMEO 163", "164 DIÁLOGOS".
 _HEAD_WITH_NUMBER_RE = re.compile(r"^(?:(\d{1,4})\s+(\D.*)|(\D.*?)\s+(\d{1,4}))$")
 SOFT_HYPHEN = "­"
 # Marks a paragraph break inside a block's lines (multi-paragraph notes).
@@ -251,7 +256,6 @@ def iter_blocks(
         yield from state.add_page(
             layout,
             page.rect.width,
-            page.rect.height,
             page_index=index,
             page_label=label or str(index + 1),
             links=_page_links(page, doc.page_count),
@@ -269,25 +273,18 @@ def _is_contents_page(lines: list[BodyLine]) -> bool:
     return entries >= _MIN_CONTENTS_ENTRIES and entries >= 0.5 * len(texts)
 
 
-def _running_heads(
-    lines: list[BodyLine], page_width: float, page_height: float, body_size: float
-) -> tuple[set[int], str]:
-    """Running heads: small lines at the top of the page on one row with the page number
-    ("TIMEO ... 163"). Found on every page, however short the book.
-
-    Returns their indexes and, on a right-hand page (number on the right), the head:
-    by convention there the work's title, on left-hand pages the book's.
-    """
-    heads, title = set(), ""
-    top = [
-        (i, bl)
-        for i, bl in enumerate(lines)
-        if plain(bl.text).strip() and bl.line.top < page_height * _HEAD_ZONE
-    ]
-    numbers = [bl.line for _, bl in top if PAGE_NUMBER_RE.match(plain(bl.text))]
-    for i, bl in top:
-        text = plain(bl.text).strip()
-        if PAGE_NUMBER_RE.match(text) or bl.line.size > body_size * 1.05:
+def _running_title(layout: PageLayout, page_width: float) -> str:
+    """The running head of a right-hand page (its page number on the right half of the
+    top row, or merged: "TIMEO 163"): by convention there the work's title, on
+    left-hand pages the book's."""
+    furniture = layout.furniture
+    rows = edge_rows([*furniture, *(bl.line for bl in layout.lines)])
+    top = [line for i, line in enumerate(furniture) if rows.get(i) == "top"]
+    numbers = [line for line in top if PAGE_NUMBER_RE.match(line.text)]
+    title = ""
+    for line in top:
+        text = line.text.strip()
+        if PAGE_NUMBER_RE.match(text):
             continue
         merged = _HEAD_WITH_NUMBER_RE.match(text)
         if merged:
@@ -295,15 +292,13 @@ def _running_heads(
             right_hand = merged.group(4) is not None
         else:
             # On the number's baseline: boxes of misreported fonts reach lines below.
-            size = bl.line.size or body_size
-            row = [n for n in numbers if abs(n.baseline - bl.line.baseline) < 0.5 * size]
+            row = [n for n in numbers if abs(n.baseline - line.baseline) < 0.5 * line.size]
             if not row:
                 continue
             head, right_hand = text, row[0].x0 > page_width / 2
-        if any(c.isalpha() for c in head):
-            heads.add(i)
-            title = head if right_hand else title
-    return heads, title
+        if right_hand and any(c.isalpha() for c in head):
+            title = head
+    return title
 
 
 def _page_links(page: pymupdf.Page, page_count: int) -> list[tuple[pymupdf.Rect, str]]:
@@ -370,7 +365,6 @@ class _State:
         self,
         layout: PageLayout,
         page_width: float,
-        page_height: float,
         page_index: int = 0,
         page_label: str = "",
         links: list[tuple[pymupdf.Rect, str]] | None = None,
@@ -383,7 +377,7 @@ class _State:
         pictures = sorted(images or [], key=lambda image: image.top)
         # Labels printed inside a picture ("insula", "fluvius") stay in the picture.
         labels = labels_inside([bl.line for bl in layout.lines], pictures)
-        heads, title = _running_heads(layout.lines, page_width, page_height, profile.body_size)
+        title = _running_title(layout, page_width)
         if title and not self.has_heading:
             # A book without headings opens with its running title ("TIMEO"), once.
             self.has_heading = True
@@ -392,10 +386,7 @@ class _State:
             [
                 bl
                 for i, bl in enumerate(layout.lines)
-                if i not in labels
-                and i not in heads
-                and not profile.is_running(bl.line, page_height)
-                and not SEPARATOR_RE.match(bl.text)
+                if i not in labels and not SEPARATOR_RE.match(bl.text)
             ],
             page_width,
             profile.body_size,
