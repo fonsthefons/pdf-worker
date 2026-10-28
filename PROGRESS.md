@@ -1,7 +1,55 @@
 # Progress
 
-## Layout plan, Phase 1: headers and footers by repetition (2026-10-28, branch `layout/phase-1`) — STOPPED, needs the user
-Built as the plan says: `layout.running_key` (case folded, accents dropped, letters and
+## Layout plan, Phase 1: headers and footers by repetition (2026-10-28, branch `layout/phase-1`, PR #69)
+**Final state, after the user's answers (the first run's stop is below).**
+User decisions (2026-10-28):
+1. Keep the old "repeated on many pages" rule beside the size rule; 1.05 stays. Done
+   literally: `_MARGIN_ZONE` (10%) and `running_texts` are back: in the zone, a bare page
+   number or a line whose key is in the zone on 20% of pages (and 3) is furniture, any
+   size (`analyze_document` counts zone keys again; the deleted `_MIN_SMALL_RUNNING`
+   rule stays deleted). First tried a share rule on the top/bottom rows instead: OCR gave
+   some Niebla heads 17 pt (a heading size) and skewed scans put heads and page numbers
+   outside the rows (p. 37: "NIEBLA" baseline 35.6, "31" at 49.1), and a heading-size
+   guard against it dropped Timeo Greek's title-page "Platón". The zone does neither.
+   `furniture()` now takes `page_height`. Test: `test_a_running_head_bigger_than_the_
+   body_on_many_pages_is_dropped`.
+2. Every page number goes, but only the number: rule 2a ("its row holds a bare page
+   number") counts a row only when no line of body text (not a page number, size >=
+   `SMALL_RATIO` 0.92 of the body; `SMALL_RATIO` moved from `footnotes` to `layout`) is
+   in it. `test_margins::test_glosses_are_separated_from_the_body` passes. A head at body
+   size beside its number now relies on 2b or the zone rule.
+3. Timeo Greek p. 8 ("TIMEO" kept mid-sentence): accepted limit.
+`tools/page_parts.py` added to CLAUDE.md's dev tools.
+
+Regression, final (`scratch/regress/base` -> `scratch/regress/phase1d`):
+
+| Book | Paragraphs | Headings | Notes | Splits |
+|---|---|---|---|---|
+| kant, timeo_web, dilexit | same | same | same | same (diffs empty) |
+| metafisica | 2,192 -> 1,980 | 68 -> 67 | 18 -> 6 | **510 -> 412** |
+| lugones | 1,129 -> 1,073 | 12 | 3 -> 1 | 122 -> 92 |
+| dialogos | 1,486 -> 1,489 | 28 | 413 -> 415 | 22 -> 19 |
+| timeo_greek | 309 -> 293 | 7 | 786 | 95 -> 90 |
+| niebla | 4,311 -> 4,307 | 56 -> 54 | 1 | 2,002 -> 2,000 |
+
+Words lost per book (`scratch/lost_words.py BEFORE AFTER LABEL...`) are heads, page
+numbers and markup/hyphenation shifts, except:
+- Metafísica: the contents page's top row ("LA CAUSA EFICIENTE....", known limit); the
+  lost heading "adecuación entre la inteligencia..." was a sentence cut by a running head,
+  now whole. p. 192 "METAFISICA" (top 10.8%, no copy 2 pages away) stays: known limit.
+- Lugones: OCR page numbers ("5°-", "27°-", "3°4-": key "#" in the zone on 20% of pages)
+  leave the text, their sentences join; the title page's "1904" goes; "II -" (misread
+  page number) stays once mid-sentence.
+- Dialogos: endnotes "[25] A. E. Taylor, *Commentary*, pág. 22." and "[27] ... pág. 23."
+  are lost: alike by key at a page edge 2 pages apart (the plan's known limit). Gained:
+  ~8 speaker turns ("PRO. —Y tanto.") and several mid-paragraph lines the deleted
+  small-repeat rule had dropped.
+- Niebla: 7 garbled heads go (the new key: "UNAMÜNO" = "UNAMUNO"); 4 garbled beyond the
+  key stay ("MIGUfiL OE UNA MUÑO", "MIGUEL DE ¡ NAMLÍNO"; known limit). Their heads
+  (8.9-9.9 pt over a 9.2 body) count as body text beside the page number, so 2a can't help.
+Fast tests 335 passed; ruff clean.
+
+**First run (stopped):** Built as the plan says: `layout.running_key` (case folded, accents dropped, letters and
 digits only, digit runs `#`; `_ROMAN_RE` gone), `PAGE_NUMBER_RE`/`_PRINTED_NUMBER_RE`
 take OCR-spaced digits ("1 5 6"), new `layout.edge_rows`, `DocumentProfile.edge_pages` +
 `furniture(page_index, lines)` in place of `running_texts`/`browser_margins`/`is_running`

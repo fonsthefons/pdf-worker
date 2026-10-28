@@ -252,6 +252,17 @@ def test_a_running_head_just_below_the_top_tenth_is_dropped(make_layout_pdf, tmp
     assert f"{FULL[2]} and it ends on the next page." in text
 
 
+def test_a_running_head_bigger_than_the_body_on_many_pages_is_dropped(make_layout_pdf, tmp_path):
+    # Niebla: heads in 9.9 pt over a 9.2 pt body, past the size limit of rule 2.
+    pages = [
+        [(200, 60, "MIGUEL DE UNAMUNO", 12), *_paragraph(100, FULL[:2], ENDINGS[n])]
+        for n in range(4)
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "UNAMUNO" not in text
+
+
 def test_a_body_size_heading_at_the_top_of_one_page_is_kept(make_layout_pdf, tmp_path):
     pages = [
         [

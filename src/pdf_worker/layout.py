@@ -39,6 +39,15 @@ _BODY_FONT_SHARE = 0.85
 # fewer) is a running head or foot, if no bigger than this share of the body size.
 _RUNNING_PAGES = 2
 _RUNNING_SIZE = 1.05
+# The old rule, kept beside it (user, 2026-10-28): in this fraction of the page at the
+# top and bottom, a bare page number, or a line of any size whose key is there on at
+# least this share of pages (and 3 pages), is furniture. It catches heads bigger than
+# the body and, on skewed scans, heads and numbers outside the top and bottom rows.
+_MARGIN_ZONE = 0.1
+_RUNNING_SHARE = 0.2
+# Lines this much smaller than the body font are small type (notes, heads); bigger
+# lines are body text.
+SMALL_RATIO = 0.92
 # The printed page numbers must agree on this share of all pages.
 _MIN_PRINTED_SHARE = 0.25
 _REPEATED_IMAGE_SHARE = 0.3
@@ -278,6 +287,8 @@ class DocumentProfile:
     # (edge, ``running_key``) of each line in a page's top or bottom row (``edge_rows``)
     # -> the pages it is on.
     edge_pages: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    # Keys of lines in the ``_MARGIN_ZONE`` of ``_RUNNING_SHARE`` of the pages.
+    running_texts: set[str] = field(default_factory=set)
     # Lines repeated mid-page on most pages ("Page Proof Pending Publication").
     watermarks: set[str] = field(default_factory=set)
     # Endnote number -> (page index, line index) of the line that defines it.
@@ -314,32 +325,37 @@ class DocumentProfile:
                 best = (distance, level)
         return best[1] if best else None
 
-    def furniture(self, page_index: int, lines: list[Line]) -> set[int]:
+    def furniture(self, page_index: int, lines: list[Line], page_height: float) -> set[int]:
         """Indexes of the page's furniture: in its top or bottom row, a bare page number,
         or a line no bigger than the body (2+ letters) that shares its row with a page
-        number ("TIMEO ... 163") or is in the same row of a page at most
-        ``_RUNNING_PAGES`` away; anywhere, a watermark."""
+        number standing alone ("TIMEO ... 163"; not a line number beside body text) or
+        is in the same row of a page at most ``_RUNNING_PAGES`` away; in the
+        ``_MARGIN_ZONE``, a bare page number or a ``running_texts`` line; anywhere, a
+        watermark."""
         rows = edge_rows(lines)
-        numbered = {edge for i, edge in rows.items() if PAGE_NUMBER_RE.match(lines[i].text)}
+        numbers = {i for i in rows if PAGE_NUMBER_RE.match(lines[i].text)}
+        body_rows = {
+            rows[i] for i in rows.keys() - numbers if lines[i].size >= self.body_size * SMALL_RATIO
+        }
+        numbered = {rows[i] for i in numbers} - body_rows
         found = set()
         for i, line in enumerate(lines):
             key = running_key(line.text)
             edge = rows.get(i)
-            running = edge and (
-                PAGE_NUMBER_RE.match(line.text)
-                or (
-                    line.size <= self.body_size * _RUNNING_SIZE
-                    and sum(c.isalpha() for c in key) >= 2
-                    and (
-                        edge in numbered
-                        or any(
-                            0 < abs(page - page_index) <= _RUNNING_PAGES
-                            for page in self.edge_pages.get((edge, key), ())
-                        )
+            repeated = edge and (
+                line.size <= self.body_size * _RUNNING_SIZE
+                and sum(c.isalpha() for c in key) >= 2
+                and (
+                    edge in numbered
+                    or any(
+                        0 < abs(page - page_index) <= _RUNNING_PAGES
+                        for page in self.edge_pages.get((edge, key), ())
                     )
                 )
             )
-            if running or key in self.watermarks:
+            in_zone = not _MARGIN_ZONE * page_height < line.top < (1 - _MARGIN_ZONE) * page_height
+            zoned = in_zone and (PAGE_NUMBER_RE.match(line.text) or key in self.running_texts)
+            if i in numbers or repeated or zoned or key in self.watermarks:
                 found.add(i)
         return found
 
@@ -352,6 +368,7 @@ def analyze_document(
     sizes: Counter[float] = Counter()
     gaps: Counter[float] = Counter()
     edge_pages: defaultdict[tuple[str, str], set[int]] = defaultdict(set)
+    margin_texts: Counter[str] = Counter()  # keys of lines in the margin zone -> pages
     offsets: Counter[int] = Counter()  # printed page number minus page index
     image_pages: Counter[int] = Counter()  # image xref -> pages it is placed on
     fonts: Counter[str] = Counter()  # font name -> characters set in it
@@ -373,6 +390,15 @@ def analyze_document(
         page = doc.load_page(page_index)
         lines = page_lines(page)
         rows = edge_rows(lines)
+        height = page.rect.height
+        margin_texts.update(
+            {
+                running_key(line.text)
+                for line in lines
+                if line.text.strip()
+                and not _MARGIN_ZONE * height < line.top < (1 - _MARGIN_ZONE) * height
+            }
+        )
         page_inner_texts = set()
         page_offsets: set[int] = set()
         image_pages.update({info[0] for info in page.get_images(full=False)})
@@ -464,6 +490,11 @@ def analyze_document(
         size_spacing=size_spacing,
         heading_sizes=heading_sizes,
         edge_pages=dict(edge_pages),
+        running_texts={
+            key
+            for key, n in margin_texts.items()
+            if key and n >= max(3, doc.page_count * _RUNNING_SHARE)
+        },
         endnote_defs=_endnote_candidates(occurrences, line_starts, referenced_mid_line),
         chapter_notes=chapter_notes,
         page_labels=_page_labels(doc, offsets),

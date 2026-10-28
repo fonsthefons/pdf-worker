@@ -25,6 +25,7 @@ from pdf_worker.layout import (
     LOOSE_NOTE_MARK_RE,
     NOTE_MARK_RE,
     PAGE_NUMBER_RE,
+    SMALL_RATIO,
     SUPERSCRIPT,
     DocumentProfile,
     Line,
@@ -33,8 +34,6 @@ from pdf_worker.layout import (
 )
 from pdf_worker.styles import span_text
 
-# Lines this much smaller than the body font count as footnote-sized.
-SMALL_RATIO = 0.92
 # Footnote regions must start in the lower part of the page.
 _REGION_MIN_TOP = 0.4
 CONTINUED = "(continued) "
@@ -101,7 +100,7 @@ def layout_page(
 ) -> PageLayout:
     """Split a page into body lines (references marked) and its footnotes."""
     lines = page_lines(page)
-    furniture = profile.furniture(page_index, lines)
+    furniture = profile.furniture(page_index, lines, page.rect.height)
     chapter_notes = profile.chapter_notes
     region = None
     if page_index not in chapter_notes.note_pages:
