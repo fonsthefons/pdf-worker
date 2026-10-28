@@ -1,5 +1,51 @@
 # Progress
 
+## Layout plan, Phase 0: before/after tool and baseline (2026-10-28, branch `layout/phase-0`)
+New `tools/regression.py`: `build OUT_DIR` converts the plan's eight test books to
+Markdown (title = label, author "-", no cover, review file in `OUT_DIR`) and writes
+`<label>.json` (paragraphs, headings, notes, splits); `compare BEFORE AFTER` prints the
+numbers before -> after, headings lost/added and writes `AFTER/<label>.diff`. Baseline
+`scratch/regress/base` on main (7bd7409), 630 s for all eight:
+
+| Book | Paragraphs | Headings | Notes | Splits |
+|---|---|---|---|---|
+| kant | 906 | 43 | 0 | 8 |
+| timeo_web | 772 | 3 | 0 | 599 |
+| metafisica | 2,192 | 68 | 18 | 510 |
+| lugones | 1,129 | 12 | 3 | 122 |
+| dilexit | 268 | 59 | 227 | 1 |
+| dialogos | 1,486 | 28 | 413 | 22 |
+| timeo_greek | 309 | 7 | 786 | 95 |
+| niebla | 4,311 | 56 | 1 | 2,002 |
+
+Metafísica 510 splits from the Markdown (511 counted from the EPUB in PR #67). Built a
+second time (`scratch/regress/base2`): `compare` shows no change in any book, so the build
+is deterministic. Added to CLAUDE.md's dev tools. Fast tests 328 passed; ruff clean.
+
+## PLAN: the parts of a page as a reader sees them (2026-10-28, `docs/layout-plan.md`)
+User: recognise headers, footers, page numbers, footnotes, contents and bibliography the
+way a reader does, with fewer rules, built later at medium effort. User's choices: the
+layout model, time doesn't matter, one test book per kind. Measured first: PP-DocLayoutV3
+alone (no text reading) runs at 1.5 s per page; it called Metafísica's running heads
+titles on 61 of 97 pages ("INTRODUCCION" never a header) and Kant's section headings
+header/footer. So headers, footers and page numbers go by repetition (the same small line
+at the same edge of a page at most 2 pages away; prototype: Metafísica ~410 lines
+dropped, 3 garbled heads missed; Timeo 110; Kant none), and the model is kept for
+contents, bibliography, footnotes and paragraphs, part by part after a comparison the user
+decides on (Phase 4). Prototype scripts: `scratch/layout_only.py` (Paddle Python),
+`layout_lines.py`, `layout_votes.py`, `edge_rule2.py`. Phase 0 done (above); next: Phase 1.
+
+## Paragraphs: a block set in from the margin (2026-10-27, branch `fix/inset-blocks`, PR #67)
+Building Metafísica's second copy to compare showed the chosen copy split an inset
+small-type passage into one paragraph per line: each line was indented against the
+margin. `structure._starts_paragraph`: an indented line starts a paragraph only when it
+is set in from the line before, or the line before ended a sentence (a list of one-line
+entries). Metafísica 1,118 -> 511 sentences broken across paragraphs (most of the rest:
+running heads at 10.8% of the page, outside the 10% margin zone); Kant, Platón Timeo,
+Dilexit nos unchanged; Lugones 2 joins, one right, one a bibliography entry without a
+final full stop. Copy 2 built for comparison: grade B, 239 rows to review against 163.
+Test: `test_a_block_set_in_from_the_margin_is_one_paragraph`.
+
 ## Best of several copies (2026-10-27, branch `feature/best-copy`)
 User: a folder in `file_inbox` holds PDFs of one book; use the best, say which. New
 `copies.py` (`rank_copies`): OCR needed (none < pages with no text < whole book), then
