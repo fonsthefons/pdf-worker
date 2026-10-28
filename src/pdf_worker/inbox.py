@@ -18,6 +18,10 @@ possible errors, what was fixed automatically and a grade (``pdf_worker.book_rep
 
 A book's settings (the formats to make, title, author...) are kept in its work folder's
 ``settings.json``, so the rebuild after the review makes the same files.
+
+A folder in the inbox holds several PDFs of one book: the best for the build is used
+(``pdf_worker.copies``), the outputs are named after the folder, and the result line and
+report say which copy was used and why. The choice is kept (``copy.json``).
 """
 
 import json
@@ -31,6 +35,7 @@ from pathlib import Path
 from pdf_worker import (
     book_report,
     convert,
+    copies,
     ebook_to_pdf,
     epub_mimetype,
     epub_reader,
@@ -49,6 +54,7 @@ PADDLE_MARK = "paddle"  # in a work folder: build from PaddleOCR-VL's blocks
 DRAFT_MARK = "draft"  # in a work folder: drafts are out, waiting for the review
 PREPARED = "prepared.json"  # in a work folder: how the text was obtained
 SETTINGS = "settings.json"  # in a work folder: the book's formats and convert options
+CHOSEN = "copy.json"  # in a folder book's work folder: the copy used, and why
 # What a book can be made into; "searchable" is the PDF the book was built from (OCR'd).
 FORMATS = (*convert.FORMATS, "searchable")
 DEFAULT_FORMATS = ("epub", "pdf")
@@ -82,7 +88,7 @@ def process(
         shutil.copy2(book, root / INBOX / Path(book).name)
     results = []
     for path in sorted((root / INBOX).iterdir()):
-        if path.name.startswith(".") or not path.is_file():
+        if path.name.startswith("."):
             continue
         if book and path.name != Path(book).name:
             continue
@@ -98,14 +104,15 @@ def cleanable(root: str | Path) -> list[Path]:
     """What belongs to no book left in the inbox: work folders, the finished books'
     originals (``file_work/converted``) and drafts. The outbox's finished files stay."""
     root = Path(root)
-    pending = [p.name for p in _listed(root / INBOX) if p.is_file() and not p.name.startswith(".")]
+    pending = [p for p in _listed(root / INBOX) if not p.name.startswith(".")]
+    stems = [_stem(p) + "." for p in pending]  # "book." + "epub", "searchable.pdf"
+    pending = [p.name for p in pending]
     out = []
     for path in _listed(root / WORK):
         if path.name == CONVERTED:
             out += _listed(path)
         elif path.name not in pending:
             out.append(path)
-    stems = [Path(name).stem + "." for name in pending]  # "book." + "epub", "searchable.pdf"
     out += [p for p in _listed(root / OUTBOX / DRAFTS) if not p.name.startswith(tuple(stems))]
     return out
 
@@ -123,54 +130,88 @@ def _listed(folder: Path) -> list[Path]:
     return sorted(folder.iterdir()) if folder.is_dir() else []
 
 
-def _process_book(root, original, engine, say, on_step, given) -> BookResult:
+def _stem(entry: Path) -> str:
+    """The name of a book's outputs: a file's stem, or a folder's whole name."""
+    return entry.name if entry.is_dir() else entry.stem
+
+
+def _process_book(root, entry, engine, say, on_step, given) -> BookResult:
+    """``entry``: a book's file, or a folder of copies of it (the best one is used)."""
+    name, stem = entry.name, _stem(entry)
+    outbox, work = root / OUTBOX, root / WORK / entry.name
+    original, chosen = entry, ""
+    if entry.is_dir():
+        original, chosen = _chosen_copy(entry, work, say)
+        if original is None:
+            return BookResult(name, "skipped", "no PDF in the folder")
     suffix = original.suffix.lower()
-    outbox = root / OUTBOX
     if suffix == ".epub":
-        detail = _rebuild_epub(
-            original, outbox / original.name, outbox / f"{original.stem}.pdf", say
-        )
+        detail = _rebuild_epub(original, outbox / f"{stem}.epub", outbox / f"{stem}.pdf", say)
         # shortcut: EPUB inputs always give EPUB + PDF; convert reads PDFs only.
         other = [f for f in given.get("formats", ()) if f not in DEFAULT_FORMATS]
         skipped = f"; not made from an EPUB: {', '.join(other)}" if other else ""
-        return _finish(root, original, f"{detail}{skipped}")
+        return _finish(root, entry, f"{detail}{skipped}")
     if suffix != ".pdf" and suffix not in EBOOKS:
-        return BookResult(original.name, "skipped", "not a PDF or an ebook")
+        return BookResult(name, "skipped", "not a PDF or an ebook")
 
-    work = root / WORK / original.name
     work.mkdir(exist_ok=True)
     settings = _settings(work, given)
     formats = settings.get("formats", DEFAULT_FORMATS)
-    pdf = work / f"{original.stem}.pdf"
+    pdf = work / f"{stem}.pdf"
     fixes = default_fixes_path(pdf)
     draft_mark = work / DRAFT_MARK
     reviewed = draft_mark.exists()
+    chosen = f"{chosen}; " if chosen else ""
     if reviewed and not (fixes.exists() and fixes.stat().st_mtime > draft_mark.stat().st_mtime):
-        return BookResult(original.name, "waiting", "to review", pdf)
+        return BookResult(name, "waiting", f"{chosen}to review", pdf)
     if not pdf.exists():
         _prepare(original, pdf, engine, say)
 
     target = outbox if reviewed else outbox / DRAFTS
     say(f"  building: {', '.join(formats)}")
-    conversion = _build(original, pdf, target, on_step, settings)
+    conversion = _build(original, stem, pdf, target, on_step, settings)
     note = ""
     if "searchable" in formats and (work / PADDLE_MARK).exists():
         note = "; no searchable PDF (PaddleOCR-VL adds no text layer)"
     elif "searchable" in formats:
-        _copy(pdf, _outputs(target, original, ["searchable"])[0])
+        _copy(pdf, _outputs(target, stem, ["searchable"])[0])
     rows = read_fixes(fixes)
     left = len(review.open_rows(rows))
     final = reviewed or not left
-    graded = _write_report(original, pdf, conversion, rows, "final" if final else "draft") + note
+    state = "final" if final else "draft"
+    graded = chosen + _write_report(name, pdf, conversion, rows, state, chosen) + note
     if final:
         if target != outbox:
-            for out in _outputs(target, original, formats):
+            for out in _outputs(target, stem, formats):
                 if out.exists():
                     os.replace(out, outbox / out.name)
         undecided = f"; {left} row(s) to review left undecided" if left else ""
-        return _finish(root, original, graded + undecided)
+        return _finish(root, entry, graded + undecided)
     draft_mark.touch()
-    return BookResult(original.name, "draft", f"{graded}; {left} row(s) to review", pdf)
+    return BookResult(name, "draft", f"{graded}; {left} row(s) to review", pdf)
+
+
+def _chosen_copy(folder: Path, work: Path, say) -> tuple[Path | None, str]:
+    """The folder's best PDF (``pdf_worker.copies``) and why; chosen once, so the runs
+    after the review build the same copy."""
+    work.mkdir(parents=True, exist_ok=True)
+    saved = work / CHOSEN
+    if saved.exists():
+        choice = json.loads(saved.read_text())
+        if (folder / choice["copy"]).exists():
+            return folder / choice["copy"], choice["why"]
+    pdfs = [p for p in _listed(folder) if p.suffix.lower() == ".pdf" and p.name[0] != "."]
+    if not pdfs:
+        return None, ""
+    say(f"  comparing {len(pdfs)} copies")
+    ranked = copies.rank_copies(pdfs)
+    for check in ranked:
+        say(f"    {check.path.name}: {check.summary()}")
+    why = f"copy used: {ranked[0].path.name} ({ranked[0].summary()})"
+    if ranked[1:]:
+        why += "; not used: " + "; ".join(f"{c.path.name} ({c.summary()})" for c in ranked[1:])
+    _write_text(saved, json.dumps({"copy": ranked[0].path.name, "why": why}))
+    return ranked[0].path, why
 
 
 def _settings(work: Path, given: dict) -> dict:
@@ -183,16 +224,16 @@ def _settings(work: Path, given: dict) -> dict:
     return saved
 
 
-def _write_report(original, pdf, conversion, rows, state) -> str:
+def _write_report(name, pdf, conversion, rows, state, chosen="") -> str:
     """Write ``report.md`` in the book's work folder; return a one-line summary."""
     work = pdf.parent
     info = json.loads((work / PREPARED).read_text()) if (work / PREPARED).exists() else {}
     report = book_report.BookReport(
-        original.name,
+        name,
         how=info.get("how", "not recorded (prepared before reports existed)"),
         ocr=info.get("ocr", False),
         language=conversion.metadata.language,
-        notes=info.get("notes", []),
+        notes=info.get("notes", []) + ([chosen.removesuffix("; ")] if chosen else []),
         corrected=info.get("corrected", {}),
     )
     report.corrected["lost note references found again"] = len(conversion.restored_refs)
@@ -310,7 +351,9 @@ def _copy(source: Path, target: Path) -> None:
         raise
 
 
-def _build(original: Path, pdf: Path, folder: Path, on_step, settings) -> convert.ConvertReport:
+def _build(
+    original: Path, stem: str, pdf: Path, folder: Path, on_step, settings
+) -> convert.ConvertReport:
     """Write the book's formats into ``folder``; return the EPUB's report. The EPUB is
     always made (the report counts its words): in the work folder when not asked for."""
     rows = None
@@ -325,7 +368,7 @@ def _build(original: Path, pdf: Path, folder: Path, on_step, settings) -> conver
     reports = [
         convert.convert_pdf(
             pdf,
-            _outputs(home, original, [fmt])[0],
+            _outputs(home, stem, [fmt])[0],
             fmt,
             paddle_rows=rows,
             on_step=None if rows else on_step,
@@ -338,19 +381,22 @@ def _build(original: Path, pdf: Path, folder: Path, on_step, settings) -> conver
     return reports[0]
 
 
-def _outputs(folder: Path, original: Path, formats=FORMATS) -> list[Path]:
+def _outputs(folder: Path, stem: str, formats=FORMATS) -> list[Path]:
     # shortcut: book.pdf and book.epub in one inbox write the same outputs; the later
     # one wins. Name them by file name if both forms of a book ever arrive together.
     return [
-        folder / f"{original.stem}{'.searchable.pdf' if f == 'searchable' else convert.FORMATS[f]}"
+        folder / f"{stem}{'.searchable.pdf' if f == 'searchable' else convert.FORMATS[f]}"
         for f in formats
     ]
 
 
-def _finish(root: Path, original: Path, detail: str) -> BookResult:
-    """The book is in the outbox: drop its drafts and file the original away."""
-    for draft in _outputs(root / OUTBOX / DRAFTS, original):
+def _finish(root: Path, entry: Path, detail: str) -> BookResult:
+    """The book is in the outbox: drop its drafts and file its file (or folder) away."""
+    for draft in _outputs(root / OUTBOX / DRAFTS, _stem(entry)):
         draft.unlink(missing_ok=True)
-    (root / WORK / original.name / DRAFT_MARK).unlink(missing_ok=True)
-    os.replace(original, root / WORK / CONVERTED / original.name)
-    return BookResult(original.name, "finished", detail)
+    (root / WORK / entry.name / DRAFT_MARK).unlink(missing_ok=True)
+    filed = root / WORK / CONVERTED / entry.name
+    if filed.is_dir():  # an earlier run's folder of copies
+        shutil.rmtree(filed)
+    os.replace(entry, filed)
+    return BookResult(entry.name, "finished", detail)

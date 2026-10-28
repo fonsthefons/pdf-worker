@@ -1,5 +1,15 @@
 # Progress
 
+## Best of several copies (2026-10-27, branch `feature/best-copy`)
+User: a folder in `file_inbox` holds PDFs of one book; use the best, say which. New
+`copies.py` (`rank_copies`): OCR needed (none < pages with no text < whole book), then
+spreads (most pages landscape), then non-split spelling flags per 1,000 words in a
+20-page sample. `inbox` handles folders (outputs/work named after the folder, choice in
+`copy.json`, folder filed in `converted`); CLI takes a folder inside an inbox as one book.
+Metafísica - Tomás Alvira: "bad 1" (227 pp, OCR only pages with no text, 13.6/1000) over
+"bad 2" (127 pp two-page spreads, underlined: whole-book OCR, 14.2/1000); built as a
+draft, grade B, 163 rows to review. Tests: test_copies.py, test_inbox.py.
+
 ## find-book: One More Library (2026-10-27, branch `feature/onemorelibrary`)
 User asked to add onemorelibrary.com/index.php/es/. A Joomla (DJ-Classifieds) site, no
 sitemap, no API. `find_book._onemorelibrary` (Spanish only): its search page
