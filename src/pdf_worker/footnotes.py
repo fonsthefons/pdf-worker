@@ -25,17 +25,15 @@ from pdf_worker.layout import (
     LOOSE_NOTE_MARK_RE,
     NOTE_MARK_RE,
     PAGE_NUMBER_RE,
+    SMALL_RATIO,
     SUPERSCRIPT,
     DocumentProfile,
     Line,
     page_lines,
     plain_note_start,
-    running_key,
 )
 from pdf_worker.styles import span_text
 
-# Lines this much smaller than the body font count as footnote-sized.
-SMALL_RATIO = 0.92
 # Footnote regions must start in the lower part of the page.
 _REGION_MIN_TOP = 0.4
 CONTINUED = "(continued) "
@@ -74,6 +72,8 @@ class PageLayout:
     definitions: tuple[str, ...]  # labels defined on this page (continuations excluded)
     references: tuple[str, ...]  # labels referenced on this page, in order
     trailing_label: str | None  # last page footnote on the page (may continue)
+    # Running heads and feet, page numbers, watermarks (``DocumentProfile.furniture``).
+    furniture: tuple[Line, ...]
 
 
 @dataclass(frozen=True)
@@ -100,13 +100,11 @@ def layout_page(
 ) -> PageLayout:
     """Split a page into body lines (references marked) and its footnotes."""
     lines = page_lines(page)
+    furniture = profile.furniture(page_index, lines, page.rect.height)
     chapter_notes = profile.chapter_notes
     region = None
     if page_index not in chapter_notes.note_pages:
-        watermarks = {
-            i for i, line in enumerate(lines) if running_key(line.text) in profile.watermarks
-        }
-        region = _find_region(lines, profile.body_size, page.rect.height, watermarks)
+        region = _find_region(lines, profile.body_size, page.rect.height, furniture)
     notes: list[tuple[str, list[str]]] = []
     marker_labels: dict[str, str] = {}
     consumed: set[int] = set()
@@ -120,7 +118,7 @@ def layout_page(
     definitions = [label for label, _ in notes if label != previous_label]
     body: list[BodyLine] = []
     for line_index, line in enumerate(lines):
-        if line_index in consumed:
+        if line_index in consumed or line_index in furniture:
             continue
         if page_index in chapter_notes.note_pages:
             hung = plain_note_start(lines, line_index)
@@ -166,6 +164,7 @@ def layout_page(
         definitions=tuple(definitions),
         references=tuple(references),
         trailing_label=trailing,
+        furniture=tuple(lines[i] for i in sorted(furniture)),
     )
 
 
@@ -240,7 +239,7 @@ def _find_region(
     """Indices (top to bottom) of the bottom-of-page footnote region's lines, if any.
 
     Lines are taken in vertical order, not MuPDF's reading order, so a stray text box
-    emitted last doesn't hide the notes; ``skip`` lines (watermarks) are ignored.
+    emitted last doesn't hide the notes; ``skip`` lines (page furniture) are ignored.
     """
     order = sorted(
         (i for i in range(len(lines)) if i not in skip),

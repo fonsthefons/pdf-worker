@@ -12,6 +12,7 @@ from pdf_worker.convert import (
     convert_pdf,
     guess_language,
 )
+from pdf_worker.layout import running_key
 from pdf_worker.structure import Note, Paragraph, join_lines
 
 BODY = 11
@@ -232,6 +233,83 @@ def test_running_headers_and_page_numbers_are_dropped(make_layout_pdf, tmp_path)
     assert "My Running Header" not in text
     assert "Page 3 text." in text
     assert "\n3\n" not in text
+
+
+ENDINGS = ("Ends one.", "Ends two.", "Ends three.", "Ends four.")  # unlike each other
+
+
+def test_a_running_head_just_below_the_top_tenth_is_dropped(make_layout_pdf, tmp_path):
+    # Metafísica: heads in 8 pt with their top at about 10.9% of the page.
+    head = (200, 100, "La causalidad", 8)
+    pages = [
+        [head, *_paragraph(130, FULL[:1], ENDINGS[0]), *_paragraph(200, FULL[:2], FULL[2])],
+        [head, _body(130, "and it ends on the next page."), *_paragraph(200, FULL, ENDINGS[1])],
+        *([head, *_paragraph(130, FULL[:2], ENDINGS[n])] for n in (2, 3)),
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "causalidad" not in text
+    assert f"{FULL[2]} and it ends on the next page." in text
+
+
+def test_a_running_head_bigger_than_the_body_on_many_pages_is_dropped(make_layout_pdf, tmp_path):
+    # Niebla: heads in 9.9 pt over a 9.2 pt body, past the size limit of rule 2.
+    pages = [
+        [(200, 60, "MIGUEL DE UNAMUNO", 12), *_paragraph(100, FULL[:2], ENDINGS[n])]
+        for n in range(4)
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "UNAMUNO" not in text
+
+
+def test_a_body_size_heading_at_the_top_of_one_page_is_kept(make_layout_pdf, tmp_path):
+    pages = [
+        [
+            *([(200, 60, "The Second Part", BODY)] if n == 1 else []),
+            *_paragraph(100, FULL[:2], ENDINGS[n]),
+        ]
+        for n in range(4)
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "The Second Part" in text
+
+
+def test_section_marks_at_the_top_of_pages_are_kept(make_layout_pdf, tmp_path):
+    pages = [
+        [(280, 60, f"- § {n + 4} -", BODY), *_paragraph(100, FULL[:2], ENDINGS[n])]
+        for n in range(2)
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "§ 4" in text and "§ 5" in text
+
+
+def test_page_numbers_spaced_by_ocr_are_dropped(make_layout_pdf, tmp_path):
+    pages = [
+        [*_paragraph(100, FULL[:2], ENDINGS[n]), (290, 815, f"1 5 {n + 6}", 9)] for n in range(2)
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert "1 5" not in text
+
+
+def test_running_key_reads_ocr_variants_alike():
+    assert running_key("L O S TRASCENDENTALES") == running_key("Los trascendentales")
+    assert running_key("METAFÍSICA") == running_key("METAFISICA")
+    assert running_key("LA CAUSALIDAD’") == running_key("LA CAUSALIDAD")
+    assert running_key("ΤΙΜΑΙΟΣ")
+
+
+def test_a_divider_page_keeps_the_title_its_running_heads_repeat(make_layout_pdf, tmp_path):
+    pages = [
+        [(200, 400, "INTRODUCCION", 18)],
+        *([(250, 50, "INTRODUCCION", 8), *_paragraph(100, FULL[:2], ENDINGS[n])] for n in range(3)),
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert text.count("INTRODUCCION") == 1
 
 
 def test_footnotes_become_markdown_notes(make_layout_pdf, tmp_path):

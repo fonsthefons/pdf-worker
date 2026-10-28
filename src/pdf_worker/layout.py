@@ -6,7 +6,8 @@ sample), never the document text, so it is safe on huge PDFs.
 
 import re
 import statistics
-from collections import Counter
+import unicodedata
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -34,17 +35,24 @@ HEADING_RATIO = 1.15
 _HEADING_BAND = 0.05
 _MAX_HEADING_LEVELS = 4
 _BODY_FONT_SHARE = 0.85
-# Running headers/footers live in this fraction of the page at the top and bottom.
+# A line in a page's top or bottom row repeated in that row this many pages away (or
+# fewer) is a running head or foot, if no bigger than this share of the body size.
+_RUNNING_PAGES = 2
+_RUNNING_SIZE = 1.05
+# The old rule, kept beside it (user, 2026-10-28): in this fraction of the page at the
+# top and bottom, a bare page number, or a line of any size whose key is there on at
+# least this share of pages (and 3 pages), is furniture. It catches heads bigger than
+# the body and, on skewed scans, heads and numbers outside the top and bottom rows.
 _MARGIN_ZONE = 0.1
-# A margin line repeated on at least this share of pages (and 3 pages) is running text.
 _RUNNING_SHARE = 0.2
-_MIN_SMALL_RUNNING = 4
-# A browser's footer on a printed web page: the address, "(3 de 32)", the print date.
-_BROWSER_FOOTER_RE = re.compile(r"^\s*(?:https?|file)://\S+\s*\(\d+ (?:de|of|sur|von|di) \d+\)")
+# Lines this much smaller than the body font are small type (notes, heads); bigger
+# lines are body text.
+SMALL_RATIO = 0.92
 # The printed page numbers must agree on this share of all pages.
 _MIN_PRINTED_SHARE = 0.25
 _REPEATED_IMAGE_SHARE = 0.3
-_PRINTED_NUMBER_RE = re.compile(r"^\s*(\d{1,4})\s*$")
+# Digits OCR may space out: "1 5 6", "22 0".
+_PRINTED_NUMBER_RE = re.compile(r"^\s*(\d(?: ?\d){0,3})\s*$")
 # A mid-page line on at least this share of pages (and 5 pages) is a watermark.
 _WATERMARK_SHARE = 0.5
 _MIN_WATERMARK_CHARS = 12
@@ -70,10 +78,9 @@ LOOSE_NOTE_MARK_RE = re.compile(r"^\s*(?=\S*\d)\S{1,6}\s+(?=[«“\"(]?[^\W\d_])
 _MAX_LOOSE_SIGNS = 6
 _MIN_COLUMN_LINES = 5
 _DIGITS_RE = re.compile(r"\d+")
-# Upper-case Roman numerals of two or more letters (a lone "I" or "V" may be a word).
-_ROMAN_RE = re.compile(r"\b[IVXLC]{2,}\b|\b[VXLC]\b")
 PAGE_NUMBER_RE = re.compile(
-    r"^\s*(?:page\s*|p\.\s*|-\s*)?\d{1,4}(?:\s*/\s*\d{1,4}|\s*-)?\s*$", re.IGNORECASE
+    r"^\s*(?:page\s*|p\.\s*|-\s*)?\d(?: ?\d){0,3}(?:\s*/\s*\d(?: ?\d){0,3}|\s*-)?\s*$",
+    re.IGNORECASE,
 )
 
 
@@ -240,10 +247,29 @@ def is_superscript_number(span: dict, line: Line) -> bool:
 
 
 def running_key(text: str) -> str:
-    """Normalise a header/footer line so ``3/49`` and ``4/49`` (or ``CAP. III`` and
-    ``CAP. IV``) compare equal."""
-    text = _ROMAN_RE.sub("#", text.strip())
-    return _DIGITS_RE.sub("#", text.lower())
+    """Normalise a header/footer line so OCR variants ("L O S TRASCENDENTALES",
+    "METAFÍSICA") and ``3/49``, ``4/49`` compare equal: case folded, accents dropped,
+    only letters and digits kept, each run of digits as ``#``."""
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    return _DIGITS_RE.sub("#", "".join(c for c in folded if c.isalnum()))
+
+
+def edge_rows(lines: list[Line]) -> dict[int, str]:
+    """The page's top and bottom rows: line index -> ``"top"`` / ``"bottom"``. The top
+    row is the line with the smallest baseline that has a letter or digit, and every
+    line whose baseline is within half its font size of it; the bottom row likewise
+    from the largest baseline. A page with one row has only a top row."""
+    inked = [i for i, line in enumerate(lines) if any(c.isalnum() for c in line.text)]
+    if not inked:
+        return {}
+
+    def row(anchor: int) -> list[int]:
+        base = lines[anchor].baseline
+        return [i for i in inked if abs(lines[i].baseline - base) <= 0.5 * lines[i].size]
+
+    rows = dict.fromkeys(row(max(inked, key=lambda i: lines[i].baseline)), "bottom")
+    rows.update(dict.fromkeys(row(min(inked, key=lambda i: lines[i].baseline)), "top"))
+    return rows
 
 
 @dataclass
@@ -258,11 +284,11 @@ class DocumentProfile:
     size_spacing: dict[float, float] = field(default_factory=dict)
     # Heading font sizes, largest first; index + 1 is the heading level.
     heading_sizes: list[float] = field(default_factory=list)
-    # Normalised texts of running headers/footers (see ``running_key``).
+    # (edge, ``running_key``) of each line in a page's top or bottom row (``edge_rows``)
+    # -> the pages it is on.
+    edge_pages: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    # Keys of lines in the ``_MARGIN_ZONE`` of ``_RUNNING_SHARE`` of the pages.
     running_texts: set[str] = field(default_factory=set)
-    # Small margin lines of pages printed from a web page (``_BROWSER_FOOTER_RE``): the
-    # browser's header (the page's title) and footer, however few pages repeat them.
-    browser_margins: set[str] = field(default_factory=set)
     # Lines repeated mid-page on most pages ("Page Proof Pending Publication").
     watermarks: set[str] = field(default_factory=set)
     # Endnote number -> (page index, line index) of the line that defines it.
@@ -299,18 +325,39 @@ class DocumentProfile:
                 best = (distance, level)
         return best[1] if best else None
 
-    def is_running(self, line: Line, page_height: float) -> bool:
-        """True for running headers/footers and bare page numbers in the margins, and
-        for watermarks repeated on most pages wherever they sit."""
-        text = line.text
-        if page_height * _MARGIN_ZONE < line.top < page_height * (1 - _MARGIN_ZONE):
-            return running_key(text) in self.watermarks
-        key = running_key(text)
-        return (
-            bool(PAGE_NUMBER_RE.match(text))
-            or key in self.running_texts
-            or (key in self.browser_margins and line.size < self.body_size)
-        )
+    def furniture(self, page_index: int, lines: list[Line], page_height: float) -> set[int]:
+        """Indexes of the page's furniture: in its top or bottom row, a bare page number,
+        or a line no bigger than the body (2+ letters) that shares its row with a page
+        number standing alone ("TIMEO ... 163"; not a line number beside body text) or
+        is in the same row of a page at most ``_RUNNING_PAGES`` away; in the
+        ``_MARGIN_ZONE``, a bare page number or a ``running_texts`` line; anywhere, a
+        watermark."""
+        rows = edge_rows(lines)
+        numbers = {i for i in rows if PAGE_NUMBER_RE.match(lines[i].text)}
+        body_rows = {
+            rows[i] for i in rows.keys() - numbers if lines[i].size >= self.body_size * SMALL_RATIO
+        }
+        numbered = {rows[i] for i in numbers} - body_rows
+        found = set()
+        for i, line in enumerate(lines):
+            key = running_key(line.text)
+            edge = rows.get(i)
+            repeated = edge and (
+                line.size <= self.body_size * _RUNNING_SIZE
+                and sum(c.isalpha() for c in key) >= 2
+                and (
+                    edge in numbered
+                    or any(
+                        0 < abs(page - page_index) <= _RUNNING_PAGES
+                        for page in self.edge_pages.get((edge, key), ())
+                    )
+                )
+            )
+            in_zone = not _MARGIN_ZONE * page_height < line.top < (1 - _MARGIN_ZONE) * page_height
+            zoned = in_zone and (PAGE_NUMBER_RE.match(line.text) or key in self.running_texts)
+            if i in numbers or repeated or zoned or key in self.watermarks:
+                found.add(i)
+        return found
 
 
 def analyze_document(
@@ -320,9 +367,8 @@ def analyze_document(
     ``on_page(done, total)`` follows the pages."""
     sizes: Counter[float] = Counter()
     gaps: Counter[float] = Counter()
-    margin_texts: Counter[str] = Counter()
-    margin_sizes: dict[str, float] = {}
-    margin_bold: set[str] = set()  # margin texts seen in bold: headings ("CAPÍTULO VI")
+    edge_pages: defaultdict[tuple[str, str], set[int]] = defaultdict(set)
+    margin_texts: Counter[str] = Counter()  # keys of lines in the margin zone -> pages
     offsets: Counter[int] = Counter()  # printed page number minus page index
     image_pages: Counter[int] = Counter()  # image xref -> pages it is placed on
     fonts: Counter[str] = Counter()  # font name -> characters set in it
@@ -338,16 +384,21 @@ def analyze_document(
     sample: list[str] = []
     sample_len = 0
     bracketed_pages = 0
-    browser_lines: list[tuple[str, float]] = []  # (key, size) of browser-printed margins
     for page_index in range(doc.page_count):
         if on_page:
             on_page(page_index, doc.page_count)
         page = doc.load_page(page_index)
-        height = page.rect.height
         lines = page_lines(page)
-        page_margin_texts = set()
-        page_margin_lines: list[tuple[str, float]] = []
-        browser_page = False
+        rows = edge_rows(lines)
+        height = page.rect.height
+        margin_texts.update(
+            {
+                running_key(line.text)
+                for line in lines
+                if line.text.strip()
+                and not _MARGIN_ZONE * height < line.top < (1 - _MARGIN_ZONE) * height
+            }
+        )
         page_inner_texts = set()
         page_offsets: set[int] = set()
         image_pages.update({info[0] for info in page.get_images(full=False)})
@@ -357,18 +408,12 @@ def analyze_document(
             for span in line.spans:
                 sizes[round(span["size"], 1)] += len(span["text"].strip())
                 fonts[span.get("font", "")] += len(span["text"].strip())
-            if text.strip() and not height * _MARGIN_ZONE < line.top < height * (1 - _MARGIN_ZONE):
-                key = running_key(text)
-                page_margin_texts.add(key)
-                page_margin_lines.append((key, line.size))
-                browser_page = browser_page or bool(_BROWSER_FOOTER_RE.match(text))
-                margin_sizes[key] = max(margin_sizes.get(key, 0.0), line.size)
-                if line.bold:
-                    margin_bold.add(key)
+            if line_index in rows:
+                edge_pages[(rows[line_index], running_key(text))].add(page_index)
                 printed = _PRINTED_NUMBER_RE.match(text)
                 if printed:
-                    page_offsets.add(int(printed.group(1)) - page_index)
-            elif len(text.strip()) >= _MIN_WATERMARK_CHARS:
+                    page_offsets.add(int(printed.group(1).replace(" ", "")) - page_index)
+            elif len(text.strip()) >= _MIN_WATERMARK_CHARS and running_key(text):
                 page_inner_texts.add(running_key(text))
             if line_index and lines[line_index - 1].size == line.size:
                 gap = round(line.baseline - lines[line_index - 1].baseline, 1)
@@ -401,9 +446,6 @@ def analyze_document(
                     # A later occurrence at the start of a line: the note itself.
                     line_starts[number] = (page_index, line_index)
                 occurrences[number] += 1
-        margin_texts.update(page_margin_texts)
-        if browser_page:
-            browser_lines += page_margin_lines
         inner_texts.update(page_inner_texts)
         offsets.update(page_offsets)
 
@@ -424,21 +466,6 @@ def analyze_document(
     )
     if on_page:
         on_page(doc.page_count, doc.page_count)
-    threshold = max(3, doc.page_count * _RUNNING_SHARE)
-    # Per-chapter running heads ("NOTES TO CHAPTER 1") repeat on fewer pages; small
-    # type in the margin repeated on a few pages is running text too. Large or bold type
-    # is left alone: it may be a chapter title at the top of every chapter.
-    running = {
-        text
-        for text, n in margin_texts.items()
-        if n >= threshold
-        or (
-            n >= _MIN_SMALL_RUNNING
-            and margin_sizes.get(text, 0.0) <= body_size * 1.05
-            and text not in margin_bold
-            and sum(c.isalpha() for c in text) >= 6
-        )
-    }
     watermark_threshold = max(5, doc.page_count * _WATERMARK_SHARE)
     watermarks = {text for text, n in inner_texts.items() if n >= watermark_threshold}
     # Notes numbered "235 Text" (OCR'd: numbers lost and garbled), if they link more
@@ -458,12 +485,16 @@ def analyze_document(
     )
     return DocumentProfile(
         watermarks=watermarks,
-        browser_margins={key for key, size in browser_lines if size < body_size},
         body_size=body_size,
         line_spacing=line_spacing,
         size_spacing=size_spacing,
         heading_sizes=heading_sizes,
-        running_texts=running,
+        edge_pages=dict(edge_pages),
+        running_texts={
+            key
+            for key, n in margin_texts.items()
+            if key and n >= max(3, doc.page_count * _RUNNING_SHARE)
+        },
         endnote_defs=_endnote_candidates(occurrences, line_starts, referenced_mid_line),
         chapter_notes=chapter_notes,
         page_labels=_page_labels(doc, offsets),

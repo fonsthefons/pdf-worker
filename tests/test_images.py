@@ -29,12 +29,13 @@ def _digital_book(tmp_path):
     logo = _picture(40, 40, (0, 0, 200)).tobytes("png")
     for n in range(2):
         page = doc.new_page()
+        word = ("First", "Second")[n]  # each page its own text, or a running head and foot
         for i, text in enumerate(TEXT):
-            page.insert_text((72, 100 + 15 * i), text, fontsize=BODY)
+            page.insert_text((72, 100 + 15 * i), f"{word} {text}", fontsize=BODY)
         if n == 0:
             page.insert_image(pymupdf.Rect(72, 160, 372, 340), pixmap=_picture())
         for i, text in enumerate(TEXT):
-            page.insert_text((72, 380 + 15 * i), f"After the figure: {text}", fontsize=BODY)
+            page.insert_text((72, 380 + 15 * i), f"After the figure: {word} {text}", fontsize=BODY)
         page.insert_image(pymupdf.Rect(500, 30, 540, 70), stream=logo)
     doc.save(path)
     doc.close()

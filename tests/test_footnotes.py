@@ -53,8 +53,8 @@ def test_page_footnote_is_linked_and_moved_to_page_end(make_layout_pdf):
     assert "Body text with a note[^p1-1] and more text." in text
     assert "[^p1-1]: The footnote text itself.\ncontinues here.\n" in text
     assert text.endswith("[^p1-1]: The footnote text itself.\ncontinues here.\n")
-    # The page number below the notes stays in the body text, the note line does not.
-    assert "7\n" in text
+    # The page number below the notes is page furniture: in neither the notes nor the body.
+    assert "7" not in text
     assert "1 The footnote" not in text
 
 
