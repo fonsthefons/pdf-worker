@@ -303,11 +303,23 @@ recognised and stays body text: no fallback rule is kept. Likely candidates:
 
 - **Bibliography**: the lines of one `reference_content` box make one paragraph and a
   new box starts the next (entries no longer run together or split, as in Lugones).
+  Phase 4: the model also labels notes sections `reference_content` (Dilexit pp. 58-63,
+  Timeo Greek p. 215 on, Diálogos p. 349): one box per note is fine for paragraphs, but
+  those must not be marked as a bibliography.
 - **Contents**: a page whose lines are mostly in `content` boxes is a contents page
   (replaces counting `_CONTENTS_ENTRY_RE` lines).
-- **Paragraph starts**: a line that opens a new `text` box starts a paragraph, unless
-  it's the first box of a page or column and the line before ended mid-sentence.
-  Inside a box, today's rules stay.
+- **Paragraph starts** (user, after Phase 4): no new paragraph inside one `text` box;
+  today's rules decide only at box edges. This removes the rule's wrong splits (Niebla
+  p. 171 OCR size jitter, Timeo web p. 22 word fragments); don't add a start at every new
+  box (Phase 4: that adds ~177 and removes none). Paragraphs running on across a page or
+  column stay joined as today. Risk: real breaks the model keeps in one box (Diálogos
+  speaker turns "PRO. —Y tanto."): read those in the diff; if they are lost, keep the
+  rule's split for such lines or stop and ask.
+- **Headings** (user, after Phase 4): lines in a `paragraph_title` or `doc_title` box are
+  headings, replacing the heading-size test; the level still comes from the font size.
+  Gains: Metafísica's small-type section titles (p. 98), Kant's "Tesis"/"Prueba" (p. 195);
+  drops the rule's mistakes (Kant p. 59 table rows, Niebla p. 28 OCR specks). Running
+  heads labelled as titles must stay dropped (Phase 1's rule runs first).
 - **Footnotes**: only if Phase 4 shows the model finds notes the rule misses without
   new mistakes.
 
