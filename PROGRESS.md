@@ -1,5 +1,23 @@
 # Progress
 
+## After Phase 4: the user's choices, and two spelling-review fixes (2026-10-29)
+User: Phase 5 parts are bibliography, paragraphs (rewritten: no new paragraph inside one
+`text` box) and headings (added); contents, margins and footnotes keep their rules.
+`docs/layout-plan.md` updated (PR #73). Fixed in `fixes.py`, branch `fix/review-bibliography`:
+- `Review._section`: a heading of the bibliography's level now also ends it when none of
+  the next 6 blocks is an entry (`_LOOK_AHEAD`, read ahead in `apply`). Diálogos'
+  "BIBLIOGRAFÍA" (p. 90, 159) now ends at "TIMEO" / "CRITIAS", so the Timeo and Critias are
+  spell-checked again. Philosophy's "BREVE BIBLIOGRAFÍA" (pp. 401-423, subheadings
+  "Textos"/"Estudios" of its own level) stays one section, as before. Checked with
+  `scratch/review_levels.py PDF OUT` on both books.
+- `_is_reference`: a short line with a year and 3+ commas counts as an entry only right
+  after another entry (Lugones p. 8 "escribió en 1770, ..." was skipped).
+Tests: `test_bibliography_with_entries_straight_under_it_ends_at_its_level`,
+`test_a_year_and_commas_alone_is_not_an_entry`; the subheadings test now has entries
+under its subheadings, as the real book does. Fast tests 340 passed; ruff clean. Not run:
+`regression.py` (the Timeo and Critias now get the spelling check's auto fixes, so
+Diálogos' Markdown is expected to change).
+
 ## Layout plan, Phase 4: the model against today's rules (2026-10-29, branch `layout/phase-4`)
 New `tools/parts_report.py OUT_DIR [LABEL...] [--show PAGE...]`: builds the eight books
 as `regression.py build` does (Markdown, cached layout rows passed in) while watching the

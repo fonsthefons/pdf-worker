@@ -47,9 +47,11 @@ import csv
 import os
 import re
 import tempfile
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from functools import cache
+from itertools import islice
 from pathlib import Path
 
 from ai_client import check
@@ -91,6 +93,7 @@ _YEAR_RE = re.compile(r"\b1[5-9]\d\d\b")
 # Whole word: a bibliography's "Capítulos I-II: ..." groups entries, it isn't a chapter.
 _CHAPTER_RE = re.compile(r"(?:cap[íi]tulo|chapter|parte|part|libro|book)\b", re.I)
 _MAX_REFERENCE = 300  # characters
+_LOOK_AHEAD = 6  # blocks after a heading searched for an entry (philosophy: "1. BAYLE", "Textos")
 _ADD_RE = re.compile(r"(\S+)\s+before\s+(.+)")
 
 
@@ -184,12 +187,18 @@ class Review:
         self.reference = False  # bibliography/index: nothing is checked
 
     def apply(self, blocks: Iterable[Block]) -> Iterator[Block]:
-        for block in blocks:
+        blocks = iter(blocks)
+        ahead: deque[Block] = deque()  # blocks read early by _section, not yet applied
+        while ahead or (block := next(blocks, None)) is not None:
+            if ahead:
+                block = ahead.popleft()
             if isinstance(block, Heading | Paragraph | Note):
                 if isinstance(block, Heading):
                     self.labels.append(None)
-                    self._section(block)
-                self.reference = self.back is not None or _is_reference(block)
+                    if self.back is not None:
+                        ahead.extend(islice(blocks, _LOOK_AHEAD - len(ahead)))
+                    self._section(block, ahead)
+                self.reference = self.back is not None or _is_reference(block, self.reference)
                 self.body = not self.reference and not isinstance(block, Note)
                 self.body = self.body and not getattr(block, "small", False)
                 # Checked before the review file's rows apply, as those were written on
@@ -269,15 +278,24 @@ class Review:
             text = text[:start] + marks + flag.value + text[end:]
         return text
 
-    def _section(self, heading: Heading) -> None:
+    def _section(self, heading: Heading, ahead: Iterable[Block] = ()) -> None:
         """A bibliography or index lasts until a higher heading, or one of its level that
-        starts a chapter: OCR gives its subheadings ("Textos", "Estudios") the same level."""
+        starts a chapter or has no entry in the blocks ``ahead``: OCR gives its subheadings
+        ("Textos", "Estudios") the same level, and so does Diálogos' next dialogue
+        ("BIBLIOGRAFÍA" then "TIMEO")."""
         text = plain(heading.text)
         if _BACK_MATTER_RE.search(text):
             self.back = heading.level if self.back is None else min(self.back, heading.level)
         elif self.back is not None and (
             heading.level < self.back
-            or (heading.level == self.back and (self.back == 1 or _CHAPTER_RE.match(text)))
+            or (
+                heading.level == self.back
+                and (
+                    self.back == 1
+                    or _CHAPTER_RE.match(text)
+                    or not any(_is_reference(b, after_entry=True) for b in ahead)
+                )
+            )
         ):
             self.back = None
 
@@ -497,16 +515,22 @@ class Review:
         )
 
 
-def _is_reference(block: Block) -> bool:
+def _is_reference(block: Block, after_entry: bool = False) -> bool:
     """A bibliography entry: "MAIGRON, L., Le roman ...", a list of works by author
-    ("GILSON: L'esprit ...; MARITAIN: Los grados ..."), or a short line with a year and
-    several commas ("Gesammelte Schriften, 6 vols., Halle, 1775")."""
+    ("GILSON: L'esprit ...; MARITAIN: Los grados ..."), or, right after an entry, a short
+    line with a year and several commas ("Gesammelte Schriften, 6 vols., Halle, 1775"):
+    alone, that also matches a sentence ("escribió en 1770, ...")."""
     if not isinstance(block, Paragraph):
         return False
     text = plain(block.text).strip()
     if _AUTHOR_ENTRY_RE.match(text) or (_AUTHOR_LIST_RE.match(text) and ";" in text):
         return True
-    return len(text) < _MAX_REFERENCE and bool(_YEAR_RE.search(text)) and text.count(",") >= 3
+    return (
+        after_entry
+        and len(text) < _MAX_REFERENCE
+        and bool(_YEAR_RE.search(text))
+        and text.count(",") >= 3
+    )
 
 
 @cache
