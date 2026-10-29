@@ -1,5 +1,72 @@
 # Progress
 
+## Layout plan, Phase 5: paragraphs (2026-10-29, branch `layout/phase-5-paragraphs`) — STOPPED, needs the user
+No new paragraph inside one `text` box, as the plan says, in `footnotes.layout_page`:
+between two body lines of a page in the same `text` box `BodyLine.starts` is False;
+at a box's edge (another box, no box, a page's first line) it stays None and
+`structure._starts_paragraph`'s rules decide; no start is added at a new box. Chapter-notes
+pages keep no rows (as for the bibliography). The bibliography's `reference_content`
+handling is unchanged. No rule deleted: the rules still decide at every box edge and on
+books without rows.
+- Test: `test_no_new_paragraph_inside_one_text_box` (with and without rows; failed before).
+- Check: fast tests 345 passed; ruff clean. `regression.py build scratch/regress/p5para_after`
+  against `scratch/regress/p5bib_after` (main's code), breaks lost / new with
+  `scratch/para_joins.py BEFORE.md AFTER.md`, turns with `scratch/turns_lost.py`,
+  dialogue dashes with `scratch/dash_starts.py` (build 643 s, log `scratch/logs/p5para_after.log`):
+
+  | Book | Paragraphs | Splits | Headings | Breaks lost / new |
+  |---|---|---|---|---|
+  | kant | 906 -> 871 | 8 -> 7 | 43 -> 40 | 41 / 49 (mostly marks joined to titles) |
+  | timeo_web | 772 -> 680 | 599 -> 599 | 3 | |
+  | metafisica | 1,952 -> 1,692 | 394 -> 233 | 67 -> 56 | 280 / 32 |
+  | lugones | 1,073 -> 997 | 92 -> 65 | 12 | |
+  | dilexit | 268 -> 242 | 1 -> 0 | 59 | 26 / 2 |
+  | dialogos | 1,489 -> 1,459 | 19 -> 5 | 28 | 30 / 0 |
+  | timeo_greek | 293 -> 207 | 90 -> 36 | 7 -> 4 | |
+  | niebla | 4,307 -> 2,508 | 2,000 -> 352 | 54 | |
+- Better (most of the change): Timeo web loses its wrong splits (p. 6, a justified
+  column the model keeps whole: "conocimientos encanecidos por el tiempo." / "Esto se
+  debe..."); Metafísica's paragraphs broken at bold-italic sentences ("***E l principio
+  de no contradicción...***") and at quotes ending "»" join; Lugones' OCR specks ("•",
+  "~~") and hyphenated words ("jesuí-" / "tas (1).") join; Dilexit's mid-sentence breaks
+  before a capital ("Por eso" / "Newman encontraba") join. Diálogos' 1,177 speaker turns
+  all stay; its numbered paragraphs, and Dilexit's 218, all stay.
+- **Worse (plan: "if a book gets worse, record the page and line and ask the user"):**
+  1. Kant p. 87 (and the second and third chapters): the model boxes the line
+     "Doctrina transcendental del Juicio (o Analítica de los principios)" with
+     "PRIMER CAPÍTULO" as one `text` box, so the three chapter headings "### PRIMER /
+     SEGUNDO / TERCER CAPÍTULO" are lost into that line's paragraph.
+  2. Kant: section marks and their titles become one paragraph ("- § 7 -" + "Explicación",
+     p. 38; "- II -" + "Estamos en posesión...", the mark joined to body text), and list
+     rows run together ("1º." / "Concepto vacío, sin objeto," / "ens rationis" ...;
+     "Infinitos." / "3").
+  3. Diálogos p. 159 (and p. 91): the bibliography under "3. Traducciones" is one `text`
+     box, so its 9 entries ("F. ADORNO, ...", "J. GARCÍA BACCA, ...") become one paragraph;
+     p. 86 the summary items "1.2. Estructura de los elementos (53c-61c). — ..." and
+     "2. Las cualidades sensibles (61c-68d). — ..." join the item before.
+  4. Timeo Greek p. 6: the turn "TIM.—Claro que sí" joins "SÓC.—¿Seguramente ... ausente?
+     [17b]": the model's boxes are right, but the OCR line "parte del ausente? [I7b]" is
+     placed lower in the text layer and lies mostly in the next turn's box.
+  5. Niebla: 197 of its 1,630 dialogue lines lose their break and join the line before
+     (p. 31: "¿Paternos o maternos?" + "—Sólo sé que son tíos."). The model boxes each
+     turn right, but this skewed scan's OCR lines sit off the page image, so a line can
+     lie mostly in the next turn's box. Its other ~1,600 removed breaks are the OCR
+     size-jitter splits the plan meant to remove (splits 2,000 -> 352).
+  6. Headings made from a short isolated line (`_implicit_heading_level`) are lost when
+     the line shares a box: Kant's three above, Metafísica's "LIBROS DE INICIACION
+     FILOSOFICA"; same-level headings in one box merge (Metafísica's authors "TOMAS ALVIRA
+     LUIS CLAVELL TOMAS MELENDO", Timeo Greek's title page). Metafísica's other lost
+     "headings" were OCR body lines ("dad se identifica, así, con el ente, ...").
+  Not changed: Timeo web's 599 splits (not looked into; Phase 4 saw p. 22's justified
+  lines become table rows through `CELL`, which paragraph starts don't touch).
+  Options for the user: (a) take it as it is (the gains are far larger in number);
+  (b) keep the rule's split inside a box for lines that start like an item or a heading
+  (a numbering, "§", a bibliography entry's "INITIAL. SURNAME", a dialogue dash): a new
+  rule; (c) use the box only on born-digital pages, where lines and boxes agree (items 4
+  and 5 are OCR scans), also a new rule; (d) wait for the headings part, which may label
+  some of these lines as titles.
+  The code is as the plan writes it; the PR is a draft until the user decides.
+
 ## Layout plan, Phase 5: bibliography (2026-10-29, branch `layout/phase-5-bibliography`)
 One `reference_content` box = one bibliography entry, decided in `footnotes.layout_page`:
 - `layout.boxes(page, row, lines)`: each line's box index (`box_labels` now uses it).
