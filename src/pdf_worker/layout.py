@@ -20,14 +20,13 @@ from pdf_worker.endnotes import ChapterNotes, lossy_min_run, match_chapter_notes
 from pdf_worker.font_sizes import same_leading_sizes, sizes_by_leading
 from pdf_worker.glued_refs import apply_refs, page_refs
 from pdf_worker.margin_refs import OCR_DIGITS, apply_marks, has_bracketed, in_book, page_marks
+from pdf_worker.note_numbers import FROM_SUP, SUP_DIGITS
 
 SUPERSCRIPT = 1  # MuPDF span flag bits
 BOLD = 16
 # A gap between two letters wider than this share of the font size is a word space
 # (a normal space is ~0.25 em; letters sit much closer, kerned or not).
 _WORD_GAP = 0.15
-_SUPERSCRIPT_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
-_FROM_SUPERSCRIPT = str.maketrans(_SUPERSCRIPT_DIGITS, "0123456789")
 
 # Lines whose font is this much bigger than the body font are headings.
 HEADING_RATIO = 1.15
@@ -193,7 +192,7 @@ def _with_text(spans: list[dict]) -> tuple[dict, ...]:
     for span in spans:
         pieces: list[tuple[bool, list[str], list]] = []  # (superscript, chars, boxes)
         for char in span.pop("chars"):
-            sup = char["c"] != "" and char["c"] in _SUPERSCRIPT_DIGITS  # "": a dropped char
+            sup = char["c"] != "" and char["c"] in SUP_DIGITS  # "": a dropped char
             if (
                 prev is not None
                 and not prev["c"].isspace()
@@ -205,7 +204,7 @@ def _with_text(spans: list[dict]) -> tuple[dict, ...]:
                 pieces[-1][1].append(" ")
             if not pieces or pieces[-1][0] != sup:
                 pieces.append((sup, [], []))
-            pieces[-1][1].append(char["c"].translate(_FROM_SUPERSCRIPT))
+            pieces[-1][1].append(char["c"].translate(FROM_SUP))
             pieces[-1][2].append(char["bbox"])
             prev = char
         if len(pieces) <= 1 and not (pieces and pieces[0][0]):

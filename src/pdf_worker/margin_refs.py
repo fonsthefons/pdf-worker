@@ -42,7 +42,8 @@ _BRACKETED_RE = re.compile(r"[\[(]\s*([0-9oOIlοΟΙ]*[0-9][0-9oOIlοΟΙ]*)\s*(
 OCR_DIGITS = str.maketrans("oOIlοΟΙ", "0011001")  # old-style figures read as letters
 # Ink this far (in line heights) beside the text column is searched for marks.
 _GAP, _REACH = 0.15, 1.6
-_LONG_LINE_SHARE = 0.35
+# Lines at least this share of the page width are candidates for the body column.
+LONG_LINE_SHARE = 0.35
 
 
 def is_mark(text: str) -> bool:
@@ -298,7 +299,7 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
 
     gray = _page_image(page)
     lines = _tesseract_lines(gray, tesseract, language)
-    long_lines = [ln for ln in lines if ln[-1][2] - ln[0][0] >= gray.shape[1] * _LONG_LINE_SHARE]
+    long_lines = [ln for ln in lines if ln[-1][2] - ln[0][0] >= gray.shape[1] * LONG_LINE_SHARE]
     if len(long_lines) < 3:
         return PageScan([], [])
     left = statistics.median(ln[0][0] for ln in long_lines)

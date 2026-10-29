@@ -21,10 +21,10 @@ from pdf_worker.consensus import _union
 from pdf_worker.document import TEXT_FLAGS
 from pdf_worker.endnotes import LOSSY_STEP, lossy_min_run, runs_from_anywhere
 from pdf_worker.margin_refs import OCR_DIGITS
+from pdf_worker.note_numbers import TO_SUP
 
 REFS_KEY = "PdfWorkerGluedRefs"
 _SUPERSCRIPT = 1  # MuPDF span flag
-_TO_SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _NUMBER_RE = re.compile(r"(?<!\d)\d{1,3}(?!\d)")
 # A number glued after a word's letter or closing quote, ending the word:
 # "inteligentes74•", "«generado»17.", "(46d)28".
@@ -282,7 +282,7 @@ def apply_refs(chars: list[dict], boxes: list[list[float]]) -> None:
 
     for box in (b for b in boxes if len(b) == 5):
         found = [c for c in chars if c["c"] and inside(c, box)]
-        digits = list(box[4].translate(_TO_SUP))
+        digits = list(box[4].translate(TO_SUP))
         if found:  # a digit a character ("'º" -> "¹⁰"), as superscripts are read one by one
             for char in found:
                 char["c"] = digits.pop(0) if digits else ""
@@ -290,7 +290,7 @@ def apply_refs(chars: list[dict], boxes: list[list[float]]) -> None:
     boxes = [b for b in boxes if len(b) == 4]
     for i, char in enumerate(chars):
         if char["c"].isdigit() and any(inside(char, box) for box in boxes):
-            char["c"] = char["c"].translate(_TO_SUP)
+            char["c"] = char["c"].translate(TO_SUP)
             after = [c["c"] for c in chars[i + 1 : i + 3]]
             if after[:1] == ["•"]:
                 chars[i + 1]["c"] = "."

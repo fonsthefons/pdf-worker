@@ -52,6 +52,7 @@ from pdf_worker.margin_refs import (
 )
 from pdf_worker.note_numbers import (
     SUPERSCRIPT_RE,
+    TO_SUP,
     fix_refs,
     from_sup,
     left_open,
@@ -82,7 +83,6 @@ _LATEX_WRAP_RE = re.compile(r"\\[a-zA-Z]+\s*\{([^{}]*)\}")
 _LATEX_SUB_RE = re.compile(r"_\{([^{}]*)\}")
 _LATEX_COMMAND_RE = re.compile(r"\\[a-zA-Z]+")
 _LATEX_SUP_RE = re.compile(r"\s*\$?\s*\^\{([^}]{1,3}|\d{4})\}\s*\$?")  # "^{A}" -> plain "A"
-_TO_SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _NOTE_RATIO = 0.8  # footnote size against the body (structure reads < 0.92 as notes)
 # A table of at least this many words with fewer distinct words than this share is
 # the model looping, not a real table.
@@ -470,8 +470,8 @@ def _latex_sup(match: re.Match) -> str:
     if len(digits) == 4 and digits.endswith("7"):
         # No note has four digits: a question mark after the reference read as a
         # 7 ("filósofos¹²⁶?" -> "^{1267}").
-        return digits[:3].translate(_TO_SUPERSCRIPT) + "?"
-    return (digits or inner).translate(_TO_SUPERSCRIPT)
+        return digits[:3].translate(TO_SUP) + "?"
+    return (digits or inner).translate(TO_SUP)
 
 
 def _write_text_layer(
