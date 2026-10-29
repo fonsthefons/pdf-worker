@@ -14,10 +14,8 @@ from dataclasses import dataclass
 from pdf_worker.footnotes import BodyLine
 from pdf_worker.inline import CELL, LEADING_PAGE_MARKS_RE, STYLE_RE, margin_ref
 from pdf_worker.layout import Line, ink_bbox
-from pdf_worker.margin_refs import UNREADABLE, is_mark
+from pdf_worker.margin_refs import LONG_LINE_SHARE, UNREADABLE, is_mark
 
-# Lines at least this share of the page width are candidates for the body column.
-_LONG_LINE_SHARE = 0.35
 _MIN_LONG_LINES = 3
 # A margin column is narrow, and holds less text than the body.
 _MAX_MARGIN_WIDTH_SHARE = 0.6
@@ -47,7 +45,7 @@ def split_columns(lines: list[BodyLine], page_width: float, body_size: float) ->
     left, right = column
     # Justified lines end at the median right edge; marks past it stick out.
     edge = statistics.median(
-        bl.line.x1 for bl in lines if bl.line.x1 - bl.line.x0 >= page_width * _LONG_LINE_SHARE
+        bl.line.x1 for bl in lines if bl.line.x1 - bl.line.x0 >= page_width * LONG_LINE_SHARE
     )
     lines = [_trim_edge_marks(bl, left, edge, body_size) for bl in lines]
     tolerance = 0.5 * body_size
@@ -200,7 +198,7 @@ def _body_column(lines: list[BodyLine], page_width: float) -> tuple[float, float
     long_lines = [
         bl.line
         for bl in lines
-        if bl.text.strip() and bl.line.x1 - bl.line.x0 >= page_width * _LONG_LINE_SHARE
+        if bl.text.strip() and bl.line.x1 - bl.line.x0 >= page_width * LONG_LINE_SHARE
     ]
     if len(long_lines) < _MIN_LONG_LINES:
         return None

@@ -16,8 +16,9 @@ from collections.abc import Sequence
 
 from pdf_worker.margin_refs import ScanWord, norm
 
-_TO_SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
-_FROM_SUP = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+SUP_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+TO_SUP = str.maketrans("0123456789", SUP_DIGITS)  # for digit strings; sup() for numbers
+FROM_SUP = str.maketrans(SUP_DIGITS, "0123456789")
 SUPERSCRIPT_RE = re.compile("[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
 # A note's own number: superscript, plain ("17 ", "17. "), or misread as a symbol ("*",
 # or "π" for "78" when a capitalised word follows).
@@ -40,11 +41,11 @@ _PADDLE = 2  # Paddle saw a reference there, with another number
 
 
 def sup(number: int) -> str:
-    return str(number).translate(_TO_SUP)
+    return str(number).translate(TO_SUP)
 
 
 def from_sup(text: str) -> int:
-    return int(text.translate(_FROM_SUP))
+    return int(text.translate(FROM_SUP))
 
 
 def left_open(blocks: Sequence[Sequence]) -> bool:
