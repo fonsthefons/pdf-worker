@@ -1,5 +1,25 @@
 # Progress
 
+## Layout plan, Phase 2: merge exact duplicates (2026-10-29, branch `layout/phase-2`)
+- `LONG_LINE_SHARE = 0.35` now lives only in `margin_refs` (`margins` imports it;
+  `margins` already imported `margin_refs`, no cycle).
+- Digit/superscript tables: `note_numbers` exports `SUP_DIGITS`, `TO_SUP`, `FROM_SUP`
+  (used by `sup`/`from_sup`); `layout._SUPERSCRIPT_DIGITS`/`_FROM_SUPERSCRIPT`,
+  `glued_refs._TO_SUP`, `paddle_ocr._TO_SUPERSCRIPT` deleted. They translate digit
+  *strings* (with "", "?" or leading zeros around), so the tables are shared, not
+  `sup()`/`from_sup()` (those take/return an `int`).
+- Bare number **not merged** (my choice): Phase 1 changed `layout._PRINTED_NUMBER_RE`
+  to `\d(?: ?\d){0,3}` (OCR-spaced digits), so it no longer equals
+  `margins._NUMBER_RE` (`\d{1,4}`); merging would change results.
+- Not merged, listed as the plan says: the "number starting a note" patterns
+  `layout._PLAIN_NOTE_RE`, `glued_refs._NOTE_START_RE`, `margins._LEADING_NUMBER_RE`,
+  `footnotes._DEF_START_RE` (1-3 vs 1-4 digits, different followers).
+- Check: fast tests 335 passed; ruff clean; `regression.py compare
+  scratch/regress/phase1d scratch/regress/phase2b`: same numbers and empty diffs for
+  all eight books (build 614 s).
+- The branch also carries the user's two commits moving the repo under
+  `~/Documents/programs` (made on this branch after the first run's WIP commit).
+
 ## Layout plan, Phase 1: headers and footers by repetition (2026-10-28, branch `layout/phase-1`, PR #69)
 **Final state, after the user's answers (the first run's stop is below).**
 User decisions (2026-10-28):
