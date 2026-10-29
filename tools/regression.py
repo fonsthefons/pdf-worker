@@ -83,7 +83,10 @@ def _write_atomic(path: Path, text: str) -> None:
 
 
 def build(out: Path) -> None:
+    # The layout model's rows, as the inbox passes them (cached in scratch/paddle-home).
+    os.environ.setdefault("PDF_WORKER_PADDLE_CACHE", str(ROOT / "scratch" / "paddle-home"))
     from pdf_worker.convert import convert_pdf
+    from pdf_worker.paddle_ocr import layout_pages
 
     out.mkdir(parents=True, exist_ok=True)
     for label, pdf in BOOKS:
@@ -97,6 +100,7 @@ def build(out: Path) -> None:
             author="-",
             cover=False,
             fixes_path=out / f"{label}.fixes.tsv",
+            layout_rows=layout_pages(pdf),
         )
         result = numbers(md, report.stats)
         _write_atomic(out / f"{label}.json", json.dumps(result, ensure_ascii=False, indent=1))

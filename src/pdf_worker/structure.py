@@ -8,7 +8,7 @@ paragraph is held in memory. Footnote references in block text use the
 import re
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 
 import pymupdf
@@ -341,7 +341,7 @@ def _link_line(body_line: BodyLine, links: list[tuple[pymupdf.Rect, str]]) -> Bo
         else:
             continue
         found = True
-    return BodyLine(text, line, body_line.endnote_label) if found else body_line
+    return replace(body_line, text=text) if found else body_line
 
 
 class _State:
@@ -400,7 +400,7 @@ class _State:
             glosses = ()
         lines = self._label_margin_refs(lines)
         # Printed in the text, so taken as read: notes cite them out of order ("[38e]").
-        lines = [BodyLine(bracketed(bl.text), bl.line, bl.endnote_label) for bl in lines]
+        lines = [replace(bl, text=bracketed(bl.text)) for bl in lines]
         margins = _page_margins(lines, profile.body_size)
         new_page = True
         # Blank lines only separate paragraphs between two lines of the same page; blanks
@@ -418,9 +418,7 @@ class _State:
                 body_line = _link_line(body_line, links)
             if self.pending_marks:
                 marks, self.pending_marks = "".join(self.pending_marks), []
-                body_line = BodyLine(
-                    marks + body_line.text, body_line.line, body_line.endnote_label
-                )
+                body_line = replace(body_line, text=marks + body_line.text)
             yield from self._add_line(body_line, margins, new_page)
             new_page = False
         for picture in pictures:  # pictures below the page's last line
@@ -448,9 +446,7 @@ class _State:
         if not readings:
             return lines
         if self.profile.bracketed_refs:  # printed in the text: line-end marks are page numbers
-            return [
-                BodyLine(MARGIN_REF_RE.sub("", bl.text), bl.line, bl.endnote_label) for bl in lines
-            ]
+            return [replace(bl, text=MARGIN_REF_RE.sub("", bl.text)) for bl in lines]
         running = bool(self.margin_label and self.margin_label[:-1].isdigit())
         keep = running or any(has_letter(r) for r in readings)
 
@@ -461,9 +457,7 @@ class _State:
             self.margin_label = new
             return margin_ref(new)
 
-        return [
-            BodyLine(MARGIN_REF_RE.sub(label, bl.text), bl.line, bl.endnote_label) for bl in lines
-        ]
+        return [replace(bl, text=MARGIN_REF_RE.sub(label, bl.text)) for bl in lines]
 
     # -- line handling ----------------------------------------------------------------
     def _add_line(self, body_line: BodyLine, margins: _Margins, new_page: bool) -> Iterator[Block]:
@@ -483,7 +477,7 @@ class _State:
                 self.current.label in notes.last_in_group
                 and self.current.label not in notes.section_continues
             )
-            starts = self._starts_paragraph(line, text, margins, new_page)
+            starts = self._starts_paragraph(body_line, margins, new_page)
             if level and not last:
                 # A group heading inside the notes area ("2 The Foundation ..."): drop it,
                 # but keep any page-start marker it carried for the next line.
@@ -521,14 +515,14 @@ class _State:
             same_heading = (
                 self.current.kind == "heading"
                 and self.current.level == level
-                and not self._starts_paragraph(line, text, margins, new_page)
+                and not self._starts_paragraph(body_line, margins, new_page)
             )
             if not same_heading:
                 yield from self._flush()
                 self.current = _Builder(kind="heading", level=level)
         else:
             kind = "small" if is_small(line, profile.body_size) else "para"
-            starts = self._starts_paragraph(line, text, margins, new_page)
+            starts = self._starts_paragraph(body_line, margins, new_page)
             if starts and self.current.kind == "note" and not self.break_next:
                 # A numbered note ("[5] ... (14 octubre 2016):") runs on to the next note
                 # or a change of type ("Copyright ©" after the last), not a short line.
@@ -545,7 +539,10 @@ class _State:
         self.prev, self.prev_text = line, text
         self.break_next = False
 
-    def _starts_paragraph(self, line: Line, text: str, margins: _Margins, new_page: bool) -> bool:
+    def _starts_paragraph(self, body_line: BodyLine, margins: _Margins, new_page: bool) -> bool:
+        if body_line.starts is not None:
+            return body_line.starts  # the layout model's bibliography entries
+        line, text = body_line.line, body_line.text
         prev = self.prev
         if prev is None or self.break_next:
             return True

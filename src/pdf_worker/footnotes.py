@@ -29,6 +29,7 @@ from pdf_worker.layout import (
     SUPERSCRIPT,
     DocumentProfile,
     Line,
+    boxes,
     page_lines,
     plain_note_start,
 )
@@ -62,6 +63,10 @@ class BodyLine:
     line: Line
     # Set when this line starts an endnote definition; ``text`` is then the note text.
     endnote_label: str | None = None
+    # The layout model's say on a paragraph starting here: between two lines of
+    # bibliography (``reference_content`` boxes), True at a new box, False inside one;
+    # None leaves it to ``structure``'s rules.
+    starts: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,15 @@ def layout_page(
             lines, region, page_index + 1, previous_label
         )
 
+    # One bibliography entry per ``reference_content`` box; not on a page of chapter
+    # notes, which the model boxes alike (one box per note, or across two).
+    row = None if page_index in chapter_notes.note_pages else profile.layout.get(page_index)
+    entries = [
+        i if i is not None and row["blocks"][i]["label"] == "reference_content" else None
+        for i in (boxes(page, row, lines) if row else [None] * len(lines))
+    ]
+    entry = None  # the box of the body line before
+
     references: list[str] = []
     # A note continued from the previous page reuses that page's label; count it once.
     definitions = [label for label, _ in notes if label != previous_label]
@@ -120,6 +134,8 @@ def layout_page(
     for line_index, line in enumerate(lines):
         if line_index in consumed or line_index in furniture:
             continue
+        before, entry = entry, entries[line_index]
+        starts = None if before is None or entry is None else entry != before
         if page_index in chapter_notes.note_pages:
             hung = plain_note_start(lines, line_index)
             if hung and hung[1] != line_index and (page_index, hung[1]) in chapter_notes.defs:
@@ -144,6 +160,7 @@ def layout_page(
                     text=text,
                     line=line,
                     endnote_label=chapter_def,
+                    starts=starts,
                 )
             )
             continue
@@ -151,7 +168,7 @@ def layout_page(
         if endnote:
             definitions.append(endnote)
         text = _render_brackets(text, profile, references)
-        body.append(BodyLine(text=text, line=line, endnote_label=endnote))
+        body.append(BodyLine(text=text, line=line, endnote_label=endnote, starts=starts))
     trailing = notes[-1][0] if notes else None
     found = {label for label, _ in notes}
     for label in dict.fromkeys(marker_labels.values()):

@@ -30,7 +30,7 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   PNG), `epub_score.py` (an EPUB against a reference), `check_and_fix.py` (EPUBs whose
   `mimetype` entry isn't first/stored get repacked in place; `--check` only reports),
   `regression.py` (`build OUT_DIR` converts the eight test books to Markdown with their
-  numbers; `compare BEFORE AFTER` shows numbers, headings lost/added and writes diffs:
+  numbers, passing the layout model's rows cached in `scratch/paddle-home`; `compare BEFORE AFTER` shows numbers, headings lost/added and writes diffs:
   run it before and after a change to the pipeline), `parts_report.py` (`OUT_DIR [LABEL...]`
   builds the test books and counts, part by part, the lines today's rules and the layout
   model agree on; `--show PAGE...` prints a page's lines with both). Reuse these before
