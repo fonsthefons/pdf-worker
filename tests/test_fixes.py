@@ -295,12 +295,33 @@ def test_bibliography_subheadings_of_the_same_level_stay_in_it():
     blocks = [
         Heading("BREVE BIBLIOGRAFIA", 2),
         Heading("Obras generales", 2),
-        Paragraph(page_mark(0, "1") + "Philologie mendaba."),
+        Paragraph(page_mark(0, "1") + "BECKER, C. L., The Heavenly City mendaba, 1932."),
         Heading("Capítulos I-II: La Ilustración", 2),
+        Paragraph("1. BAYLE"),
         Heading("Estudios", 2),
-        Paragraph("Otra dcdicaban."),
+        Paragraph("Dictionnaire dcdicaban, 2 vols., Rotterdam, 1695-7; 4 vols., 1730."),
         Heading("Capítulo IX", 2),
         Paragraph("Texto becho."),
+    ]
+    _, _, review = _run([], blocks)
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
+
+
+def test_bibliography_with_entries_straight_under_it_ends_at_its_level():
+    # Diálogos: "BIBLIOGRAFÍA" then the next dialogue, both level 2.
+    blocks = [
+        Heading("BIBLIOGRAFÍA", 2),
+        Paragraph(page_mark(0, "1") + "Philologie mendaba."),
+        Heading("TIMEO", 2),
+        Paragraph("Texto becho."),
+    ]
+    _, _, review = _run([], blocks)
+    assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
+
+
+def test_a_year_and_commas_alone_is_not_an_entry():
+    blocks = [
+        Paragraph(page_mark(0, "1") + "Kant, que escribió en 1770, becho, dijo, al fin."),
     ]
     _, _, review = _run([], blocks)
     assert {f.find for f in review.fixes if f.kind == "spelling"} == {"becho"}
