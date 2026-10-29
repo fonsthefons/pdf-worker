@@ -1,5 +1,98 @@
 # Progress
 
+## Layout plan, Phase 4: the model against today's rules (2026-10-29, branch `layout/phase-4`)
+New `tools/parts_report.py OUT_DIR [LABEL...] [--show PAGE...]`: builds the eight books
+as `regression.py build` does (Markdown, cached layout rows passed in) while watching the
+pipeline's own functions (wrappers that return what they return; the eight `.md` files
+are byte for byte those of `scratch/regress/phase3`), then counts per part the lines
+both call that part, only the rule, only the model, with the 5 pages holding most of each.
+Furniture is left out. Lines are matched through their spans (the pipeline trims and
+joins lines but keeps the span objects). `--show` prints a page's lines with the rule's
+parts (R region, F note kept, B bibliography, M margin, H heading, P paragraph, S start)
+beside the model's label. Run: `run_logged.py parts_report4 ... parts_report.py
+scratch/parts_report4` (613 s; log `scratch/logs/parts_report4.log`). Build each run
+into a new folder: a reused `<label>.fixes.tsv` changes words (seen: 8 in Metafísica).
+`tools/page_parts.py` now does convert's preparation (font sizes, glued references),
+follows the note running on from the page before (it showed such notes as body), and
+calls the lines a chapter-notes page leaves "endnote". In CLAUDE.md's dev tools.
+
+| Part (lines; contents: pages) | Both | Only the rule | Only the model |
+|---|---|---|---|
+| footnote region (`_find_region`) | 935 | 474 | 37 |
+| footnotes kept as notes | 41 | 31 | 931 |
+| contents pages | 4 | 0 | 0 |
+| bibliography (`Review.reference`) | 223 | 4,237 | 1,381 |
+| margins (`split_columns`) | 699 | 189 | 4 |
+| paragraph starts (in `text` boxes) | 6,420 | 3,198 | 1,179 (1,002 in a page's first box) |
+| headings | 177 | 104 | 353 |
+
+By book (both / rule only / model only):
+- footnote region: metafisica 637/372/17, lugones 297/32/8, niebla 1/49/0, dialogos
+  0/9/0, timeo_greek 0/12/0, kant 0/0/2, dilexit 0/0/10.
+- footnotes kept: metafisica 41/31/613, lugones 0/0/305, kant 0/0/2, dilexit 0/0/10,
+  niebla 0/0/1.
+- contents: metafisica 4/0/0 (pp. 5-8; the only printed contents in the set).
+- bibliography: metafisica 118/83/72, lugones 0/56/12, dilexit 0/0/379, dialogos
+  105/4,095/34, timeo_greek 0/3/884.
+- margins: dialogos 699/1/0, metafisica 0/176/0, timeo_greek 0/10/4, lugones, niebla 0/1/0.
+- paragraph starts: kant 788/35/141, timeo_web 106/661/93, metafisica 931/396/54, lugones
+  704/104/200, dilexit 232/26/51, dialogos 1,429/38/352, timeo_greek 117/141/142, niebla
+  2,113/1,797/146.
+- headings: kant 21/22/31, timeo_web 0/3/1, metafisica 45/28/288, lugones 10/3/6,
+  dilexit 55/4/5, dialogos 20/8/6, timeo_greek 2/6/1, niebla 24/30/15.
+
+What the example pages show, and my recommendation per part:
+1. **Footnotes: don't switch the region.** `_find_region` finds nearly every region the
+   model sees (935 of 972 lines) and more: Metafísica p. 145's notes 3-5 are `text` /
+   `paragraph_title` to the model. Rule-only regions elsewhere (Niebla p. 177, OCR
+   jitter) are dropped later anyway. The real loss is after the region: 931 note lines
+   whose region is found are put back into the body by `_collect_footnotes` because no
+   marker is accepted: Metafísica p. 95 (notes "5.", "6." against references
+   "individual5"), p. 98 (the page before's notes come out as a table "| 8. |
+   Metafisica..."), Lugones p. 83 ("(1)" markers), p. 50 (a note running on from p. 49).
+   And the rule's 31 own lines are its mistake: Metafísica p. 141, an 8.5 pt passage
+   joined to note p139-5. Fixing marker matching is outside the plan: **the user's call.**
+   Model mistakes seen: Kant p. 71 a section title as `footnote`; Dilexit p. 56 the
+   endnotes.
+2. **Contents: keep the rule.** Both agree on all 4 pages; nothing to gain on this set
+   (switching would only trade one rule for another).
+3. **Bibliography: switch (as Phase 5 says: one `reference_content` box = one entry).**
+   Metafísica pp. 222-226: the model's boxes are the entries; today almost every line is
+   its own paragraph (`--show 224`: "PS" on the wrapped lines). Care: the model also
+   labels notes sections `reference_content` (Dilexit pp. 58-63, Timeo Greek p. 215 on,
+   Diálogos p. 349): one box per note, fine for paragraphs, but they must not become a
+   bibliography; a run-on chapter bibliography (Metafísica p. 36) is `text` to it (stays
+   as today). Found on the way, not fixed (no new rules): the review's bibliography
+   flag starts at Diálogos's "BIBLIOGRAFÍA" (p. 90, level 2) and never ends, as
+   `Review._section` ends it only at a higher level or a "capítulo" heading, so the
+   Timeo and Critias (4,095 lines) skip the spelling check; `_is_reference` takes
+   Lugones' footnotes (p. 83 "1553; Frobisher en 1577; ...") and a body paragraph (p. 8,
+   "escribió en 1770") for references.
+4. **Margins: keep the rule.** Diálogos' 699 margin lines agree exactly; rule-only lines
+   are Metafísica's contents pages' page-number column (dropped with the page anyway).
+5. **Paragraph starts: switch only with a change the plan doesn't have.** Of the
+   model's 1,179 own starts, 1,002 are a page's first box (paragraphs running on: Kant
+   p. 3, Diálogos p. 7; Phase 5's exception), so about 177 are new. The 3,198 rule-only
+   starts are mostly the rule splitting what the model keeps whole: Niebla p. 171 (OCR
+   size jitter: the model's 6 boxes are the page's 6 paragraphs, today about 10), Timeo
+   web p. 22 (justified lines read as word fragments and joined as table rows),
+   Metafísica p. 224 (each bibliography line). Phase 5 as written keeps today's rules
+   inside a box, so it adds ~177 starts and removes none of these. The gain needs "no new
+   paragraph inside a `text` box": **the user's call.**
+6. **Headings (not a Phase 5 candidate): worth considering.** The model finds 353 heading
+   lines the rule misses: Metafísica 288 (small-type section titles, p. 98 "El acto de
+   ser, fundamento último...", "El ser, acto que engloba...": bold or italic paragraphs
+   today), Kant 31 ("Tesis", "Prueba", "Antítesis", p. 195). The rule's own 104 are
+   mostly its mistakes: Kant p. 59 table rows "DE LA CANTIDAD", Metafísica p. 126 two
+   9.5 pt body lines, Niebla p. 28 OCR specks in large type; title pages either way.
+   Model mistakes: Kant p. 195 "Segunda oposición de las ideas transcendentales" as
+   `text`, Niebla p. 18 a garbled running head.
+
+Check: fast tests 338 passed; ruff clean. Scratch helpers: `scratch/region_check.py`
+(region found / notes kept on given pages), `scratch/review_levels.py` (headings and the
+review's bibliography level), `scratch/same_md.py`; PNGs in `scratch/parts_png/`.
+**Stopped here for the user's choice of parts (plan: end of Phase 4).**
+
 ## Layout plan, Phase 3: the layout model for every book (2026-10-29, branch `layout/phase-3`)
 - `paddle_worker.py --layout-only`: PP-DocLayoutV3 alone (threshold 0.3, layout_nms),
   pages at 150 dpi, rows `{"page", "width", "height", "blocks": [{"label", "score",

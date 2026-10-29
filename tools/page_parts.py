@@ -15,6 +15,7 @@ import itertools
 import os
 from pathlib import Path
 
+from pdf_worker import bilingual, font_sizes, glued_refs
 from pdf_worker.document import open_pdf
 from pdf_worker.footnotes import layout_page
 from pdf_worker.layout import analyze_document, box_labels, page_lines
@@ -41,15 +42,24 @@ except OcrError as exc:
     rows = {}
 with open_pdf(args.pdf) as doc:
     index = args.page - 1
+    # convert_pdf's preparation, but for re-reading garbled words (OCR).
+    font_sizes.mark_misreporting(doc)
+    glued_refs.mark_glued_refs(doc, skip=bilingual.facing_pages(doc)[1])
+    profile = analyze_document(doc)
+    previous = None  # a note running on from the page before, as the pipeline reads it
+    for before in range(index):
+        previous = layout_page(doc.load_page(before), before, profile, previous).trailing_label
     page = doc.load_page(index)
-    layout = layout_page(page, index, analyze_document(doc))
+    layout = layout_page(page, index, profile, previous)
     parts = {(line.bbox, line.text): "furniture" for line in layout.furniture}
     parts.update({(bl.line.bbox, bl.line.text): "body" for bl in layout.lines})
     lines = page_lines(page)
     row = rows.get(index)
     labels = box_labels(page, row, lines) if row else [""] * len(lines)
+    # On a page of chapter endnotes the lines the body leaves are notes' hung numbers.
+    rest = "endnote" if index in profile.chapter_notes.note_pages else "footnote"
     for line, label in zip(lines, labels, strict=True):
-        part = parts.get((line.bbox, line.text), "footnote")
+        part = parts.get((line.bbox, line.text), rest)
         print(
             f"{part:9} {label or '-':17} {line.top / page.rect.height:5.1%} s{line.size:5.1f}",
             repr(line.text),
