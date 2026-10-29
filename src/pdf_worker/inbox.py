@@ -59,6 +59,7 @@ CHOSEN = "copy.json"  # in a folder book's work folder: the copy used, and why
 FORMATS = (*convert.FORMATS, "searchable")
 DEFAULT_FORMATS = ("epub", "pdf")
 BOOK_OPTIONS = ("title", "author", "language", "notes_at", "margin_refs")  # convert_pdf's
+_LAYOUT_SAID: set[str] = set()  # why the layout model is missing, once said
 
 
 @dataclass
@@ -166,10 +167,11 @@ def _process_book(root, entry, engine, say, on_step, given) -> BookResult:
         return BookResult(name, "waiting", f"{chosen}to review", pdf)
     if not pdf.exists():
         _prepare(original, pdf, engine, say)
+    layout = None if (work / PADDLE_MARK).exists() else _layout_rows(pdf, say, on_step)
 
     target = outbox if reviewed else outbox / DRAFTS
     say(f"  building: {', '.join(formats)}")
-    conversion = _build(original, stem, pdf, target, on_step, settings)
+    conversion = _build(original, stem, pdf, target, on_step, settings, layout)
     note = ""
     if "searchable" in formats and (work / PADDLE_MARK).exists():
         note = "; no searchable PDF (PaddleOCR-VL adds no text layer)"
@@ -351,11 +353,29 @@ def _copy(source: Path, target: Path) -> None:
         raise
 
 
+def _layout_rows(pdf: Path, say, on_step) -> dict[int, dict] | None:
+    """The layout model's boxes for every page (``paddle_ocr.layout_pages``); not used
+    yet. Without them (no Paddle environment, or the model failed) the book is built as
+    before; that is said once a run."""
+    from pdf_worker.ocr import OcrError
+    from pdf_worker.paddle_ocr import layout_pages
+
+    say("  looking at the pages")
+    try:
+        return layout_pages(pdf, on_step and on_step("Looking at the pages", "pages"))
+    except OcrError as exc:
+        if str(exc) not in _LAYOUT_SAID:
+            _LAYOUT_SAID.add(str(exc))
+            say(f"  no layout model, going on without it: {exc}")
+        return None
+
+
 def _build(
-    original: Path, stem: str, pdf: Path, folder: Path, on_step, settings
+    original: Path, stem: str, pdf: Path, folder: Path, on_step, settings, layout=None
 ) -> convert.ConvertReport:
     """Write the book's formats into ``folder``; return the EPUB's report. The EPUB is
-    always made (the report counts its words): in the work folder when not asked for."""
+    always made (the report counts its words): in the work folder when not asked for.
+    ``layout``: the layout model's rows, for a book built from the text layer."""
     rows = None
     if (pdf.parent / PADDLE_MARK).exists():
         from pdf_worker.paddle_ocr import paddle_pages
@@ -374,6 +394,7 @@ def _build(
             on_step=None if rows else on_step,
             # The original's PDF metadata and file name, not the copy's.
             source_pdf=original if original.suffix.lower() == ".pdf" else pdf,
+            layout_rows=layout,
             **{k: settings[k] for k in BOOK_OPTIONS if k in settings},
         )
         for fmt, home in zip(built, homes, strict=True)

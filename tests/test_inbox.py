@@ -2,11 +2,49 @@ import os
 import zipfile
 
 import pymupdf
+import pytest
 
-from pdf_worker import epub_mimetype, inbox
+from pdf_worker import convert, epub_mimetype, inbox, paddle_ocr
 from pdf_worker.convert import convert_pdf
 
 TEXT = ["Chapter One\n\nIt was a quiet morning in the village.", "The end of the story."]
+
+
+@pytest.fixture(autouse=True)
+def _no_layout_model(tmp_path, monkeypatch):
+    # The layout model is slow and not used yet: these tests run without it.
+    monkeypatch.setenv("PDF_WORKER_PADDLE_PYTHON", str(tmp_path / "no-paddle" / "python"))
+    monkeypatch.setattr(inbox, "_LAYOUT_SAID", set())
+
+
+def test_without_the_layout_model_books_are_built_and_it_is_said_once(make_pdf, tmp_path):
+    root = tmp_path / "root"
+    (root / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "a.pdf")
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "b.pdf")
+    said = []
+
+    results = inbox.process(root, say=said.append)
+
+    assert [r.state for r in results] == ["finished", "finished"]
+    assert len([s for s in said if "layout model" in s]) == 1
+
+
+def test_the_layout_rows_reach_the_conversion(make_pdf, tmp_path, monkeypatch):
+    rows = {0: {"page": 0, "width": 100, "height": 100, "blocks": []}}
+    monkeypatch.setattr(paddle_ocr, "layout_pages", lambda pdf, on_page=None: rows)
+    given = []
+    real = convert.convert_pdf
+    monkeypatch.setattr(
+        convert, "convert_pdf", lambda *a, **k: given.append(k["layout_rows"]) or real(*a, **k)
+    )
+    root = tmp_path / "root"
+    (root / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "a.pdf")
+
+    inbox.process(root)
+
+    assert given and all(g is rows for g in given)
 
 
 def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):

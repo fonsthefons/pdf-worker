@@ -120,6 +120,7 @@ def convert_pdf(
     estimate_margin_refs: bool = False,
     fixes_path: str | Path | None = None,
     source_pdf: str | Path | None = None,
+    layout_rows: dict[int, dict] | None = None,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
@@ -142,6 +143,8 @@ def convert_pdf(
     (``pdf_worker.margin_estimates``).
     The review file ``fixes_path`` (default ``<pdf stem>.fixes.tsv`` next to the PDF;
     ``pdf_worker.fixes``) is applied to the text, then updated with what looks wrong.
+    ``layout_rows`` (``paddle_ocr.layout_pages``, books built from the text layer) go
+    to the ``DocumentProfile``'s ``layout``; not used yet.
     """
     if estimate_margin_refs:
         margin_refs = True
@@ -187,6 +190,7 @@ def convert_pdf(
             reread = _reread_words(doc, language, facing, step("re-reading garbled words", "lines"))
             glued_refs.mark_glued_refs(doc, skip=facing)
             profile = analyze_document(doc, on_page=step("reading the layout"))
+            profile.layout = layout_rows or {}
             sample = profile.text_sample
             blocks = iter_blocks(
                 doc,
