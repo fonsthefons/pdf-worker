@@ -1,7 +1,8 @@
 # Progress
 
-## Layout plan, Phase 5: paragraphs (2026-10-29, branch `layout/phase-5-paragraphs`) — STOPPED, needs the user
-No new paragraph inside one `text` box, as the plan says, in `footnotes.layout_page`:
+## Layout plan, Phase 5: paragraphs (2026-10-29, branch `layout/phase-5-paragraphs`)
+**User's choice (b), done (second half of this entry).** First run, as the plan wrote it:
+no new paragraph inside one `text` box, as the plan says, in `footnotes.layout_page`:
 between two body lines of a page in the same `text` box `BodyLine.starts` is False;
 at a box's edge (another box, no box, a page's first line) it stays None and
 `structure._starts_paragraph`'s rules decide; no start is added at a new box. Chapter-notes
@@ -66,6 +67,46 @@ books without rows.
   and 5 are OCR scans), also a new rule; (d) wait for the headings part, which may label
   some of these lines as titles.
   The code is as the plan writes it; the PR is a draft until the user decides.
+
+**User chose (b).** `footnotes._starts_item`: inside one `text` box, a line that starts
+like a new item, and the line after it, keep today's rules (`starts` None): a bare number
+("3"), a numbering ("1º.", "1.2.", "85."), a dash or "§" (dialogue lines, OCR "__",
+"- § 7 -", "- II -"), a speaker's turn ("TIM.—", "TrM.-"), a bibliography entry
+("J. GARCÍA BACCA", "GRABMANN, M.:"), or a line all in capitals with 4+ letters
+("PRIMER CAPÍTULO"). "The line after" skips blank lines (Kant puts " " lines between a
+mark and its title; with them counted, "- II -" still joined "De la razón pura...").
+- Tests: `test_a_line_that_starts_an_item_keeps_todays_split_inside_a_text_box` (5 kinds)
+  and `test_a_line_after_a_section_mark_keeps_todays_split_inside_a_text_box`; all 6 failed
+  without `_starts_item`. Fast tests 351 passed; ruff clean.
+- `regression.py build scratch/regress/p5para_c` (639 s, log `scratch/logs/p5para_c.log`),
+  `compare` against `p5bib_after`:
+
+  | Book | Paragraphs | Splits | Headings | Breaks lost / new |
+  |---|---|---|---|---|
+  | kant | 906 -> 892 | 8 -> 7 | 43 (none lost) | 14 / 10 |
+  | timeo_web | 772 -> 680 | 599 | 3 | |
+  | metafisica | 1,952 -> 1,741 | 394 -> 235 | 67 -> 59 | 227 / 30 |
+  | lugones | 1,073 -> 998 | 92 -> 66 | 12 | |
+  | dilexit | 268 -> 243 | 1 -> 0 | 59 | 25 / 2 |
+  | dialogos | 1,489 -> 1,479 | 19 -> 16 | 28 | 10 / 3 |
+  | timeo_greek | 293 -> 223 | 90 -> 39 | 7 (none lost) | 71 / 23 |
+  | niebla | 4,307 -> 2,831 | 2,000 -> 634 | 54 | 1,594 / 556 |
+
+- The items listed as worse above are back. Kant keeps its chapter headings, marks, and
+  "1º." rows. Diálogos keeps p. 159's entries and p. 86's items; only joins inside one
+  entry or sentence remain. All speaker turns stay: Diálogos 1,177, Timeo Greek 36.
+  Niebla keeps 1,628 of its 1,630 dialogue lines; its remaining joins are the
+  line-by-line OCR splits (the prologue had every line as its own paragraph).
+  Metafísica's 8 lost "headings" were bibliography lines or body sentences cut by OCR
+  ("LEIN, Die Transzendentalienlehre...", "dad se identifica, así, ..."); its authors and
+  "LIBROS DE INICIACION FILOSOFICA" stay.
+- Still joined (not one of the user's kinds; read as harmless):
+  - Kant's two-line titles become one line: "Libro segundo De los raciocinios
+    dialécticos...", "Primera división De la lógica transcendental".
+  - Kant's dedication "...Barón de Zedlitz. Señor:".
+  - Kant breaks the page doesn't show, which the model joins: p. 38 "...no ofrece
+    dificultad. Concedo todo el argumento".
+  - Niebla's 2 dialogue lines after "dijo:" / "en voz alta:".
 
 ## Layout plan, Phase 5: bibliography (2026-10-29, branch `layout/phase-5-bibliography`)
 One `reference_content` box = one bibliography entry, decided in `footnotes.layout_page`:
