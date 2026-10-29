@@ -70,6 +70,7 @@ from pdf_worker.ocr import (
 )
 
 MODEL = "PaddlePaddle/PaddleOCR-VL-1.6"
+LAYOUT_MODEL = "PP-DocLayoutV3"  # PaddleOCR-VL's layout model, run alone by layout_pages
 _WORKER = Path(__file__).with_name("paddle_worker.py")
 _DEFAULT_PYTHON = Path(__file__).resolve().parents[2] / ".venv-paddle" / "bin" / "python"
 _SERVER_TIMEOUT = 900  # seconds; the first start downloads the model (about 2 GB)
@@ -174,7 +175,35 @@ def paddle_pages(
     stops halfway goes on where it stopped. ``on_page(done, total)`` is called as pages
     are read; ``done`` counts the cached pages too."""
     pdf_path = Path(pdf_path)
-    cache = _pages_cache(pdf_path)
+
+    def run(python, missing, results, work, report):
+        with _mlx_server(python, progress) as server:
+            _run_worker(python, pdf_path, missing, results, work, server, progress, report)
+
+    rows = _cached_rows(_pages_cache(pdf_path), pages, on_page, run)
+    return [rows[p] for p in pages if p in rows]
+
+
+def layout_pages(
+    pdf_path: str | Path, on_page: Callable[[int, int], None] | None = None
+) -> dict[int, dict]:
+    """The layout model's boxes (``LAYOUT_MODEL``, no text reading) for every page:
+    page index -> ``{"page", "width", "height", "blocks": [{"label", "score", "bbox"}]}``,
+    boxes in pixels of a ``width`` x ``height`` image of the page. Cached like
+    ``paddle_pages``, in ``cache_dir()/layout``; needs no MLX server."""
+    pdf_path = Path(pdf_path)
+    with open_pdf(pdf_path) as doc:
+        pages = list(range(doc.page_count))
+
+    def run(python, missing, results, work, report):
+        _run_worker(python, pdf_path, missing, results, work, None, False, report)
+
+    return _cached_rows(_pages_cache(pdf_path, LAYOUT_MODEL, "layout"), pages, on_page, run)
+
+
+def _cached_rows(cache: Path, pages: list[int], on_page, run) -> dict[int, dict]:
+    """The cached rows, after ``run(python, missing, results, work, report)`` has added
+    the ``pages`` missing from ``cache``; a run that stops keeps the pages it finished."""
     rows = _read_rows(cache)
     missing = [p for p in pages if p not in rows]
     if missing:
@@ -184,10 +213,7 @@ def paddle_pages(
         cached = len(pages) - len(missing)
         report = on_page and (lambda done: on_page(cached + done, len(pages)))
         try:
-            with _mlx_server(python, progress) as server:
-                _run_worker(
-                    python, pdf_path, missing, work / "pages.jsonl", work, server, progress, report
-                )
+            run(python, missing, work / "pages.jsonl", work, report)
         finally:
             # Keep the pages finished before a failure too.
             done = _read_rows(work / "pages.jsonl")
@@ -197,15 +223,15 @@ def paddle_pages(
                         out.write(json.dumps(row, ensure_ascii=False) + "\n")
             shutil.rmtree(work, ignore_errors=True)
         rows = _read_rows(cache)
-    return [rows[p] for p in pages if p in rows]
+    return rows
 
 
-def _pages_cache(pdf_path: Path) -> Path:
-    digest = hashlib.sha256(MODEL.encode())
+def _pages_cache(pdf_path: Path, model: str = MODEL, folder: str = "pages") -> Path:
+    digest = hashlib.sha256(model.encode())
     with pdf_path.open("rb") as data:
         for chunk in iter(lambda: data.read(1 << 20), b""):
             digest.update(chunk)
-    return cache_dir() / "pages" / f"{digest.hexdigest()[:32]}.jsonl"
+    return cache_dir() / folder / f"{digest.hexdigest()[:32]}.jsonl"
 
 
 def _read_rows(path: Path) -> dict[int, dict]:
@@ -252,7 +278,8 @@ def _paddle_env() -> dict[str, str]:
 def _run_worker(
     python, pdf_path, pages, results, work, server, progress, on_page=None, dpi=None
 ) -> None:
-    """Run ``paddle_worker.py``; ``on_page(done)`` hears of each page it finishes."""
+    """Run ``paddle_worker.py``; ``on_page(done)`` hears of each page it finishes. With
+    no ``server``, only the layout model runs (``--layout-only``)."""
     command = [
         str(python),
         str(_WORKER),
@@ -264,10 +291,7 @@ def _run_worker(
         str(results),
         "--work",
         str(work / "images"),
-        "--server",
-        server,
-        "--model",
-        MODEL,
+        *(["--server", server, "--model", MODEL] if server else ["--layout-only"]),
         *(["--dpi", str(dpi)] if dpi else []),
     ]
     process = subprocess.Popen(

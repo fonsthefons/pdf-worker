@@ -271,6 +271,25 @@ def edge_rows(lines: list[Line]) -> dict[int, str]:
     return rows
 
 
+def box_labels(page: pymupdf.Page, row: dict, lines: list[Line]) -> list[str]:
+    """For each line, the label of the layout model's box (a row of
+    ``paddle_ocr.layout_pages``, in image pixels) that covers more than half of it, else
+    ``""``."""
+    scale = page.rect.width / row["width"]
+    boxes = [(block["label"], [c * scale for c in block["bbox"]]) for block in row["blocks"]]
+    labels = []
+    for line in lines:
+        x0, y0, x1, y1 = line.bbox
+        area = (x1 - x0) * (y1 - y0)
+        best, label = area / 2, ""
+        for name, (bx0, by0, bx1, by1) in boxes:
+            covered = max(0, min(x1, bx1) - max(x0, bx0)) * max(0, min(y1, by1) - max(y0, by0))
+            if covered > best:
+                best, label = covered, name
+        labels.append(label)
+    return labels
+
+
 @dataclass
 class DocumentProfile:
     """What the analysis pass learned about the whole document."""
@@ -312,6 +331,8 @@ class DocumentProfile:
     page_count: int = 0
     # The book prints its margin references in the text, in brackets ("[22b]").
     bracketed_refs: bool = False
+    # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``); not used yet.
+    layout: dict[int, dict] = field(default_factory=dict)
 
     def heading_level(self, size: float) -> int | None:
         """Level of the nearest heading size, if ``size`` is within its jitter band."""

@@ -25,7 +25,8 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
 - CLI: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pdf-worker extract-text <pdf> -o /Users/fons/Documents/programs/pdf-worker/scratch/<name>.txt`
 - Dev tools in `tools/` (run with the venv's python): `find_text.py` (pages with a phrase),
   `page_lines.py` (the lines the pipeline sees on a page), `page_parts.py` (each line of a
-  page with its part: furniture / footnote / body), `render_clip.py` (a page area as
+  page with its part: furniture / footnote / body, and the layout model's label;
+  `--png OUT.png` draws the model's boxes), `render_clip.py` (a page area as
   PNG), `epub_score.py` (an EPUB against a reference), `check_and_fix.py` (EPUBs whose
   `mimetype` entry isn't first/stored get repacked in place; `--check` only reports),
   `regression.py` (`build OUT_DIR` converts the eight test books to Markdown with their

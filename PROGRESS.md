@@ -1,5 +1,36 @@
 # Progress
 
+## Layout plan, Phase 3: the layout model for every book (2026-10-29, branch `layout/phase-3`)
+- `paddle_worker.py --layout-only`: PP-DocLayoutV3 alone (threshold 0.3, layout_nms),
+  pages at 150 dpi, rows `{"page", "width", "height", "blocks": [{"label", "score",
+  "bbox"}]}` with the pixmap's size. `--server`/`--model` are needed only without it.
+- `paddle_ocr.layout_pages(pdf, on_page)` -> `{page: row}`, cached in
+  `cache_dir()/layout/` keyed by `LAYOUT_MODEL` + file hash. The cache-and-resume code of
+  `paddle_pages` moved into `_cached_rows`, shared by both; `_run_worker` with no server
+  passes `--layout-only`.
+- `layout.box_labels(page, row, lines)`; `DocumentProfile.layout` (not used yet);
+  `convert_pdf(..., layout_rows=)`; `inbox`: books built from the text layer get
+  `layout_pages` before the build (progress "Looking at the pages"); without the Paddle
+  environment, or if the model fails (my choice: any `OcrError`, since nothing uses the
+  rows yet), it says so once per run and builds as before.
+- `tools/page_parts.py`: a label column, `--png OUT.png` draws the boxes; it keeps the
+  model cache in `scratch/paddle-home` unless `PDF_WORKER_PADDLE_CACHE` is set (as the
+  tests do), so development runs write nothing outside the repo.
+- Seen: a page number "- 3 -" whose `number` box covers only the "3" gets no label
+  (the box covers less than half the line), as the rule says. Note for Phase 4.
+- Tests: `tests/test_layout_boxes.py` (box_labels with a made-up row; the worker as an
+  integration test, passed in 8 s), two inbox tests (said once; rows reach
+  `convert_pdf`). `test_inbox.py` runs with the Paddle environment pointed away.
+- Check: fast tests 338 passed; ruff clean; `regression.py compare
+  scratch/regress/phase2b scratch/regress/phase3`: same numbers, empty diffs for all
+  eight books (build 668 s).
+- Layout rows of the eight books cached in `scratch/paddle-home/layout/` (run with
+  `scratch/cache_layout.py` via `run_logged.py cache_layout`, 3,083 s, about 1.5 s a
+  page): kant 206 pages/1,036 boxes, timeo_web 56/314, metafisica 227/1,903, lugones
+  370/1,439, dilexit 69/573, dialogos 545/3,234, timeo_greek 261/1,913, niebla 326/2,925.
+  Phase 4 must read them with `PDF_WORKER_PADDLE_CACHE` set to `scratch/paddle-home`
+  (`tools/page_parts.py` does that by default).
+
 ## Layout plan, Phase 2: merge exact duplicates (2026-10-29, branch `layout/phase-2`)
 - `LONG_LINE_SHARE = 0.35` now lives only in `margin_refs` (`margins` imports it;
   `margins` already imported `margin_refs`, no cycle).
