@@ -17,12 +17,12 @@ Python (>=3.11) toolkit of PDF features. Library code in `src/pdf_worker/`, CLI 
   `test_pdfs/` are marked `integration`.
 
 ## Commands
-Run each as its own call, from the repo root (`/Users/fons/Documents/pdf-worker`):
-- Tests: `/Users/fons/Documents/pdf-worker/.venv/bin/pytest /Users/fons/Documents/pdf-worker`
-- Fast tests: `/Users/fons/Documents/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/pdf-worker`
-- Lint: `/Users/fons/Documents/pdf-worker/.venv/bin/ruff check /Users/fons/Documents/pdf-worker`
-- Format: `/Users/fons/Documents/pdf-worker/.venv/bin/ruff format /Users/fons/Documents/pdf-worker`
-- CLI: `/Users/fons/Documents/pdf-worker/.venv/bin/pdf-worker extract-text <pdf> -o /Users/fons/Documents/pdf-worker/scratch/<name>.txt`
+Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pdf-worker`):
+- Tests: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest /Users/fons/Documents/programs/pdf-worker`
+- Fast tests: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker`
+- Lint: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/ruff check /Users/fons/Documents/programs/pdf-worker`
+- Format: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/ruff format /Users/fons/Documents/programs/pdf-worker`
+- CLI: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pdf-worker extract-text <pdf> -o /Users/fons/Documents/programs/pdf-worker/scratch/<name>.txt`
 - Dev tools in `tools/` (run with the venv's python): `find_text.py` (pages with a phrase),
   `page_lines.py` (the lines the pipeline sees on a page), `page_parts.py` (each line of a
   page with its part: furniture / footnote / body), `render_clip.py` (a page area as
@@ -43,10 +43,10 @@ These rules exist so that every command runs without needing my approval. I ofte
 - At the start of a session, run `pwd` once to get the repo's absolute path. Use that absolute path in every command.
 - Never use `cd`. Always pass absolute paths to commands instead.
 - Don't use `/tmp`, `/private/tmp`, or any system temp folder. Put temporary and scratch files in `scratch/` inside this repo (it is gitignored).
-- Install Python packages into this repo's virtual environment (`.venv/`) with `/Users/fons/Documents/pdf-worker/.venv/bin/pip install ...`, then add the package to `pyproject.toml` (runtime deps under `dependencies`, tooling under `dev`). Don't use `pip3`.
-- If `.venv/` is missing, recreate it with `python3 -m venv /Users/fons/Documents/pdf-worker/.venv`, then `/Users/fons/Documents/pdf-worker/.venv/bin/python -m pip install -e /Users/fons/Documents/ai-client`, then `/Users/fons/Documents/pdf-worker/.venv/bin/pip install -e '/Users/fons/Documents/pdf-worker[dev]'`.
+- Install Python packages into this repo's virtual environment (`.venv/`) with `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pip install ...`, then add the package to `pyproject.toml` (runtime deps under `dependencies`, tooling under `dev`). Don't use `pip3`.
+- If `.venv/` is missing, recreate it with `python3 -m venv /Users/fons/Documents/programs/pdf-worker/.venv`, then `/Users/fons/Documents/programs/pdf-worker/.venv/bin/python -m pip install -e /Users/fons/Documents/programs/ai-client`, then `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pip install -e '/Users/fons/Documents/programs/pdf-worker[dev]'`.
 - Every AI call (Groq, the MLX-VLM server for PaddleOCR-VL, Apple Vision) goes through the
-  shared `ai-client` repo (`/Users/fons/Documents/ai-client`, stdlib only). Its keys
+  shared `ai-client` repo (`/Users/fons/Documents/programs/ai-client`, stdlib only). Its keys
   (`GROQ_API_KEY`) come from the environment or `ai-client/.env`, not this repo's `.env`;
   missing AI features belong in ai-client, not here.
 - Long commands: never use the Bash tool's background mode (Claude Code keeps its output

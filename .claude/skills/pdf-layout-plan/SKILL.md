@@ -10,7 +10,7 @@ allowed you to merge this plan's PRs (`layout/phase-*`) and no others. Repeat th
 until it says to stop:
 
 1. Find the next step:
-   `/Users/fons/Documents/pdf-worker/.venv/bin/python /Users/fons/Documents/pdf-worker/tools/run_plan.py --next`
+   `/Users/fons/Documents/programs/pdf-worker/.venv/bin/python /Users/fons/Documents/programs/pdf-worker/tools/run_plan.py --next`
    adding `--parts <parts>` when the user gave parts after the command. It prints JSON
    built from the plan's PRs on GitHub:
    - `{"done": true}`: every phase is merged. Say so and stop.
@@ -24,18 +24,18 @@ until it says to stop:
    - a `pr` that isn't a draft: merge it with
      `gh pr merge <number> --repo fonsthefons/pdf-worker --merge --delete-branch`, bring
      the checkout up to date (step 2), and run the fast tests:
-     `/Users/fons/Documents/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/pdf-worker -q`.
+     `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker -q`.
      If they fail, tell the user (the PR and the failures) and stop. Otherwise go back
      to step 1.
    - otherwise (`phase`, `branch`, `effort`, `prompt`): if this phase's subagent already
      ran in this loop and left no PR, say so, quote the end of its report, and stop.
      Else go on.
 2. Bring the checkout to an up-to-date main:
-   `git -C /Users/fons/Documents/pdf-worker status --porcelain`; if tracked files have
+   `git -C /Users/fons/Documents/programs/pdf-worker status --porcelain`; if tracked files have
    uncommitted changes, stop and tell the user (before Phase 0 only, changes to
    PROGRESS.md and CLAUDE.md are expected: the plan's entry and merge rule). Then
-   `git -C /Users/fons/Documents/pdf-worker switch main` and
-   `git -C /Users/fons/Documents/pdf-worker pull --ff-only`.
+   `git -C /Users/fons/Documents/programs/pdf-worker switch main` and
+   `git -C /Users/fons/Documents/programs/pdf-worker pull --ff-only`.
 3. Start one subagent with the Agent tool: `subagent_type` "general-purpose", `effort`
    the JSON's `effort` (the plan sets it per phase), `description` "Layout plan phase
    <phase>", and `prompt` the JSON's `prompt`, word for word. Tell the user in one line

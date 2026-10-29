@@ -474,8 +474,8 @@ books in place (atomic; other entries copied unchanged). Ran it on all 9: 5 fixe
 ok. Checked on a copy of vol. 2 that names and contents match the original.
 
 ## AI calls through ai-client (2026-10-22, branch `feature/ai-client`)
-Every AI call now goes through `/Users/fons/Documents/ai-client` (installed with
-`.venv/bin/python -m pip install -e /Users/fons/Documents/ai-client`; listed as `ai-client`
+Every AI call now goes through `/Users/fons/Documents/programs/ai-client` (installed with
+`.venv/bin/python -m pip install -e /Users/fons/Documents/programs/ai-client`; listed as `ai-client`
 in `pyproject.toml`).
 - `groq.py`: thin wrapper over `ai_client.Groq` (same model, temperature 0.2,
   reasoning_effort low, token budget, 429 retries); `GroqError` kept. The key now comes from
@@ -1636,7 +1636,7 @@ Test books: `test_pdfs/philosophy.pdf 1-462`, `test_pdfs/platon_dialogos_vi_bad.
 - Result on Familia pp. 9, 25 and 120 (redo): clean paragraphs with macrons (`Eurōpā`,
   `Āfricā`, `rīdet`, `Quīntus`) and glosses separated. The model's own errors remain
   (`Aemiliaam`, `nāo`, line numbers inside the text).
-- For my runs: `--paddle-cache /Users/fons/Documents/pdf-worker/scratch/paddle-home`
+- For my runs: `--paddle-cache /Users/fons/Documents/programs/pdf-worker/scratch/paddle-home`
   (models already there).
 - Tests: `tests/test_paddle_ocr.py`: 4 unit tests, plus 1 integration test that runs
   the real pipeline (about 15 s) when `.venv-paddle` exists.
