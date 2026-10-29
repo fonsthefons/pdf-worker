@@ -31,8 +31,10 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   `mimetype` entry isn't first/stored get repacked in place; `--check` only reports),
   `regression.py` (`build OUT_DIR` converts the eight test books to Markdown with their
   numbers; `compare BEFORE AFTER` shows numbers, headings lost/added and writes diffs:
-  run it before and after a change to the pipeline). Reuse these before writing scratch
-  scripts; scratch/ is for throwaway files and is emptied from time to time.
+  run it before and after a change to the pipeline), `parts_report.py` (`OUT_DIR [LABEL...]`
+  builds the test books and counts, part by part, the lines today's rules and the layout
+  model agree on; `--show PAGE...` prints a page's lines with both). Reuse these before
+  writing scratch scripts; scratch/ is for throwaway files and is emptied from time to time.
 
 # Working rules for this repo
 
