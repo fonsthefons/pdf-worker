@@ -275,19 +275,24 @@ def box_labels(page: pymupdf.Page, row: dict, lines: list[Line]) -> list[str]:
     """For each line, the label of the layout model's box (a row of
     ``paddle_ocr.layout_pages``, in image pixels) that covers more than half of it, else
     ``""``."""
+    return [row["blocks"][i]["label"] if i is not None else "" for i in boxes(page, row, lines)]
+
+
+def boxes(page: pymupdf.Page, row: dict, lines: list[Line]) -> list[int | None]:
+    """For each line, the index in ``row["blocks"]`` of the box that covers more than
+    half of it, else ``None``."""
     scale = page.rect.width / row["width"]
-    boxes = [(block["label"], [c * scale for c in block["bbox"]]) for block in row["blocks"]]
-    labels = []
+    rects = [[c * scale for c in block["bbox"]] for block in row["blocks"]]
+    found: list[int | None] = []
     for line in lines:
         x0, y0, x1, y1 = line.bbox
-        area = (x1 - x0) * (y1 - y0)
-        best, label = area / 2, ""
-        for name, (bx0, by0, bx1, by1) in boxes:
+        best, index = (x1 - x0) * (y1 - y0) / 2, None
+        for i, (bx0, by0, bx1, by1) in enumerate(rects):
             covered = max(0, min(x1, bx1) - max(x0, bx0)) * max(0, min(y1, by1) - max(y0, by0))
             if covered > best:
-                best, label = covered, name
-        labels.append(label)
-    return labels
+                best, index = covered, i
+        found.append(index)
+    return found
 
 
 @dataclass
@@ -331,7 +336,8 @@ class DocumentProfile:
     page_count: int = 0
     # The book prints its margin references in the text, in brackets ("[22b]").
     bracketed_refs: bool = False
-    # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``); not used yet.
+    # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``): bibliography
+    # entries (``footnotes.layout_page``).
     layout: dict[int, dict] = field(default_factory=dict)
 
     def heading_level(self, size: float) -> int | None:

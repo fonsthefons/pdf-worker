@@ -1,5 +1,38 @@
 # Progress
 
+## Layout plan, Phase 5: bibliography (2026-10-29, branch `layout/phase-5-bibliography`)
+One `reference_content` box = one bibliography entry, decided in `footnotes.layout_page`:
+- `layout.boxes(page, row, lines)`: each line's box index (`box_labels` now uses it).
+- `BodyLine.starts`: between two body lines of a page both in `reference_content` boxes,
+  True at a new box, False inside one; otherwise None and `structure._starts_paragraph`'s
+  rules decide (it now takes the `BodyLine`). `BodyLine`s are copied with
+  `dataclasses.replace` in `structure`/`margins`, so the field survives.
+- My choices: (1) only between two boxed lines: the first line of a page (an entry may run
+  on from the page before) and a box after an unboxed line keep today's rule (Lugones
+  p. 365: "William H. Prescott.-Histo,y of ... and" has no box, its next line does).
+  (2) Not on pages of chapter notes (`chapter_notes.note_pages`): the model boxes notes
+  alike, and on Timeo Greek p. 215 its boxes are a line off the notes (note 26's two
+  lines in boxes 18 and 19). (3) The review's bibliography (`fixes._is_reference`, the
+  back-matter headings) stays: the model also labels notes sections `reference_content`
+  (Dilexit pp. 57-68, Diálogos' endnotes), and telling them apart would be a new rule.
+  So no rule is deleted: today's paragraph rule still serves every other line.
+- `tools/regression.py build` now passes the cached layout rows (`layout_pages`, with
+  `PDF_WORKER_PADDLE_CACHE` defaulting to `scratch/paddle-home`), as the inbox does.
+- Tests: `test_a_bibliography_entry_is_the_layout_models_box` (with and without rows;
+  failed before the change), `test_a_notes_page_the_model_boxes_as_references_keeps_its_note_paragraphs`
+  (fails without (2)).
+- Check: fast tests 343 passed; ruff clean. `regression.py build scratch/regress/p5bib_base`
+  (main + rows, 635 s) and `p5bib_after` (637 s), `compare`: only Metafísica changes,
+  paragraphs 1,980 -> 1,952, splits 412 -> 394; the other seven books byte for byte the
+  same (Lugones p. 365's boxes hold one line each, or agree with today's rule). Read the
+  whole Metafísica diff (pp. 222-226): every change is an entry joined ("Gilson ... M a-"
+  / "drid 1967.") or two entries parted ("Dummett ... (1954). Elders, L.: ...").
+- Seen, not changed: "S an g u in eti" (p. 226) is no longer auto-fixed to "San": its
+  block now follows a whole "ROLAND-GOSSELIN, M.D.: ..." entry, so `_is_reference`
+  (year + commas after an entry) takes it for a reference and the review skips it, as
+  it should. A word hyphenated across italic runs joins as "***’A******quin***"
+  (`join_lines`, as before for any italic break; before, the halves were two paragraphs).
+
 ## After Phase 4: the user's choices, and two spelling-review fixes (2026-10-29)
 User: Phase 5 parts are bibliography, paragraphs (rewritten: no new paragraph inside one
 `text` box) and headings (added); contents, margins and footnotes keep their rules.

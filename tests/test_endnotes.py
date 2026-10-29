@@ -105,6 +105,25 @@ def test_chapter_endnotes_in_markdown(make_layout_pdf, tmp_path):
     assert text.count("# Chapter Two") == 1
 
 
+def test_a_notes_page_the_model_boxes_as_references_keeps_its_note_paragraphs(
+    make_layout_pdf, tmp_path
+):
+    # The layout model boxes notes sections like a bibliography (Timeo Greek p. 215 on):
+    # one box over the whole notes page must not join a note's paragraphs.
+    pdf = _book(make_layout_pdf)
+    with pymupdf.open(pdf) as doc:
+        rect = doc[2].rect
+    box = {"label": "reference_content", "score": 0.9, "bbox": [0, 0, rect.width, rect.height]}
+    rows = {2: {"page": 2, "width": rect.width, "height": rect.height, "blocks": [box]}}
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    assert "[^c1-2]: Second note of one.\n\n    Its second paragraph.\n" in out.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_notes_none_drops_notes_their_chapter_and_references(make_layout_pdf, tmp_path):
     pdf = _book(make_layout_pdf)
 

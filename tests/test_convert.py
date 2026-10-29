@@ -12,7 +12,7 @@ from pdf_worker.convert import (
     convert_pdf,
     guess_language,
 )
-from pdf_worker.layout import running_key
+from pdf_worker.layout import page_lines, running_key
 from pdf_worker.structure import Note, Paragraph, join_lines
 
 BODY = 11
@@ -181,6 +181,53 @@ def test_hanging_indents_start_paragraphs_at_the_margin(make_layout_pdf, tmp_pat
 
     assert f"{FULL[0]} {FULL[1]} Turn 1 ends here.\n" in text
     assert report.stats.paragraphs == 3
+
+
+BIBLIOGRAPHY = [
+    "GRABMANN, M.: Der göttliche Grund der menschlichen Wahrheits-",
+    "erkenntnis nach Augustinus und Thomas,",
+    "Aschendorff, Münster 1924.",  # a short line, then a capital: today a new paragraph
+    "GILSON, E.: El ser y los filósofos, Pamplona 1979.",
+]
+
+
+def _reference_boxes(pdf, entries):
+    """A layout row (pixels of an image twice the page's size) with one
+    ``reference_content`` box around each entry: a list of line indexes."""
+    with pymupdf.open(pdf) as doc:
+        page = doc[0]
+        bboxes = [line.bbox for line in page_lines(page)]
+        width, height = page.rect.width, page.rect.height
+
+    def box(lines):
+        x0, y0, x1, y1 = zip(*(bboxes[i] for i in lines), strict=True)
+        return {
+            "label": "reference_content",
+            "score": 0.9,
+            "bbox": [2 * min(x0), 2 * min(y0), 2 * max(x1), 2 * max(y1)],
+        }
+
+    return {
+        0: {
+            "page": 0,
+            "width": 2 * width,
+            "height": 2 * height,
+            "blocks": [box(e) for e in entries],
+        }
+    }
+
+
+@pytest.mark.parametrize("model", [False, True])
+def test_a_bibliography_entry_is_the_layout_models_box(make_layout_pdf, tmp_path, model):
+    pdf = make_layout_pdf([[_body(100 + LINE * i, text) for i, text in enumerate(BIBLIOGRAPHY)]])
+    rows = _reference_boxes(pdf, [[0, 1, 2], [3]]) if model else None
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    text = out.read_text(encoding="utf-8")
+    assert ("Thomas, Aschendorff, Münster 1924.\n" in text) == model
+    assert report.stats.paragraphs == (2 if model else 3)
 
 
 def test_a_line_left_of_the_margin_starts_a_turn(make_layout_pdf, tmp_path):

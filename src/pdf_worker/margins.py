@@ -9,7 +9,7 @@ line into body text, a margin gloss, or something to drop.
 import re
 import statistics
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from pdf_worker.footnotes import BodyLine
 from pdf_worker.inline import CELL, LEADING_PAGE_MARKS_RE, STYLE_RE, margin_ref
@@ -73,7 +73,7 @@ def split_columns(lines: list[BodyLine], page_width: float, body_size: float) ->
                 numbers += _TRAILING_NUMBER_RE.findall(text)
                 text = _TRAILING_NUMBER_RE.sub("", text)
             refs = "".join(margin_ref(n.strip()) for n in numbers)
-            body.append(BodyLine(_with_refs(refs, text), line, body_line.endnote_label))
+            body.append(replace(body_line, text=_with_refs(refs, text), line=line))
 
     if not _is_margin_column(margin, body, left, right):
         return _no_margins(lines, body_size)
@@ -134,7 +134,7 @@ def _trim_edge_marks(body_line: BodyLine, left: float, right: float, body_size: 
     trimmed = Line(spans=kept, size=line.size, bbox=ink_bbox(kept, line.bbox))
     # Misread marks ("h" for "b") are kept unreadable: their place in the sequence names them.
     refs = "".join(margin_ref(m if is_mark(m) else UNREADABLE) for m in marks)
-    return BodyLine(_with_refs(refs, text), trimmed, body_line.endnote_label)
+    return replace(body_line, text=_with_refs(refs, text), line=trimmed)
 
 
 def _with_refs(refs: str, text: str) -> str:
@@ -190,7 +190,7 @@ def _join(a: BodyLine, b: BodyLine) -> BodyLine:
     )
     line = Line(spans=(*a.line.spans, space, *b.line.spans), size=a.line.size, bbox=bbox)
     # The cells stay apart (CELL), so rows of several cells can become tables.
-    return BodyLine(a.text.rstrip() + CELL + b.text.lstrip(), line, a.endnote_label)
+    return replace(a, text=a.text.rstrip() + CELL + b.text.lstrip(), line=line)
 
 
 def _body_column(lines: list[BodyLine], page_width: float) -> tuple[float, float] | None:
