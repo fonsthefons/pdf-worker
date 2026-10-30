@@ -4,9 +4,11 @@
 an invisible layer and then read that layer back, guessing paragraphs, notes and
 headings from type sizes; the guess undid what Paddle already knew. Here Paddle's labels
 decide: titles become headings, text blocks paragraphs (joined across pages when a block
-goes on with the sentence), footnotes notes, pictures images; running heads, page numbers
-and footers are dropped. The cleaning is the OCR path's (``paddle_ocr.prepare_blocks``:
-note numbers, references, margin references from Tesseract).
+goes on with the sentence), footnotes notes, pictures images. Running heads, page numbers
+and footers are dropped by the text-layer path's rule (``furniture``), not by label: the
+model calls a running head a title. The cleaning is the OCR path's
+(``paddle_ocr.prepare_blocks``: note numbers, references, margin references from
+Tesseract).
 
 Notes are labelled per part (``c<part>-<n>``): a count that starts again from 1 (the
 introduction's notes, then the dialogue's) is a new part, as in the printed book.
@@ -16,8 +18,9 @@ import bisect
 import contextlib
 import math
 import re
+import statistics
 import unicodedata
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterator
 
 import pymupdf
@@ -25,15 +28,17 @@ import pymupdf
 from pdf_worker import missing_refs, styles
 from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
-from pdf_worker.layout import _roman
+from pdf_worker.layout import _RUNNING_PAGES, HEADING_RATIO, PAGE_NUMBER_RE, _roman, running_key
 from pdf_worker.margin_refs import assign_labels, in_book
 from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
 from pdf_worker.paddle_ocr import (
+    FURNITURE,
     clean_text,
     mixed_reader,
     page_scanner,
     prepare_blocks,
+    relabel,
     text_settings,
 )
 from pdf_worker.structure import Block, Gloss, Heading, Image, Note, Paragraph
@@ -52,10 +57,8 @@ _SPEAKER_RE = re.compile(
 _NOTE_JUNK_RE = re.compile(r"^(?:\d{1,3}[.)]?|[?*'])\s+")
 # Front matter: the leading pages with fewer words than this (title pages, credits).
 _FRONT_WORDS = 60
-_HEAD_ZONE = 0.15  # a "header" lower on the page is a centred line (dramatis personae)
 _PICTURE_LABELS = {"image", "figure", "chart"}
 _MIN_PICTURE_SHARE = 0.02  # of the page area: smaller ones are ornaments or specks
-_DROP = {"header", "number", "footer", "formula_number"}
 # Spanish "¿" misread as a letter or digit glued to the question's first word ("iY
 # bien?", "lPor qué?", "2El qué?", "ipodrías ...?"), or apart ("L Cómo no?"): group 1
 # is the misread mark, group 2 that word.
@@ -140,6 +143,70 @@ def text_sample(rows: list[dict]) -> str:
     return " ".join(b.get("text", "") for row in rows for b in row["blocks"])[:20_000]
 
 
+def _edge_rows(blocks: list[dict]) -> dict[int, str]:
+    """``layout.edge_rows`` over a page's Paddle blocks: block index -> ``"top"`` /
+    ``"bottom"``. The top row is the highest block with a letter or digit and every block
+    level with it (overlapping it in height); the bottom row likewise from the lowest. A
+    page with one row has only a top row."""
+    inked = [
+        i
+        for i, b in enumerate(blocks)
+        if len(b.get("bbox", [])) == 4 and any(c.isalnum() for c in b.get("text", ""))
+    ]
+    if not inked:
+        return {}
+
+    def row(anchor: int) -> list[int]:
+        top, bottom = blocks[anchor]["bbox"][1], blocks[anchor]["bbox"][3]
+        return [i for i in inked if blocks[i]["bbox"][1] < bottom and top < blocks[i]["bbox"][3]]
+
+    rows = dict.fromkeys(row(max(inked, key=lambda i: blocks[i]["bbox"][3])), "bottom")
+    rows.update(dict.fromkeys(row(min(inked, key=lambda i: blocks[i]["bbox"][1])), "top"))
+    return rows
+
+
+def _height(block: dict) -> float:
+    return block["bbox"][3] - block["bbox"][1]
+
+
+def furniture(rows: list[dict]) -> dict[int, set[int]]:
+    """Page -> indexes of its running heads, footers and page numbers: the text-layer
+    rule (``DocumentProfile.furniture``) over Paddle's blocks. In a page's top or bottom
+    row, a bare page number, or a block with 2+ letters, not a note, that shares its row
+    with a page number or is in the same row of a page at most ``_RUNNING_PAGES`` away,
+    and is no taller than those by more than ``HEADING_RATIO``.
+
+    Blocks have no type size, and a box's height wobbles (one head 25 to 37 px), so a
+    block is measured against what it repeats: a title over the dialogue it names
+    ("FILEBO", 32 px) is taller than the heads after it (25 px)."""
+    edges = {row["page"]: _edge_rows(row["blocks"]) for row in rows}
+    repeats: defaultdict[tuple[str, str], list[tuple[int, float]]] = defaultdict(list)
+    for row in rows:
+        for i, edge in edges[row["page"]].items():
+            block = row["blocks"][i]
+            repeats[(edge, running_key(block["text"]))].append((row["page"], _height(block)))
+    found = {}
+    for row in rows:
+        page, blocks, rows_of = row["page"], row["blocks"], edges[row["page"]]
+        numbers = {i for i in rows_of if PAGE_NUMBER_RE.match(blocks[i]["text"])}
+        found[page] = set(numbers)
+        for i, edge in rows_of.items():
+            text = blocks[i]["text"].strip()
+            key = running_key(text)
+            beside = [_height(blocks[n]) for n in numbers if rows_of[n] == edge]
+            near = [h for p, h in repeats[(edge, key)] if 0 < abs(p - page) <= _RUNNING_PAGES]
+            if (
+                relabel(blocks[i], text) != "footnote"  # "28. Ibid." on page after page
+                and sum(c.isalpha() for c in key) >= 2
+                and any(
+                    heights and _height(blocks[i]) <= statistics.median(heights) * HEADING_RATIO
+                    for heights in (beside, near)
+                )
+            ):
+                found[page].add(i)
+    return found
+
+
 def iter_paddle_blocks(
     doc: pymupdf.Document,
     rows: list[dict],
@@ -176,6 +243,7 @@ def iter_paddle_blocks(
         for row in rows
     ]
     labels = printed_labels([(row["page"], n) for row, n in zip(rows, numbers, strict=True)])
+    furniture_of = furniture(rows)
     try:
         for done, (row, number) in enumerate(zip(rows, numbers, strict=True)):
             if on_page:
@@ -221,6 +289,7 @@ def iter_paddle_blocks(
                 last_note,
                 last_open,
                 read_mixed,
+                furniture_of[row["page"]],
             )
             last_open = left_open(blocks)
             for n, source in missing_refs.restore(page, blocks, tries):
@@ -290,12 +359,18 @@ class _Book:
             self.part += 1
         self.notes_seen = self.notes_seen or bool(notes)
         first_text = True
-        for i, (label, rect, text) in enumerate(blocks):
-            if label == "header" and rect.y0 > page.rect.height * _HEAD_ZONE:
+        for i, (label, _rect, text) in enumerate(blocks):
+            if label == "header":
                 yield from self.flush()  # "SÓCRATES, PROTARCO, FILEBO" under the title
                 yield Paragraph(" ".join(text.split()), small=True)
                 continue
-            if label in _DROP:
+            # Headers, footers and numbers the rule (``furniture``) didn't take: a header
+            # is a centred line (above), a footer a note read as one ("2. 3, 1; W II,
+            # 154"), kept after the paragraph; a number is a misread page number ("2+5").
+            if label in (FURNITURE, "number"):
+                continue
+            if label == "footer":
+                self.pending.append(Paragraph(" ".join(text.split()), small=True))
                 continue
             if label == "footnote":
                 self._add_note(text)

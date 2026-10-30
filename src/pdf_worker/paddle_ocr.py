@@ -93,7 +93,8 @@ _PARAGRAPH_WIDTH = 0.4  # blocks wider than this share of the page are rewrapped
 _UNHYPHEN_RE = re.compile(r"(\w)-\n(?=[a-zà-ÿā-ž])")
 _DIGIT_IN_WORD_RE = re.compile(r"[^\W\d_][0-9]|[0-9][^\W\d_]")  # "FILE0", "S1"
 # A printer's signature: "160. — 18", "160. -4", "160. ~2", "160. - S" (not "31. 7.").
-_SIGNATURE_RE = re.compile(r"^\d{1,4}\.?\s*[—–~-]\s*\S{1,3}$")
+SIGNATURE_RE = re.compile(r"^\d{1,4}\.?\s*[—–~-]\s*\S{1,3}$")
+FURNITURE = "furniture"  # the label ``prepare_blocks`` gives the blocks it is told to skip
 # Vietnamese-only letters (Latin Extended Additional vowels, ă ơ ư đ), Arabic, CJK.
 _FOREIGN_RE = re.compile(r"[Ạ-ỹăơưđĂƠƯĐ؀-ۿ぀-ヿ一-鿿]")
 _MIN_FOREIGN, _FOREIGN_SHARE = 3, 0.05
@@ -384,14 +385,10 @@ def _recover_notes(
     return found
 
 
-def _relabel(block: dict, text: str, number: list | None) -> str:
-    """Paddle's label, corrected: a title on the page number's row is the running head
-    ("FILEBO" beside "91"); a footer that opens with a number and words is a footnote
-    ("11D Cf. Leyes 863a-c." for note 110)."""
+def relabel(block: dict, text: str) -> str:
+    """Paddle's label, corrected: a footer that opens with a number and words is a
+    footnote ("11D Cf. Leyes 863a-c." for note 110)."""
     label = block.get("label", "")
-    y0, y1 = block["bbox"][1], block["bbox"][3]
-    if label in ("paragraph_title", "doc_title") and number and y0 < number[3] and number[1] < y1:
-        return "header"
     if label == "footer" and _FOOTER_NOTE_RE.match(text):
         return "footnote"
     return label
@@ -579,12 +576,15 @@ def prepare_blocks(
     last_note: int | None = None,
     last_open: bool = False,
     read_mixed: Callable[[pymupdf.Page, pymupdf.Rect], list[str]] | None = None,
+    skip: Collection[int] = (),
 ) -> tuple[list[list], dict[int, list[tuple[int, str]]], int | None]:
     """A page's Paddle blocks, cleaned: ``[label, rect (page units), text]`` in reading
     order (footnotes numbered, references fixed, margin marks taken out), the margin
     references per block (``{block: [(word index, reading)]}``) and the last note.
     ``last_open``: the previous page's last note broke off (``note_numbers.left_open``).
-    ``read_mixed`` (``mixed_reader``) re-reads tables of Greek variants, line by line."""
+    ``read_mixed`` (``mixed_reader``) re-reads tables of Greek variants, line by line.
+    The blocks at the indexes in ``skip`` (running heads, page numbers) and printer's
+    signatures read as footers are labelled ``FURNITURE``."""
     sx = page.rect.width / (row.get("width") or page.rect.width)
     sy = page.rect.height / (row.get("height") or page.rect.height)
     font = _font()
@@ -607,17 +607,21 @@ def prepare_blocks(
     column_left = min(x0 for x0, _ in wide) if wide else None
     column_right = max(x1 for _, x1 in wide) if wide else None
     blocks = []  # (label, rect, text)
-    for block in row["blocks"]:
+    for k, block in enumerate(row["blocks"]):
         text = clean_text(block.get("text", "")).strip()
         if not text or block.get("label") in _SKIP_LABELS or len(block.get("bbox", [])) != 4:
             continue
-        block = {**block, "label": _relabel(block, text, number)}
+        block = {**block, "label": relabel(block, text)}
         if block.get("label") == "aside_text" and is_mark(text):
             continue  # a margin reference ("12", "e"): found in the scan instead
         if block.get("label") == "aside_text" and not re.search(r"\w", text):
             continue  # a reader's tick or stroke in the margin ("！" for ✓)
-        if block.get("label") == "footnote" and _SIGNATURE_RE.match(text):
+        if block.get("label") == "footnote" and SIGNATURE_RE.match(text):
             continue  # a printer's signature at the foot ("160. — 18"), not a note
+        if k in skip or (block.get("label") == "footer" and SIGNATURE_RE.match(text)):
+            # Left out by the caller, but read here: the words are matched with the
+            # scan's, which has the running head too.
+            block["label"] = FURNITURE
         if block.get("label") == "footnote":
             # Short notes read as one block ("10. J 28.\n11. J 31."): split at the end,
             # after the lines are joined.

@@ -89,6 +89,82 @@ def test_blocks_follow_paddles_labels(scan_pdf):
     ]
 
 
+def _book(tmp_path, rows):
+    path = tmp_path / "book.pdf"
+    with pymupdf.open() as doc:
+        for _ in rows:
+            doc.new_page()
+        doc.save(path)
+    with pymupdf.open(path) as doc:
+        return list(iter_paddle_blocks(doc, rows, images=False))
+
+
+def test_running_heads_paddle_calls_titles_go_and_the_title_stays(tmp_path):
+    # The model labels running heads as titles; the repetition rule decides, not the label.
+    rows = [
+        _row(
+            0,
+            ("paragraph_title", [400, 300, 800, 345], "FILEBO"),  # taller: the real title
+            ("text", [144, 400, 1046, 1400], INTRO),
+        ),
+        _row(
+            1,
+            ("paragraph_title", [500, 60, 700, 88], "FILEBO"),
+            ("number", [144, 60, 180, 88], "12"),
+            ("text", [144, 120, 1046, 1400], INTRO),
+        ),
+        _row(
+            2,
+            ("paragraph_title", [500, 62, 700, 89], "FILEBO"),  # no number: repeated
+            ("text", [144, 120, 1046, 1400], INTRO),
+        ),
+        _row(
+            3,
+            ("doc_title", [500, 60, 700, 88], "FILEBO"),
+            ("number", [1000, 60, 1046, 88], "14"),
+            ("text", [144, 120, 1046, 1400], INTRO),
+        ),
+    ]
+    blocks = _book(tmp_path, rows)
+    assert [b.text for b in blocks if isinstance(b, Heading)] == ["FILEBO"]
+    assert all("FILEBO" not in b.text for b in blocks if isinstance(b, Paragraph))
+
+
+def test_notes_and_paragraphs_at_the_foot_are_no_footers(tmp_path):
+    rows = [
+        _row(
+            n,
+            ("number", [144, 60, 180, 88], str(10 + n)),
+            ("text", [144, 120, 1046, 1300], f"{INTRO}Así $ ^{{{n + 1}}} $."),
+            ("footnote", [144, 1400, 1046, 1428], f"$ ^{{{n + 1}}} $ Ibid."),  # the lowest
+        )
+        for n in range(3)
+    ]
+    # A paragraph down to the foot beside a line number: the number goes, not the text.
+    rows.append(
+        _row(
+            3,
+            ("text", [144, 120, 1046, 1450], "Otro párrafo. " + INTRO),
+            ("aside_text", [1060, 1420, 1100, 1448], "15"),
+        )
+    )
+    rows.append(
+        _row(
+            4,
+            ("text", [144, 120, 1046, 1300], INTRO + "y los"),
+            ("footer", [144, 1400, 1046, 1428], "2. 3, 1; W II, 154-155."),  # a note
+            ("footer", [144, 1460, 400, 1485], "160. — 3"),  # a printer's signature
+        )
+    )
+    rows.append(_row(5, ("text", [144, 120, 1046, 1300], "atributos de Dios. " + INTRO)))
+    blocks = _book(tmp_path, rows)
+    assert [n.text for n in blocks if isinstance(n, Note)] == ["Ibid."] * 3
+    text = [plain(b.text) for b in blocks if isinstance(b, Paragraph)]
+    assert any("Otro párrafo." in t for t in text) and all("160" not in t for t in text)
+    # The note read as a footer stays, after the paragraph it would have cut.
+    assert any("y los atributos de Dios." in t for t in text) and "2. 3, 1; W II, 154-155." in text
+
+
 def test_convert_from_paddle_rows_with_notes_at_the_end(scan_pdf, tmp_path):
     out = tmp_path / "book.pdf"
     convert_pdf(scan_pdf, out, "pdf", paddle_rows=ROWS, notes_at="end")
