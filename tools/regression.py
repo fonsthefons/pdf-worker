@@ -82,28 +82,43 @@ def _write_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def build(out: Path) -> None:
-    # The layout model's rows, as the inbox passes them (cached in scratch/paddle-home).
+def convert_book(label: str, pdf: Path, out: Path, paddle: bool = False) -> dict:
+    """``pdf`` to ``out/<label>.md`` and its numbers to ``out/<label>.json``. ``paddle``:
+    built from PaddleOCR-VL's rows (a scan; all its pages must be cached), else from the
+    text layer with the layout model's rows, as the inbox passes them."""
+    # Both kinds of rows are cached in scratch/paddle-home.
     os.environ.setdefault("PDF_WORKER_PADDLE_CACHE", str(ROOT / "scratch" / "paddle-home"))
     from pdf_worker.convert import convert_pdf
-    from pdf_worker.paddle_ocr import layout_pages
+    from pdf_worker.document import open_pdf
+    from pdf_worker.paddle_ocr import layout_pages, paddle_pages
 
+    if paddle:
+        with open_pdf(pdf) as doc:
+            pages = list(range(doc.page_count))
+        rows = {"paddle_rows": paddle_pages(pdf, pages)}
+    else:
+        rows = {"layout_rows": layout_pages(pdf)}
+    md = out / f"{label}.md"
+    report = convert_pdf(
+        pdf,
+        md,
+        "md",
+        title=label,
+        author="-",
+        cover=False,
+        fixes_path=out / f"{label}.fixes.tsv",
+        **rows,
+    )
+    result = numbers(md, report.stats)
+    _write_atomic(out / f"{label}.json", json.dumps(result, ensure_ascii=False, indent=1))
+    return result
+
+
+def build(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for label, pdf in BOOKS:
         print(f"{label}: {pdf.name}", flush=True)
-        md = out / f"{label}.md"
-        report = convert_pdf(
-            pdf,
-            md,
-            "md",
-            title=label,
-            author="-",
-            cover=False,
-            fixes_path=out / f"{label}.fixes.tsv",
-            layout_rows=layout_pages(pdf),
-        )
-        result = numbers(md, report.stats)
-        _write_atomic(out / f"{label}.json", json.dumps(result, ensure_ascii=False, indent=1))
+        result = convert_book(label, pdf, out)
         print(f"  {', '.join(f'{k} {_count(result[k])}' for k in NUMBERS)}", flush=True)
 
 

@@ -312,7 +312,34 @@ PR: "Quality plan: results".
 
 ## Reference pairs
 
-(Filled in by Phase 1.)
+Phase 1's same-text check (`scratch/quality/same_text.py`): 300 words at 25%, 50% and
+75% of the PDF (the text layer, or the cached Paddle rows for a book built from them),
+words hyphenated at a line end joined, bare numbers (page and line numbers) dropped; the
+share of word triples found in the reference. Pass: 85% or more in 2 of the 3 samples.
+Labels as in `tools/quality.py`. Measures: W words, H headings, B paragraph breaks,
+N notes in the body, L leftovers.
+
+| Label | PDF | Reference | Samples | Result | Same edition? | Measures | Set |
+|---|---|---|---|---|---|---|---|
+| philosophy | `philosophy.pdf` (Paddle rows) | `philosophy_epub_good.epub` | 97/99/99% | pass | same translation (Sacristán), another layout: the PDF's run-in section numbers are `h` headings in the EPUB, its footnotes are endnotes there | W H B N L | working (layout Phase 6) |
+| copleston | Copleston `Historia de la Filosofía Tomo 1` | `1 - Grecia y Roma` EPUB | 99/99/99% | pass | same translation; EPUB endnotes | W H B N L | working (headings pages) |
+| ratzinger | `Introduction to Christianity` PDF | its EPUB | 100/100/100% | pass | same edition (EPUB page-list of the print edition, footnotes as `aside`) | W H B N L | working (headings pages) |
+| lugones | `lugones_imperio_jesuitico_1904.pdf` | `refs/lugones_imperio_jesuitico_wikisource.epub` | 90/93/86% | pass | same 1904 edition (a Wikisource transcription; page numbers skipped as `pagenum`) | W B N L (its `h` tags mark the title page only) | working (regression) |
+| platon_bad | `platon_dialogos_vi_bad.pdf` (Paddle rows) | `Dialogos Completos Platon.epub` | 79/90/97% | pass | same Gredos translation; the reference holds every dialogue: only the part that aligns counts | W H B N L | working (layout Phase 6) |
+| dialogos | `platon_dialogos_vi_good.pdf` | `Dialogos Completos Platon.epub` | 96/83/87% | pass | as platon_bad | W H B N L | working (regression) |
+| niebla | `niebla_1914.pdf` | `refs/pg49836.txt` | 88/82/90% | pass | plain text: words and paragraphs only | W B L | working (regression) |
+| pepita | `pepita_1901.pdf` | `refs/pg17223.txt` | 88/87/88% | pass | another edition (PG: 1874) | W B L | held-out |
+| marianela | `marianela_1888.pdf` | `refs/pg17340.txt` | 96/95/97% | pass | another edition (PG: 1878) | W B L | held-out |
+| gaviota | `gaviota_1856.pdf` | `refs/pg23600.txt` | 95/89/82% | pass | old print, old accents; the PDF is volume 1, PG holds both (scored as a collected reference: only what aligns counts) | W B L | held-out |
+| - | `Platon - Timeo.pdf`, `Timeo-Platón.pdf`, `Timeo_by_Platón.pdf`, `..._no_intro.pdf` | `El Timeo (La Atlántida).epub` | 0-1% | fail | the EPUB is only the Atlantis passage (1,180 words, Greek and another translation) | - | - |
+| - | `barraca_1901.pdf` | `refs/pg14944.txt` | 83/84/64% | fail | PG is a revised edition (whole phrases differ) | - | - |
+| - | `sombrero_1907.pdf` | `refs/pg29506.txt` | 82/92/75% | fail | school edition: line numbers, handwritten glosses between the lines | - | - |
+| - | `perfecta_1897.pdf`, `lazarillo_1900.pdf` | `refs/pg15725.epub`, `refs/pg320.txt` | - | skipped | scans without a text layer and no cached Paddle rows | - | - |
+
+Held-out: pepita, marianela and gaviota never had a page in the regression set, the
+layout plan's Phase 6 or either headings page set (15 pages of each were read in an
+earlier OCR spelling check, before this plan). The held-out side is these three books
+and the held-out headings pages.
 
 ## Results
 

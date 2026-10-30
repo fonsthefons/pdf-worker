@@ -1,5 +1,92 @@
 # Progress
 
+## Quality plan, Phase 1: whole-book yardstick and baseline (2026-10-30, branch `quality/phase-1`)
+- **Step 1, reference pairs** (`scratch/quality/same_text.py`; table in
+  `docs/quality-plan.md`, "Reference pairs"). The raw text layer of old scans failed the
+  85% triple test on OCR noise alone, so the check joins words hyphenated at a line end
+  and drops bare numbers (page and line numbers), and reads a book built from Paddle rows
+  (philosophy, platon_bad) from its cached rows. Pass: philosophy, copleston, ratzinger,
+  lugones, platon_bad, dialogos (platon good), niebla, pepita, marianela, gaviota. Fail:
+  every Timeo PDF (the Timeo EPUB is only the Atlantis passage), barraca (PG is a revised
+  edition), sombrero (school edition: line numbers, glosses). Skipped: perfecta, lazarillo
+  (no text layer, no cached rows).
+- **Step 2, split**: held-out = pepita, marianela, gaviota (in no test set; 15 pages of
+  each were read in the earlier OCR spelling check) plus the held-out headings pages;
+  the rest working.
+- **Step 3, `tools/book_score.py`** (`selftest` passes). Choices the plan doesn't spell out:
+  - EPUB read in spine order; text joined across inline tags (ePubLibre sets small caps
+    as `C<span>APÍTULO</span>`); a note is an `aside`, an `epub:type` note, or the block
+    holding the target of a link reading "1", "[1]", "*" (not a link's own id: that is
+    where a note's back link points, and took Ratzinger's body paragraphs for notes);
+    note markers and back links dropped; `pagenum` and `epub:type` pagebreak/toc skipped.
+  - When the reference marks notes, its body is aligned with ours without our `[^n]:`
+    notes, then each reference note on its own with the words left over (notes sit in
+    any order); otherwise our notes go into the one alignment.
+  - Span ends: the anchors of the first or last 200 reference words are dropped when a
+    gap of over 1,000 words cuts them off (philosophy's colophon matched after our index).
+  - A stretch of over 1,000 of our words with under a tenth of that in the reference
+    (an index it lacks) doesn't count; the same for the reference only for a collected
+    reference (`--collected`: the complete dialogues; La gaviota, PG holds both volumes
+    and the PDF is volume 1). Without that limit copleston's lost body hid as "absent".
+  - Text lost at the ends shrinks the span instead of counting as missing, so a
+    `coverage` number (share of the reference body inside the counted span) shows it.
+  - Leftovers: pure insertions (no reference word missing there) that are a bare number,
+    or of 5 letters or more and repeated 3 times; single stray words ("de") aren't heads.
+  - A note counts when an anchor finds it in ours or it sits inside the counted body:
+    short notes with no unique 5-gram ("Ibid.") that are endnotes don't count.
+  - lugones's Wikisource `h` tags mark the title page only: no heading measures
+    (`quality.NO_HEADINGS`). The EPUB references don't tag every heading the PDFs print
+    (philosophy's run-in "1. Observaciones introductorias" are `h` there, the Platón
+    introductions' section titles aren't): the heading numbers are for before/after, not
+    absolute.
+- **Step 4, `tools/quality.py`** `build | score | compare`; `regression.convert_book` (the
+  regression build's conversion, also for books built from cached Paddle rows). Held-out
+  books' missed/wrong headings and leftover texts are not written (rule 4). Both tools in
+  `CLAUDE.md`'s dev-tools list.
+- **Step 5, baseline** (`scratch/quality/base`, 58 min with the layout model on the new
+  books and pages; `scratch/quality/base2` the second build): **the second build was
+  still running when this run had to stop**, so `compare base base2` (must show no
+  change) is not done. Next: let `scratch/logs/quality_base2.log` finish, run
+  `tools/quality.py compare scratch/quality/base scratch/quality/base2`.
+
+  | Working | words | covered | matched | missing | extra | H found | H real | levels | B found | B real | notes in body | leftovers |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | philosophy | 197,605 | 99.8% | 98.2% | 178.1 | 106.9 | 51.6% | 80.3% | 84.7% | 98.4% | 98.7% | 0.7 | 0.3 |
+  | copleston | 13,913 | 4.4% | 95.8% | 424.1 | 10.8 | 85.7% | 60.0% | 100.0% | 100.0% | 58.2% | 3.6 | 0.7 |
+  | ratzinger | 91,628 | 100.0% | 100.0% | 2.4 | 0.1 | 64.2% | 75.2% | 100.0% | 96.1% | 100.0% | 0.0 | 0.0 |
+  | lugones | 58,563 | 99.7% | 97.8% | 216.0 | 364.2 | - | - | - | 94.2% | 89.2% | 511.1 | 19.6 |
+  | platon_bad | 84,940 | - | 94.5% | 548.9 | 282.1 | 77.8% | 25.9% | 52.4% | 99.9% | 98.9% | 0.0 | 0.4 |
+  | dialogos | 86,918 | - | 97.6% | 236.4 | 137.9 | 100.0% | 43.3% | 53.8% | 99.2% | 98.9% | 1151.1 | 2.1 |
+  | niebla | 57,225 | 94.5% | 95.0% | 504.7 | 552.7 | - | - | - | 97.6% | 77.2% | - | 2.3 |
+  | **total** | 590,792 | 65.7% | 97.5% | 253.9 | 186.5 | 58.3% | 70.2% | 88.6% | 98.0% | 90.9% | 244.0 | 2.6 |
+  | **Held-out total** (pepita, marianela, gaviota) | 150,627 | 94.4% | 91.6% | 840.4 | 928.3 | - | - | - | 98.0% | 38.2% | - | 3.7 |
+
+  Rates per 10,000 reference words. Headings test pages: working 84.7% found / 87.1% real
+  / 62.8% levels (189 headings); held-out 81.5% / 73.1% / 53.4% (65).
+- **Step 6, ranking** (working books, per 10,000 reference words): reference body not
+  covered 3,428 (copleston alone); missing words 254; notes in the body 244; extra words
+  187; extra paragraph breaks 13.7; headings missed 3.5; breaks missed 2.7; leftovers
+  2.6; wrong headings 2.0; level disagreement 0.6. Held-out (numbers only): missing 840,
+  extra 928, extra breaks 340 (breaks real 38%), not covered 556.
+  The three biggest, with pages:
+  1. **Body lost (copleston, 96% of the book)**: from p. 24 on, the body comes out of
+     `iter_blocks` as `Note` blocks (210,941 words as notes, 9,355 as paragraphs) and
+     is lost from the Markdown; only the images (pp. 33, 54, 138...) and real notes stay.
+     Pages: 25 (Anaximandro), 54, 285. Cause: `analyze_document`'s `chapter_notes`
+     (endnotes at chapter ends) misfires: pages 1-284 convert fine, adding p. 285 turns
+     its refs into note lines from p. 3 on (`scratch/quality/cop_subset.py`,
+     `profile_check.py`). Not the layout rows (same without them), not facing pages or
+     font sizes.
+  2. **Missing words**: reading lost, not structure. niebla p. 32 (the scan's text
+     layer is garbled there: "al r,aln*rl„ / acercóse", 52 words gone); platon_bad p. 277
+     (Paddle's reading of the page's one big text block stops at 1,701 characters: 506
+     words of Critias 110a gone) and p. 245 (85e passage, a block labelled `abstract`
+     read in part).
+  3. **Notes in the body**: lugones p. 78 and p. 194 ("(1)" markers: the notes are set
+     in the body, the plan's known cause); dialogos p. 177 on (the endnote pages, one
+     "[1] ..." note each, come out as body paragraphs of up to 5,000 words).
+- Fast tests 362 passed; ruff clean.
+
 ## Quality plan, Phase 0: checked answers and held-out pages (2026-10-30, branch `quality/phase-0`)
 **What counts as a heading** (used for every page): a line or lines set apart, on their own,
 as the title of a division of the text (part, book, chapter, section, subsection), by size,
