@@ -135,7 +135,7 @@ def layout_page(
     consumed: set[int] = set()
     if region is not None:
         notes, marker_labels, consumed = _collect_footnotes(
-            lines, region, page_index + 1, previous_label
+            lines, region, page_index + 1, previous_label, profile.paren_refs
         )
 
     row = profile.layout.get(page_index)
@@ -370,7 +370,11 @@ def _is_page_furniture(text: str) -> bool:
 
 
 def _collect_footnotes(
-    lines: list[Line], region: list[int], page_number: int, previous_label: str | None
+    lines: list[Line],
+    region: list[int],
+    page_number: int,
+    previous_label: str | None,
+    paren_refs: frozenset[int] = frozenset(),
 ) -> tuple[list[tuple[str, list[str]]], dict[str, str], set[int]]:
     """Split the footnote region into (label, text lines) notes.
 
@@ -396,6 +400,9 @@ def _collect_footnotes(
             consumed.add(index)
             continue
         found = _definition_marker(line)
+        enclosed = _ENCLOSED_DEF_START_RE.match(text)
+        if found and enclosed and int(enclosed.group(1)) not in paren_refs:
+            found = None  # "(n)" numbers a note only where the book marks "(n)" in its text
         if found:
             indented = line.x0 > region_left + 0.3 * (line.size or 1.0)
             found = (found[0], found[1], found[2] or indented)

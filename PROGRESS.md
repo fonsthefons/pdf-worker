@@ -38,7 +38,23 @@
 - gaviota (held-out, numbers only): notes 2 -> 17, paragraphs 2,081 -> 2,041. Its reference
   is plain text (no notes marked), so our notes join one alignment at their new place
   after the paragraph; whether these are real notes moved or false ones is unknown (rule 4).
-- **For the user to decide**: accept the gate miss (the lugones part is the reference's
+- **Second round (the user chose to narrow the "(n)" rule, endnote paths untouched):** a note
+  numbered "(n)" at a page's foot is a note only when the book's text marks "(n)" inside a
+  line somewhere (`DocumentProfile.paren_refs`, collected by `analyze_document`). Book-wide,
+  not per page, so notes gathered at a chapter's end, their markers pages before, are still
+  found. Tests: `test_parenthesized_notes_at_a_chapter_end_are_found`,
+  `test_parenthesized_lines_are_notes_only_where_the_text_marks_them`. Fast tests 367
+  passed; ruff clean.
+  Yardstick (`scratch/quality/phase2b`, `compare base phase2b`): the same numbers as the
+  first round. dialogos and lugones keep their gains (notes in the body 1151.1 -> 156.7,
+  511.1 -> 15.5); still worse beyond the tolerance: lugones missing 216.0 -> 249.8 (the
+  traced artefact, p. 311 and p. 215; accepted by the user), **gaviota missing 1410.7 ->
+  1436.7** and held-out total 840.4 -> 847.9. gaviota keeps 16 of its 17 new notes: their
+  "(n)" numbers appear in its text, so they look like real notes, and the missing words are
+  most likely the scoring of notes against a plain-text reference that marks none (our note
+  sits after its paragraph, the reference's in place), but rule 4 forbids checking.
+  The PR stays a draft: held-out worse beyond the tolerance. Regression `compare` not run.
+- **For the user to decide** (first round): accept the gate miss (the lugones part is the reference's
   unmarked note and a pre-existing continuation error), or narrow the change (e.g. keep
   the "(1)"-region rule but only where the body has a matching "(n)" marker), or let the
   held-out check look at gaviota's new notes.
