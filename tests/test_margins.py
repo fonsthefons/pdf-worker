@@ -112,3 +112,11 @@ def test_picture_noise_is_dropped_but_section_breaks_stay(make_layout_pdf, tmp_p
 
     assert "' , !" not in text and "!" not in text.split("---", 2)[2]
     assert "\\* \\* \\*" in text
+
+
+def test_long_dotted_leader_is_junk_without_backtracking():
+    from pdf_worker.margins import _is_junk
+
+    # Took minutes before: a long run of break marks that ends in something else.
+    assert _is_junk("·" * 60 + " .")
+    assert not _is_junk("* * *") and not _is_junk("***")
