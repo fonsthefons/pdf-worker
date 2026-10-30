@@ -1,5 +1,31 @@
 # Progress
 
+## Quality plan, Phase 3: heading levels from the book's numbering (2026-10-30, branch `quality/phase-3`) - STOPPED before the gate
+- Step 0: levels 62.8% on the checked first page set, 52.4% / 53.8% on platon_bad / dialogos:
+  under 85%, work to do.
+- New `heading_levels.py` (`rank_headings`, `heading_key`), run at the end of `tidy` (so the
+  regression build, the yardstick and `headings_test.py` all get it). It replaces tidy's
+  "Textos under 1. BAYLE" subheading rule. Which lines are headings is unchanged (found/real
+  equal in the yardstick). Tests: `tests/test_heading_levels.py`; `test_tidy.py` updated.
+- **First round, the plan's rule as written** (key = division word, numbering style, capitals,
+  size; levels by first appearance, size only between otherwise-equal keys;
+  `scratch/quality/phase3`): every level measure worse beyond the tolerance. Working total
+  88.6% -> 43.3% (philosophy 84.7 -> 43.7, ratzinger 100 -> 41.6, platon_bad 52.4 -> 47.6,
+  dialogos 53.8 -> 50.0); pages 62.8 -> 58.4; held-out pages 53.4 -> 39.1. Causes:
+  ratzinger's contents entries ("I. DIOS: ...", small type) set the roman kind's level first,
+  so the big part heading "II - JESUCRISTO" (a new kind) went to level 6, below the
+  sections; philosophy's "CAPÍTULO PRIMERO" and "Capítulo II" were two kinds (capitals), so
+  later chapters fell below the first chapter's title. The rule throws away the size order,
+  which born-digital books get right.
+- **Second round (my choice, recorded here):** size first, numbering within one size. General
+  facts: larger type never ranks below smaller; kinds set in the same size nest in the order
+  they first appear (a division opens before its subdivisions), a division word ranked above
+  another goes above it; a division word names its division in any case. Front matter keeps
+  its size levels. Yardstick build `scratch/quality/phase3b` was started
+  (`scratch/logs/quality_phase3b.log`) but this run had to hand back before it finished: the
+  gate (`tools/quality.py compare scratch/quality/phase2b scratch/quality/phase3b`) and the
+  regression `compare` are not done.
+
 ## Quality plan, Phase 2: footnotes kept as notes (2026-10-30, branch `quality/phase-2`) - STOPPED at the gate
 - Step 0: baseline notes in the body 511 (lugones) and 1,151 (dialogos) per 10,000: work to do.
 - **Causes** (working books' worst pages):
