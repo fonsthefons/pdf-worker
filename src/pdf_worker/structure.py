@@ -358,6 +358,7 @@ class _State:
         self.margin_label: str | None = None  # the last margin reference ("22b")
         self.has_heading = False  # a heading was yielded (or a running head made one)
         self.title_size = 0.0  # the page's largest line in a layout-model title box
+        self.runs_on = False  # the line being added runs on into the next one (_runs_on)
 
     # -- page handling ----------------------------------------------------------------
     def add_page(
@@ -406,10 +407,12 @@ class _State:
         # Blank lines only separate paragraphs between two lines of the same page; blanks
         # at the top or bottom of a page are layout padding.
         self.break_next = False
-        for body_line in lines:
+        for i, body_line in enumerate(lines):
             if not body_line.text.strip():
                 self.break_next = not new_page
                 continue
+            following = next((bl for bl in lines[i + 1 :] if bl.text.strip()), None)
+            self.runs_on = _runs_on(body_line, following, margins)
             while pictures and pictures[0].top < body_line.line.top:
                 # A picture above this line follows the paragraph in progress.
                 picture = pictures.pop(0)
@@ -472,9 +475,12 @@ class _State:
             # Large type the model boxed as text is a heading only when larger than the
             # page's title boxes (a page without any keeps the size test).
             level = profile.heading_level(line.size)
-        # A bare "1." / "V." heading runs on into the line after it (Dilexit's "V.").
-        joins = self.current.kind == "heading" and bool(
-            _NUMBERING_RE.match(plain(self.current.text()))
+        # A bare "1." / "V." heading runs on into the line after it (Dilexit's "V."), unless
+        # that line opens a running paragraph (Niebla's "III", then the chapter's text).
+        joins = (
+            self.current.kind == "heading"
+            and not self.runs_on
+            and bool(_NUMBERING_RE.match(plain(self.current.text())))
         )
         if joins:
             level = level or self.current.level
@@ -641,6 +647,22 @@ class _State:
     def _flush_notes(self) -> Iterator[Block]:
         pending, self.pending = self.pending, []
         yield from pending
+
+
+def _runs_on(body_line: BodyLine, following: BodyLine | None, margins: _Margins) -> bool:
+    """The line's paragraph goes on into the next line: it ends in a hyphen, or the next
+    line is in the same layout-model box (without the model: the line fills the column).
+    A line in a title box runs on only into its title (Reale's two-line titles)."""
+    if body_line.title:
+        return False
+    if plain(body_line.text).rstrip().endswith(("-", SOFT_HYPHEN)):
+        return True
+    if following is None:
+        return False
+    if following.starts is not None:
+        return not following.starts
+    line = body_line.line
+    return line.x1 >= margins.right - _SHORT_LINE_EMS * (line.size or 1)
 
 
 def _page_margins(lines: list[BodyLine], body_size: float) -> _Margins:

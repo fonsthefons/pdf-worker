@@ -40,6 +40,26 @@ rows now expects the 18 pt line as a heading. `tools/parts_report.py`'s `_watch_
   user: join only a number with its dot ("V.", "1."; Niebla's "III" has none), or not
   join a line that is in a `text` box and runs on (ends in a hyphen / fills the line).
   The PR stays a draft until the user picks.
+- **Fixed (coordinator's choice for the user, 2026-10-30): (d) narrowed.** A bare number
+  doesn't join a line that runs on into the next body line: `structure._runs_on` (the
+  line ends in a hyphen, or the next line has `starts` False, i.e. it is in the same `text`
+  box; at a box edge or without rows, the line fills the column). A line in a title box
+  never runs on (else Reale's and Antropología's two-line titles "3." / "LOS PROBLEMAS
+  ESENCIALES..." split: the first try did that, extra 30 -> 32). Dotless numbers still
+  join ("V" titles without a dot). Set per line in `add_page` (`_State.runs_on`). Test
+  `test_a_bare_number_does_not_take_the_first_line_of_a_running_paragraph` (Niebla's
+  "III" over a running paragraph: stays "# III", the paragraph whole). Fast tests 357
+  passed; ruff clean.
+  - Headings test (`scratch/headings_test_acd3`): 89% / 87% / 88%, levels 59%, 21 missed,
+    30 extra; every heading the same as before the fix (`scratch/htest_diff.py`).
+  - Regression `scratch/regress/p5head_acd3` (648 s): seven books are byte-identical to
+    `p5head_acd`. Only Niebla changed: its 28 dotless numerals ("III", "VI" ... "XXXII")
+    are bare headings again, each followed by the chapter's text. Against `p5para_c`, Niebla
+    has paragraphs 2,831 -> 2,840, headings 54 -> 46 and splits 634 -> 630; the other books
+    are as in the table above. The +11 "splits" from the fix are chapter openings that were
+    already cut after their first line on main ("...dijo Víc-" / "tor a Augusto"): a
+    paragraph-rule split, not new. Kant's "2 Es, según su cualidad, simple." stays (it
+    isn't this case: that line doesn't run on). No new problem.
 - Also in `12fbf96`: `margins`' section-break regex no longer backtracks on long dotted
   leaders (`tests/test_margins.py`).
 **Draft: some books get worse; the user's call (plan: "if a book gets worse, record the

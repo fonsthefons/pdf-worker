@@ -372,6 +372,22 @@ def test_headings_beside_the_title_boxes(make_layout_pdf, tmp_path):
     assert headings == ["Chapter One", "V. Este es el corazón"]
 
 
+def test_a_bare_number_does_not_take_the_first_line_of_a_running_paragraph(
+    make_layout_pdf, tmp_path
+):
+    # Niebla's dotless chapter numerals ("III"), each a title box over the chapter's text.
+    page = [_body(80, "III"), *_paragraph(120, FULL[:2], "It ends.")]
+    pdf = make_layout_pdf([page])
+    rows = _boxes(pdf, ("paragraph_title", [0]), ("text", [1, 2, 3]))
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    md = out.read_text(encoding="utf-8")
+    assert [line for line in md.splitlines() if line.startswith("#")] == ["# III"]
+    assert f"\n\n{FULL[0]} {FULL[1]} It ends.\n" in md
+
+
 def test_a_line_left_of_the_margin_starts_a_turn(make_layout_pdf, tmp_path):
     # A Timeo page of long speeches: few turns, so the margin is the indent (x 90), and
     # "CRITIAS.-" sticks out after a full line ending "propósito36•".

@@ -327,9 +327,10 @@ recognised and stays body text: no fallback rule is kept. Likely candidates:
   title box on the page (all large lines on a page without one), (d) a bare number
   ("1.", "V.") heading joins the line after it. Not taken: (b) the short all-caps/bold
   rule. Recall 72% -> 89%, precision 84% -> 87% against main's rules (PROGRESS.md).
-  `tools/headings_test.py run OUT_DIR` scores today's code ("current"). Open: the
-  regression shows (d) joining Niebla's dotless chapter numerals ("III") to the chapter's
-  first body line; the user picks a narrower (d) before the PR is merged.
+  `tools/headings_test.py run OUT_DIR` scores today's code ("current"). The regression
+  showed (d) joining Niebla's dotless chapter numerals ("III") to the chapter's first body
+  line, so (d) is narrowed: no join to a line that runs on into the next body line (same
+  `text` box, a trailing hyphen, or a full line without the model).
 - **Footnotes**: only if Phase 4 shows the model finds notes the rule misses without
   new mistakes.
 
