@@ -541,7 +541,7 @@ class _State:
 
     def _starts_paragraph(self, body_line: BodyLine, margins: _Margins, new_page: bool) -> bool:
         if body_line.starts is not None:
-            return body_line.starts  # the layout model's bibliography entries
+            return body_line.starts  # the layout model's boxes (bibliography entries, text)
         line, text = body_line.line, body_line.text
         prev = self.prev
         if prev is None or self.break_next:

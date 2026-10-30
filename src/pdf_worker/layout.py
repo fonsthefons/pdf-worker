@@ -337,7 +337,7 @@ class DocumentProfile:
     # The book prints its margin references in the text, in brackets ("[22b]").
     bracketed_refs: bool = False
     # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``): bibliography
-    # entries (``footnotes.layout_page``).
+    # entries and paragraphs (``footnotes.layout_page``).
     layout: dict[int, dict] = field(default_factory=dict)
 
     def heading_level(self, size: float) -> int | None:

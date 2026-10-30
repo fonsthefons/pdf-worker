@@ -191,9 +191,9 @@ BIBLIOGRAPHY = [
 ]
 
 
-def _reference_boxes(pdf, entries):
-    """A layout row (pixels of an image twice the page's size) with one
-    ``reference_content`` box around each entry: a list of line indexes."""
+def _reference_boxes(pdf, entries, label="reference_content"):
+    """A layout row (pixels of an image twice the page's size) with one ``label`` box
+    around each entry: a list of line indexes."""
     with pymupdf.open(pdf) as doc:
         page = doc[0]
         bboxes = [line.bbox for line in page_lines(page)]
@@ -202,7 +202,7 @@ def _reference_boxes(pdf, entries):
     def box(lines):
         x0, y0, x1, y1 = zip(*(bboxes[i] for i in lines), strict=True)
         return {
-            "label": "reference_content",
+            "label": label,
             "score": 0.9,
             "bbox": [2 * min(x0), 2 * min(y0), 2 * max(x1), 2 * max(y1)],
         }
@@ -228,6 +228,63 @@ def test_a_bibliography_entry_is_the_layout_models_box(make_layout_pdf, tmp_path
     text = out.read_text(encoding="utf-8")
     assert ("Thomas, Aschendorff, Münster 1924.\n" in text) == model
     assert report.stats.paragraphs == (2 if model else 3)
+
+
+@pytest.mark.parametrize("model", [False, True])
+def test_no_new_paragraph_inside_one_text_box(make_layout_pdf, tmp_path, model):
+    lines = [
+        FULL[0],  # a box of its own: at its edge today's rule joins the next line
+        "and a short line,",
+        "Paris in the spring, where it ends.",  # a short line, then a capital: today a start
+    ]
+    page = [_body(100 + LINE * i, text) for i, text in enumerate(lines)]
+    page.append(_body(100 + LINE * 5, "A second paragraph after a gap."))
+    pdf = make_layout_pdf([page])
+    rows = _reference_boxes(pdf, [[0], [1, 2], [3]], label="text") if model else None
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    text = out.read_text(encoding="utf-8")
+    assert (f"{FULL[0]} and a short line, Paris in the spring" in text) == model
+    assert report.stats.paragraphs == (2 if model else 3)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "-Sólo sé que son tíos.",  # a dialogue line (Niebla p. 31; no "—" in this font)
+        "1.2. Estructura de los elementos.",  # a numbered item (Diálogos p. 86)
+        "1º.",
+        "J. GARCÍA BACCA, Platón. «Critias», Caracas, 1980.",  # an entry (Diálogos p. 159)
+        "PRIMER CAPÍTULO",  # a chapter heading (Kant p. 87)
+    ],
+)
+def test_a_line_that_starts_an_item_keeps_todays_split_inside_a_text_box(
+    make_layout_pdf, tmp_path, item
+):
+    lines = [FULL[0], "and a short line ends.", item]
+    pdf = make_layout_pdf([[_body(100 + LINE * i, text) for i, text in enumerate(lines)]])
+    rows = _reference_boxes(pdf, [[0, 1, 2]], label="text")
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    assert report.stats.paragraphs + report.stats.headings == 2
+
+
+def test_a_line_after_a_section_mark_keeps_todays_split_inside_a_text_box(
+    make_layout_pdf, tmp_path
+):
+    # Kant p. 38: "- § 7 -" and its title "Explicación" in one box.
+    lines = [FULL[0], "and it ends.", "- § 7 -", "Explicación"]
+    pdf = make_layout_pdf([[_body(100 + LINE * i, text) for i, text in enumerate(lines)]])
+    rows = _reference_boxes(pdf, [[0, 1, 2, 3]], label="text")
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    assert report.stats.paragraphs + report.stats.headings == 3
 
 
 def test_a_line_left_of_the_margin_starts_a_turn(make_layout_pdf, tmp_path):

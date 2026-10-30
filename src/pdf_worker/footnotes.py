@@ -53,6 +53,22 @@ _BRACKET_DEF_RE = re.compile(r"^\s*\[(\d{1,4})\][\s ]*")
 SEPARATOR_RE = re.compile(r"^\s*[_\-—–]{3,}\s*$")
 # A printer's signature mark at the foot of a page: "P 2", "B", "Q 3".
 _SIGNATURE_RE = re.compile(r"^[A-Z]{1,2}(?:\s*\d)?$")
+# A line that starts like a new item (user, Phase 5): inside one layout-model text box,
+# it and the line after it keep today's paragraph rules.
+_ITEM_START_RE = re.compile(
+    r"\s*(?:\d{1,3}\s*$"  # a bare number: "3"
+    r"|\d{1,3}(?:[.º°ª]\d*)+"  # a numbering: "1º.", "1.2.", "85."
+    r"|[-–—§]|__"  # a dialogue dash ("__" in OCR), a mark: "- § 7 -", "- II -"
+    r"|[A-ZÀ-Þ][^\W\d_]{1,14}\s?\.\s?[-–—]"  # a speaker's turn: "TIM.—", "TrM.-"
+    r"|(?:[A-ZÀ-Þ][a-z]?\.\s*)+(?:de\s+)?(?:[A-ZÀ-Þ][a-z]?\.\s*)*[A-ZÀ-Þ]{2,}"  # "J. GARCÍA"
+    r"|[A-ZÀ-Þ][A-ZÀ-Þ'\- ]{2,},\s+[A-ZÀ-Þ][a-z]?\.)"  # an entry: "GRABMANN, M.:"
+)
+
+
+def _starts_item(text: str) -> bool:
+    """A line that starts like a new item, or is in capitals ("PRIMER CAPÍTULO")."""
+    letters = [c for c in text if c.isalpha()]
+    return bool(_ITEM_START_RE.match(text)) or (len(letters) >= 4 and text.upper() == text)
 
 
 @dataclass(frozen=True)
@@ -65,7 +81,7 @@ class BodyLine:
     endnote_label: str | None = None
     # The layout model's say on a paragraph starting here: between two lines of
     # bibliography (``reference_content`` boxes), True at a new box, False inside one;
-    # None leaves it to ``structure``'s rules.
+    # False inside one ``text`` box; None leaves it to ``structure``'s rules.
     starts: bool | None = None
 
 
@@ -118,14 +134,18 @@ def layout_page(
             lines, region, page_index + 1, previous_label
         )
 
-    # One bibliography entry per ``reference_content`` box; not on a page of chapter
-    # notes, which the model boxes alike (one box per note, or across two).
+    # One bibliography entry per ``reference_content`` box, and no new paragraph inside
+    # one ``text`` box; not on a page of chapter notes, which the model boxes alike (one
+    # box per note, or across two).
     row = None if page_index in chapter_notes.note_pages else profile.layout.get(page_index)
     entries = [
-        i if i is not None and row["blocks"][i]["label"] == "reference_content" else None
+        (i, row["blocks"][i]["label"])
+        if i is not None and row["blocks"][i]["label"] in ("reference_content", "text")
+        else None
         for i in (boxes(page, row, lines) if row else [None] * len(lines))
     ]
-    entry = None  # the box of the body line before
+    entry = None  # the box (index, label) of the body line before
+    item = False  # the body line before starts like a new item
 
     references: list[str] = []
     # A note continued from the previous page reuses that page's label; count it once.
@@ -135,7 +155,14 @@ def layout_page(
         if line_index in consumed or line_index in furniture:
             continue
         before, entry = entry, entries[line_index]
-        starts = None if before is None or entry is None else entry != before
+        after_item = item  # the last line with text: blank lines don't count
+        if line.text.strip():
+            item = _starts_item(line.text)
+        starts = None  # at a text box's edge, today's rules decide
+        if before and entry and before[1] == entry[1] == "reference_content":
+            starts = entry != before
+        elif before and entry == before and not (item or after_item):
+            starts = False  # inside one text box
         if page_index in chapter_notes.note_pages:
             hung = plain_note_start(lines, line_index)
             if hung and hung[1] != line_index and (page_index, hung[1]) in chapter_notes.defs:
