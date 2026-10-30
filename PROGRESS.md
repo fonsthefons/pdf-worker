@@ -1,6 +1,47 @@
 # Progress
 
 ## Layout plan, Phase 5: headings (2026-10-30, branch `layout/phase-5-headings`)
+**Decision (user, 2026-10-30, from the headings test): a+c+d.** Now the default, the switch
+gone: (a) a line in a title box is a heading; (c) the size test stays for lines larger than
+any title box on the page (every large line on a page without one, so a book without rows
+keeps the size test); (d) a bare number heading ("1.", "V.") joins the line after it. (b),
+`_implicit_heading_level` and `_Builder.bold`, deleted again, with `HEADING_RULES` and its
+"size" / "no_titles" names. `tools/headings_test.py run` now builds today's code as variant
+"current"; `score` scores whatever variants a headings.json holds (the old
+`scratch/headings_test/headings.json` still reports all seven). Tests: the parametrized
+`test_heading_rules_compared_beside_the_title_boxes` became
+`test_headings_beside_the_title_boxes` (a+c+d's result); `..._not_a_heading` became
+`test_large_type_below_a_larger_title_box_is_not_a_heading`; the title-box test without
+rows now expects the 18 pt line as a heading. `tools/parts_report.py`'s `_watch_add` lost
+`emphasized` again. Fast tests 356 passed; ruff clean.
+- Headings test again (`headings_test.py run scratch/headings_test_acd`, 7 s, rows
+  cached): recall 89%, precision 87%, F1 88%, levels 59%, 21 missed, 30 extra: the same as
+  a+c+d in the comparison (main's rules: 72% / 84% / 78%, levels 64%).
+- `regression.py build scratch/regress/p5head_acd` (624 s), `compare` against `p5para_c`:
+
+  | Book | Paragraphs | Headings |
+  |---|---|---|
+  | kant | 892 -> 882 | 43 -> 52 |
+  | timeo_web | 680 -> 679 | 3 -> 4 |
+  | metafisica | 1,741 -> 1,501 | 59 -> 246 |
+  | lugones | 998 | 12 -> 14 |
+  | dilexit | 243 -> 242 | 59 -> 57 |
+  | dialogos | 1,479 -> 1,477 | 28 -> 30 |
+  | timeo_greek | 223 -> 227 | 7 -> 3 |
+  | niebla | 2,831 -> 2,829 | 54 -> 46 |
+
+  Better than a alone: Dilexit "I. LA IMPORTANCIA DEL CORAZÓN", "V. AMOR POR AMOR";
+  Metafísica's "1. N o c ió n de ente" joined; Lugones keeps "Las dos conquistas".
+- **New problem (d), not in the test: Niebla's 30 chapter numerals.** "III", "VI" ... "XXXII"
+  are title boxes without a dot, so `_NUMBERING_RE` (dot optional) joins each to the
+  chapter's first body line: `##### III — Hoy te retrasaste un poco, chico — dijo Víc-`,
+  and the paragraph is cut after it ("tor a Augusto —, ¡tú, tan puntual siempre!" starts
+  a new one). Kant's "2 Es, según su cualidad, simple." looks the same. Options for the
+  user: join only a number with its dot ("V.", "1."; Niebla's "III" has none), or not
+  join a line that is in a `text` box and runs on (ends in a hyphen / fills the line).
+  The PR stays a draft until the user picks.
+- Also in `12fbf96`: `margins`' section-break regex no longer backtracks on long dotted
+  leaders (`tests/test_margins.py`).
 **Draft: some books get worse; the user's call (plan: "if a book gets worse, record the
 page and line and ask the user").** As the plan writes it, in `footnotes.layout_page`:
 a body line in a `doc_title` or `paragraph_title` box gets `BodyLine.title` (also on

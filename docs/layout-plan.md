@@ -320,25 +320,16 @@ recognised and stays body text: no fallback rule is kept. Likely candidates:
   Gains: Metafísica's small-type section titles (p. 98), Kant's "Tesis"/"Prueba" (p. 195);
   drops the rule's mistakes (Kant p. 59 table rows, Niebla p. 28 OCR specks). Running
   heads labelled as titles must stay dropped (Phase 1's rule runs first).
-  Done as written in draft PR #77; some real headings are lost (PROGRESS.md). Before the
-  user picks among (a) the PR as is, (b) also keep the short all-caps/bold rule, (c) also
-  keep the size test for lines larger than any title box on the page, (d) join a bare
-  number ("1.", "V.") to the line after it:
-  1. **Heavy run (the user starts it; layout model on 129 pages, one book at a time,
-     ~5-10 min):** `.venv/bin/python tools/run_logged.py headings_test .venv/bin/python
-     tools/headings_test.py run scratch/headings_test` (wait with `tools/wait_log.py
-     scratch/logs/headings_test.log`). It builds the 13 test books of
-     `test_pdfs/book_tests_pdfs/` (pages picked by role from `test_pdfs/new_test_books/`,
-     `manifest.json`) under main's old rules, a, a+b, a+c, a+d, a+c+d and a+b+c+d
-     (`structure.HEADING_RULES`; the default stays a) and scores each against
-     `truth.json`: recall, precision and level agreement, with the errors, in
-     `scratch/headings_test/report.md`. After editing `truth.json` (its `uncertain`
-     entries), `tools/headings_test.py score scratch/headings_test` re-scores without the
-     model.
-  2. **The user decides** from the report: the variant with the best recall without
-     losing precision (and levels) against a. The chosen rules become the default (their
-     names leave `HEADING_RULES`, the rest of the switch is deleted), then `regression.py
-     build` / `compare` on the eight old books as for every Phase 5 part.
+  **Done (PR #77):** the plan's rule alone (a) lost real headings, so the user compared
+  variants on 13 test books (`tools/headings_test.py` against
+  `test_pdfs/book_tests_pdfs/truth.json`, 184 headings) and chose a+c+d on 2026-10-30:
+  (a) a title-box line is a heading, (c) the size test stays for lines larger than any
+  title box on the page (all large lines on a page without one), (d) a bare number
+  ("1.", "V.") heading joins the line after it. Not taken: (b) the short all-caps/bold
+  rule. Recall 72% -> 89%, precision 84% -> 87% against main's rules (PROGRESS.md).
+  `tools/headings_test.py run OUT_DIR` scores today's code ("current"). Open: the
+  regression shows (d) joining Niebla's dotless chapter numerals ("III") to the chapter's
+  first body line; the user picks a narrower (d) before the PR is merged.
 - **Footnotes**: only if Phase 4 shows the model finds notes the rule misses without
   new mistakes.
 

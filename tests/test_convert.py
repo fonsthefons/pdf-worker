@@ -5,7 +5,6 @@ import zipfile
 import pymupdf
 import pytest
 
-from pdf_worker import structure
 from pdf_worker.cli import main
 from pdf_worker.convert import (
     UnsupportedFormatError,
@@ -318,38 +317,31 @@ def test_a_line_in_a_title_box_is_a_heading_its_level_from_its_size(
     report = convert_pdf(pdf, out, "md", layout_rows=rows if model else None)
 
     md = out.read_text(encoding="utf-8")
-    assert ("\n# Chapter One\n" in md and "\n## Tesis\n" in md) == model
-    assert report.stats.headings == (2 if model else 0)
+    assert "\n# Chapter One\n" in md  # without the model, by its size
+    assert ("\n## Tesis\n" in md) == model
+    assert report.stats.headings == (2 if model else 1)
 
 
-@pytest.mark.parametrize("model", [False, True])
-def test_large_type_outside_a_title_box_is_not_a_heading(make_layout_pdf, tmp_path, model):
+def test_large_type_below_a_larger_title_box_is_not_a_heading(make_layout_pdf, tmp_path):
     # Niebla p. 28 (OCR specks in large type), Kant p. 59 (table rows): the model says text.
-    page = [(72, 80, "Chapter One", 18), *_paragraph(120, FULL[:1], "It ends.")]
+    page = [
+        (72, 80, "Chapter One", 20),
+        (72, 110, "A row in large type", 14),
+        *_paragraph(140, FULL[:1], "It ends."),
+    ]
     pdf = make_layout_pdf([page])
-    rows = _boxes(pdf, ("text", [0]), ("text", [1, 2])) if model else None
+    rows = _boxes(pdf, ("paragraph_title", [0]), ("text", [1]), ("text", [2, 3]))
     out = tmp_path / "book.md"
 
     report = convert_pdf(pdf, out, "md", layout_rows=rows)
 
-    assert report.stats.headings == 0
+    assert report.stats.headings == 1
 
 
-@pytest.mark.parametrize(
-    ("rules", "headings"),
-    [
-        ((), ["V."]),
-        (("implicit",), ["CAPITULO PRIMERO", "V."]),
-        (("larger",), ["Chapter One", "V."]),
-        (("number",), ["V. Este es el corazón"]),
-        (("no_titles", "size", "implicit"), ["Chapter One", "CAPITULO PRIMERO"]),
-    ],
-)
-def test_heading_rules_compared_beside_the_title_boxes(
-    make_layout_pdf, tmp_path, monkeypatch, rules, headings
-):
-    # tools/headings_test.py's variants: Kant's "PRIMER CAPÍTULO" and Metafísica's 17.5 pt
-    # divider boxed as text, Dilexit's "V." boxed apart from its title.
+def test_headings_beside_the_title_boxes(make_layout_pdf, tmp_path):
+    # tools/headings_test.py: Metafísica's 17.5 pt divider boxed as text, larger than any
+    # title box on its page, is a heading; Kant's all-caps "PRIMER CAPÍTULO" in body type
+    # is not; Dilexit's "V." boxed apart from its title joins it.
     page = [
         (72, 80, "Chapter One", 18),
         *_paragraph(120, FULL[:1], "It ends."),
@@ -371,13 +363,13 @@ def test_heading_rules_compared_beside_the_title_boxes(
         (text, [7]),
         (text, [8, 9]),
     )
-    monkeypatch.setattr(structure, "HEADING_RULES", frozenset(rules))
     out = tmp_path / "book.md"
 
     convert_pdf(pdf, out, "md", layout_rows=rows)
 
     md = out.read_text(encoding="utf-8").splitlines()
-    assert [line.lstrip("# ") for line in md if line.startswith("#")] == headings
+    headings = [line.lstrip("# ") for line in md if line.startswith("#")]
+    assert headings == ["Chapter One", "V. Este es el corazón"]
 
 
 def test_a_line_left_of_the_margin_starts_a_turn(make_layout_pdf, tmp_path):

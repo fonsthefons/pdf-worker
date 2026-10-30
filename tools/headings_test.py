@@ -1,5 +1,5 @@
-"""Heading rules against the real headings of the new test books (docs/layout-plan.md,
-Phase 5 headings: which of the options (a)-(d) to keep).
+"""Headings against the real headings of the new test books (docs/layout-plan.md,
+Phase 5 headings).
 
 Usage:
   .venv/bin/python tools/headings_test.py run OUT_DIR     (heavy: runs the layout model)
@@ -8,11 +8,12 @@ Usage:
 
 ``run`` takes the books of test_pdfs/book_tests_pdfs/manifest.json one at a time: the
 layout model's rows for its pages (``paddle_ocr.layout_pages``, cached in
-scratch/paddle-home, so a second run is quick), then its headings under each variant's
-rules (``structure.HEADING_RULES``), saved to OUT_DIR/headings.json after each book.
-The headings come from ``structure.iter_blocks`` and ``tidy``, as in ``convert_pdf``;
-the word re-reading (Tesseract) and the review's word check are left out: they don't
-make headings. Then ``score``: each variant against truth.json, in OUT_DIR/report.md.
+scratch/paddle-home, so a second run is quick), then its headings, saved to
+OUT_DIR/headings.json after each book as variant "current". The headings come from
+``structure.iter_blocks`` and ``tidy``, as in ``convert_pdf``; the word re-reading
+(Tesseract) and the review's word check are left out: they don't make headings. Then
+``score``: each variant in headings.json against truth.json, in OUT_DIR/report.md (an
+older headings.json keeps the variants compared there: "old (main)", "a", ... "a+c+d").
 
 Scoring, page by page: a heading found is correct when most of it (80%) is text of the
 page's real headings; a bare number ("1.", "V.") is correct only when it is a whole real
@@ -34,16 +35,6 @@ from regression import _write_atomic
 
 ROOT = Path(__file__).resolve().parent.parent
 TESTS = ROOT / "test_pdfs" / "book_tests_pdfs"
-# (a) is the PR's rule: a line in a title box is a heading. (b), (c), (d) are on top of it.
-VARIANTS = {
-    "old (main)": {"no_titles", "size", "implicit"},
-    "a": set(),
-    "a+b": {"implicit"},
-    "a+c": {"larger"},
-    "a+d": {"number"},
-    "a+c+d": {"larger", "number"},
-    "a+b+c+d": {"implicit", "larger", "number"},
-}
 _NUMBER_RE = re.compile(r"^(?:\d{1,3}|[ivxlc]{1,6})$")
 FOUND, CORRECT = 0.6, 0.8
 
@@ -101,21 +92,20 @@ def score(out: Path) -> None:
     truth = json.loads((TESTS / "truth.json").read_text(encoding="utf-8"))
     built = json.loads((out / "headings.json").read_text(encoding="utf-8"))
     books = [b for b in built if b in truth]
+    variants = list(built[books[0]]) if books else []
     lines = [
-        "# Heading rules on the new test books",
+        "# Headings on the new test books",
         "",
         f"{len(books)} books, {sum(len(truth[b]['headings']) for b in books)} real headings"
         " (test_pdfs/book_tests_pdfs/truth.json). Recall: real headings found. Precision:"
         " headings found that are real. Levels: pairs of real headings found ranked as in"
-        " the book. (a) title boxes only (the PR); b keeps the all-caps/bold rule, c the size"
-        " test for lines larger than any title box on the page, d joins a bare number to the"
-        " next line; old = main's rules (size test and all-caps/bold, no title boxes).",
+        " the book.",
         "",
         "| Variant | Recall | Precision | F1 | Levels | Missed | Extra |",
         "|---|---|---|---|---|---|---|",
     ]
     scores = {
-        v: {b: score_book(truth[b]["headings"], built[b][v]) for b in books} for v in VARIANTS
+        v: {b: score_book(truth[b]["headings"], built[b][v]) for b in books} for v in variants
     }
     for variant, by_book in scores.items():
         t = {
@@ -130,12 +120,12 @@ def score(out: Path) -> None:
             f" | {t['truth'] - t['found']} | {t['headings'] - t['correct']} |"
         )
     lines += ["", "## By book (recall / precision)", ""]
-    lines.append("| Book | " + " | ".join(VARIANTS) + " |")
-    lines.append("|---|" + "---|" * len(VARIANTS))
+    lines.append("| Book | " + " | ".join(variants) + " |")
+    lines.append("|---|" + "---|" * len(variants))
     for book in books:
         cells = [
             f"{_share(s['found'], s['truth'])} / {_share(s['correct'], s['headings'])}"
-            for s in (scores[v][book] for v in VARIANTS)
+            for s in (scores[v][book] for v in variants)
         ]
         lines.append(f"| {book} | " + " | ".join(cells) + " |")
     for variant, by_book in scores.items():
@@ -147,14 +137,14 @@ def score(out: Path) -> None:
             lines += ["", f"### {book} (real level: levels found, {levels})", ""]
             lines += [f"- missed {m}" for m in s["missed"]] + [f"- extra {e}" for e in s["extra"]]
     _write_atomic(out / "report.md", "\n".join(lines) + "\n")
-    print("\n".join(lines[:16]))
+    print("\n".join(lines[: 6 + len(variants)]))
     print(f"\nreport: {out / 'report.md'}")
 
 
 def run(out: Path) -> None:
     # The layout model's rows, cached as regression.py caches them.
     os.environ.setdefault("PDF_WORKER_PADDLE_CACHE", str(ROOT / "scratch" / "paddle-home"))
-    from pdf_worker import font_sizes, glued_refs, structure
+    from pdf_worker import font_sizes, glued_refs
     from pdf_worker.convert import guess_language
     from pdf_worker.document import open_pdf
     from pdf_worker.inline import plain
@@ -174,21 +164,19 @@ def run(out: Path) -> None:
         pdf = TESTS / book["file"]
         print(f"{label}: layout model ({len(book['pages'])} pages)", flush=True)
         rows = layout_pages(pdf)
-        built[label] = {}
-        for variant, rules in VARIANTS.items():
-            structure.HEADING_RULES = frozenset(rules)
-            with open_pdf(pdf) as doc:
-                font_sizes.mark_misreporting(doc)
-                glued_refs.mark_glued_refs(doc)
-                profile = analyze_document(doc)
-                profile.layout = rows
-                blocks = tidy(
-                    iter_blocks(doc, profile, images=False), guess_language(profile.text_sample)
-                )
-                built[label][variant] = [
+        with open_pdf(pdf) as doc:
+            font_sizes.mark_misreporting(doc)
+            glued_refs.mark_glued_refs(doc)
+            profile = analyze_document(doc)
+            profile.layout = rows
+            blocks = tidy(
+                iter_blocks(doc, profile, images=False), guess_language(profile.text_sample)
+            )
+            built[label] = {
+                "current": [
                     [b.page + 1, b.level, plain(b.text)] for b in blocks if isinstance(b, Heading)
                 ]
-        structure.HEADING_RULES = frozenset()
+            }
         _write_atomic(saved, json.dumps(built, ensure_ascii=False, indent=1))
         print(f"  {', '.join(f'{v} {len(h)}' for v, h in built[label].items())}", flush=True)
     score(out)
