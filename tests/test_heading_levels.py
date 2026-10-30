@@ -79,6 +79,22 @@ def test_size_tells_apart_kinds_otherwise_the_same():
     ) == [1, 2, 3, 1, 3]
 
 
+def test_a_division_word_keeps_its_rank_in_any_size():
+    # "Capítulo IX" set smaller than the chapters before it is still a chapter.
+    assert _levels(("Capítulo I", 1), ("1. Uno", 2), ("Capítulo IX", 2), ("1. Uno", 2)) == [
+        1,
+        2,
+        1,
+        2,
+    ]
+
+
+def test_a_note_reference_does_not_change_the_kind():
+    assert heading_key(Heading("1. NOTAS SOBRE LA FE[^p24-18]", 2)) == heading_key(
+        Heading("2. LÍMITES", 2)
+    )
+
+
 def test_levels_stop_at_6():
     styles = ["Parte 1", "Capítulo 1", "1. a", "1.1 b", "a) c", "I. d", "Texto", "Otro"]
     assert _levels(*((s, 1) for s in styles)) == [1, 2, 3, 4, 5, 6, 6, 6]

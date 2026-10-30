@@ -37,7 +37,7 @@ def test_copyright_and_sentence_headings_become_paragraphs():
     assert out[5] == Note("1", "“Cita”.")
 
 
-def test_headings_are_ranked_by_their_kind():
+def test_subheadings_under_numbered_headings_go_a_level_down():
     blocks = [
         Heading("Capítulos I-II: La Ilustración", 2),
         Heading("Textos", 2),
@@ -51,8 +51,7 @@ def test_headings_are_ranked_by_their_kind():
         Heading("Estudios", 2),
     ]
     out = list(tidy(blocks))
-    # One type size: each kind keeps the rank of its first appearance (heading_levels).
-    assert [h.level for h in out] == [2, 3, 4, 3, 3, 5, 3, 6, 2, 3]
+    assert [h.level for h in out] == [2, 2, 2, 3, 3, 2, 2, 2, 2, 2]
     assert out[3].text == "Textos"
 
 

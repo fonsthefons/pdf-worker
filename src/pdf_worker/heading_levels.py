@@ -6,7 +6,11 @@ with, else its numbering style and whether it is in capitals; then its type size
 level ``structure`` gave it from the book's heading sizes). Larger type ranks above
 smaller; kinds set in the same size rank in the order they first appear (the book opens
 a division before its subdivisions), except that a division word ranked above another
-goes above it.
+goes above it; a division word keeps the rank it first had in any type size.
+
+Not used by the pipeline yet (quality plan, Phase 3 in PROGRESS.md): it raised level
+agreement on the checked headings pages (62.8% -> 66.3%) but lowered it against the
+reference EPUBs, which tag most headings at one level.
 """
 
 import re
@@ -15,7 +19,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import replace
 
 from pdf_worker.inline import plain
-from pdf_worker.structure import Block, Heading
+from pdf_worker.structure import REF_RE, Block, Heading
 
 # Division words, highest rank first; the words of one rank are one division in Spanish
 # and English.
@@ -52,7 +56,7 @@ def _division(text: str) -> str:
 
 def heading_key(heading: Heading) -> tuple[str, str, bool, int]:
     """(division word, numbering style, in capitals, size level)."""
-    text = plain(heading.text).strip()
+    text = REF_RE.sub("", plain(heading.text)).strip()  # a note reference: "...FE[^p24-18]"
     word = _division(text)
     if word:  # the word names the division, whatever its case ("CAPÍTULO I", "Capítulo II")
         return word, "", False, heading.level
@@ -73,6 +77,10 @@ def rank_headings(blocks: Iterable[Block]) -> Iterator[Block]:
         if not kinds and not (word or style):
             yield block
             continue
+        if word:
+            # A division word keeps the rank it first had, whatever its type size here.
+            key = next((k for keys in kinds.values() for k in keys if k[0] == word), key)
+            size = key[3]
         same_size = kinds.setdefault(size, [])
         if key not in same_size:
             # A new kind goes below the kinds seen in its type size, except a division
