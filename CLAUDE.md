@@ -35,7 +35,13 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   builds the test books and counts, part by part, the lines today's rules and the layout
   model agree on; `--show PAGE...` prints a page's lines with both), `headings_test.py`
   (`run OUT_DIR` scores heading-rule variants on `test_pdfs/book_tests_pdfs/` against its
-  `truth.json`; runs the layout model; `score OUT_DIR` re-scores). Reuse these before
+  `truth.json`; runs the layout model; `score OUT_DIR` re-scores; `--set heldout` for the
+  held-out pages), `book_score.py` (`REFERENCE OURS.md`: a whole converted book against a
+  reference EPUB or `.txt` of the same text: words, headings, paragraph breaks, notes in
+  the body, leftovers; `selftest`), `quality.py` (`build OUT_DIR` converts the reference
+  books of docs/quality-plan.md and runs both headings page sets, `score OUT_DIR`
+  re-scores, `compare BEFORE AFTER` marks changes beyond the tolerance: the quality
+  plan's yardstick and merge gate). Reuse these before
   writing scratch scripts; scratch/ is for throwaway files and is emptied from time to time.
 
 # Working rules for this repo
