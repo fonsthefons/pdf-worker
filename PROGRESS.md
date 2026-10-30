@@ -54,6 +54,10 @@
   most likely the scoring of notes against a plain-text reference that marks none (our note
   sits after its paragraph, the reference's in place), but rule 4 forbids checking.
   The PR stays a draft: held-out worse beyond the tolerance. Regression `compare` not run.
+- **Decision (user, via the coordinator):** gate misses accepted. gaviota +26 per 10,000
+  missing words: a yardstick artefact (our notes placed after their paragraph, against a
+  plain-text reference that marks none; the new notes' "(n)" numbers appear in its text).
+  lugones +34: the two traced cases (p. 311, p. 215). PR marked ready, not merged.
 - **For the user to decide** (first round): accept the gate miss (the lugones part is the reference's
   unmarked note and a pre-existing continuation error), or narrow the change (e.g. keep
   the "(1)"-region rule but only where the body has a matching "(n)" marker), or let the
