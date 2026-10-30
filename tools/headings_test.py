@@ -5,6 +5,7 @@ Usage:
   .venv/bin/python tools/headings_test.py run OUT_DIR     (heavy: runs the layout model)
   .venv/bin/python tools/headings_test.py score OUT_DIR   (re-score OUT_DIR/headings.json)
   .venv/bin/python tools/headings_test.py selftest        (the scoring, on a made-up page)
+  Add ``--set heldout`` after OUT_DIR for the held-out pages (book_tests_pdfs/heldout/).
 
 ``run`` takes the books of test_pdfs/book_tests_pdfs/manifest.json one at a time: the
 layout model's rows for its pages (``paddle_ocr.layout_pages``, cached in
@@ -88,8 +89,8 @@ def _share(n: int, total: int) -> str:
     return f"{n / total:.0%}" if total else "-"
 
 
-def score(out: Path) -> None:
-    truth = json.loads((TESTS / "truth.json").read_text(encoding="utf-8"))
+def score(out: Path, tests: Path = TESTS) -> None:
+    truth = json.loads((tests / "truth.json").read_text(encoding="utf-8"))
     built = json.loads((out / "headings.json").read_text(encoding="utf-8"))
     books = [b for b in built if b in truth]
     variants = list(built[books[0]]) if books else []
@@ -97,7 +98,7 @@ def score(out: Path) -> None:
         "# Headings on the new test books",
         "",
         f"{len(books)} books, {sum(len(truth[b]['headings']) for b in books)} real headings"
-        " (test_pdfs/book_tests_pdfs/truth.json). Recall: real headings found. Precision:"
+        f" ({tests.relative_to(ROOT)}/truth.json). Recall: real headings found. Precision:"
         " headings found that are real. Levels: pairs of real headings found ranked as in"
         " the book.",
         "",
@@ -141,7 +142,7 @@ def score(out: Path) -> None:
     print(f"\nreport: {out / 'report.md'}")
 
 
-def run(out: Path) -> None:
+def run(out: Path, tests: Path = TESTS) -> None:
     # The layout model's rows, cached as regression.py caches them.
     os.environ.setdefault("PDF_WORKER_PADDLE_CACHE", str(ROOT / "scratch" / "paddle-home"))
     from pdf_worker import font_sizes, glued_refs
@@ -154,14 +155,14 @@ def run(out: Path) -> None:
     from pdf_worker.tidy import tidy
 
     out.mkdir(parents=True, exist_ok=True)
-    manifest = json.loads((TESTS / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((tests / "manifest.json").read_text(encoding="utf-8"))
     saved = out / "headings.json"
     built = json.loads(saved.read_text(encoding="utf-8")) if saved.exists() else {}
     for label, book in manifest.items():
         if label in built:
             print(f"{label}: done before", flush=True)
             continue
-        pdf = TESTS / book["file"]
+        pdf = tests / book["file"]
         print(f"{label}: layout model ({len(book['pages'])} pages)", flush=True)
         rows = layout_pages(pdf)
         with open_pdf(pdf) as doc:
@@ -179,7 +180,7 @@ def run(out: Path) -> None:
             }
         _write_atomic(saved, json.dumps(built, ensure_ascii=False, indent=1))
         print(f"  {', '.join(f'{v} {len(h)}' for v, h in built[label].items())}", flush=True)
-    score(out)
+    score(out, tests)
 
 
 def selftest() -> None:
@@ -207,7 +208,9 @@ def selftest() -> None:
 if __name__ == "__main__":
     args = sys.argv[1:]
     if len(args) == 2 and args[0] in ("run", "score"):
-        (run if args[0] == "run" else score)(Path(args[1]))
+        (run if args[0] == "run" else score)(Path(args[1]), TESTS)
+    elif len(args) == 4 and args[0] in ("run", "score") and args[2:] == ["--set", "heldout"]:
+        (run if args[0] == "run" else score)(Path(args[1]), TESTS / "heldout")
     elif args == ["selftest"]:
         selftest()
     else:

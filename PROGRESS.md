@@ -1,5 +1,50 @@
 # Progress
 
+## Quality plan, Phase 0: checked answers and held-out pages (2026-10-30, branch `quality/phase-0`)
+**What counts as a heading** (used for every page): a line or lines set apart, on their own,
+as the title of a division of the text (part, book, chapter, section, subsection), by size,
+weight, capitals, centring, spacing or numbering. Not headings: running heads and page
+numbers; contents and index entries; captions and table cells; a bold or italic phrase that
+starts a paragraph whose text goes on after it on the same line (a run-in head); the lines of
+a title page. A heading's number and its title are one heading, even on two lines. Level: 1
+is the biggest division in the book's sample pages, then 2, 3...; levels rank within one book.
+- **Step 1, second look** (`test_pdfs/book_tests_pdfs/truth.json`, 129 pages): pages rendered
+  at 150 dpi (`scratch/truth_check/render.py`, viewed two per sheet, `sheet.py`); my own
+  answers in `scratch/truth_check/second.json` written before opening `truth.json`; compared
+  (`compare.py`), each disagreement and `uncertain` entry decided by the definition, written
+  in (`settle.py`). Old file kept as `scratch/truth_check/truth_before.json`.
+  Changes: **15 headings added, 10 removed, 92 level values changed** (129 heading pairs now
+  ranked the other way, `rank_diff.py`), 24 texts corrected. Main kinds: De Anima's italic
+  title line under each CAPÍTULO is part of the heading, and Introducción / Bibliografía /
+  Libro are its top level; Reale's anthology text titles ("1. EL INICIO DEL PENSAR
+  FILOSÓFICO") and box headings ("4.2 ...") added, the thumb tab "CALVINO" removed; Ratzinger's
+  title-page line removed and "INTRODUCCIÓN / YO CREO - AMEN" joined; Alvira's publisher list
+  removed; "a) Naturaleza de la sensación." and "Pistas de trabajo" added. Each book's
+  `checked` list holds every change; `uncertain` lists are empty; the `levels` notes are gone
+  (they described the old levels).
+- **Step 2, held-out pages** (`test_pdfs/book_tests_pdfs/heldout/`: `manifest.json`,
+  `truth.json`, one PDF per book; picked by `scratch/truth_check/pick_heldout.py`, roles from
+  type sizes and numbered lines): 10 books, 80 pages, 65 headings.
+  `acerca_alma_txt` (Aristoteles-Acerca-del-alma Gredos txt), `de_anima_clean` (De Anima
+  clean_txt), `epistemology_1985` (Epistemology General Verneaux 1985), `epistemologia_129`
+  (epistemologia - roger vernaux), `hombre_bad_b` (Filosofía del Hombre - bad b),
+  `reale_tomo4`, `reale_tomo5`, `reale_tomo7`, `distinction` (Bourdieu), `gibbon` (1872
+  scan). Source pages in the manifest. Skipped as exact copies (same page count and text on
+  3 sample pages, `copies.py`): Epistemología General Tomo 2 (= Verneaux), Filosofía del
+  Hombre bad a (= bad 2), Antigua Tomo 1 - Reale Antiseri (= Antigua Tomo 1); Alvira bad 1
+  is the regression set's `metafisica`.
+  Judging: first pass from the images (`heldout_first.json`). The second pass could not be
+  blind to the first in one session; it was done from a different source, the text layer's
+  set-apart lines (`candidates.py`: size over 1.12 x body or bold), and agreed on every
+  born-digital book; on scans the text layer is too noisy, so their pages have one visual
+  look. Calls: Bourdieu's boxed document titles ("Prices, 1975-1976") and table titles,
+  Gibbon's letter header and contents chapter lines, Reale's thumb tabs and concept-map
+  boxes are not headings.
+- **Step 3**: `tools/headings_test.py run|score OUT_DIR --set heldout` (default: the first
+  set). `selftest` passes; `score --set heldout` checked on a made-up headings.json; `run` not
+  run.
+- `test_pdfs/` is gitignored: pages and answers stay on this machine.
+
 ## PLAN: quality plan (2026-10-30, branch `feature/quality-plan`)
 The layout plan is done. New `docs/quality-plan.md` (user: "we are not building rules to
 match these specific books but rather any pdf"): Phase 0 checks the headings test's
