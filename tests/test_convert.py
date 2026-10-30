@@ -5,6 +5,7 @@ import zipfile
 import pymupdf
 import pytest
 
+from pdf_worker import structure
 from pdf_worker.cli import main
 from pdf_worker.convert import (
     UnsupportedFormatError,
@@ -332,6 +333,51 @@ def test_large_type_outside_a_title_box_is_not_a_heading(make_layout_pdf, tmp_pa
     report = convert_pdf(pdf, out, "md", layout_rows=rows)
 
     assert report.stats.headings == 0
+
+
+@pytest.mark.parametrize(
+    ("rules", "headings"),
+    [
+        ((), ["V."]),
+        (("implicit",), ["CAPITULO PRIMERO", "V."]),
+        (("larger",), ["Chapter One", "V."]),
+        (("number",), ["V. Este es el corazón"]),
+        (("no_titles", "size", "implicit"), ["Chapter One", "CAPITULO PRIMERO"]),
+    ],
+)
+def test_heading_rules_compared_beside_the_title_boxes(
+    make_layout_pdf, tmp_path, monkeypatch, rules, headings
+):
+    # tools/headings_test.py's variants: Kant's "PRIMER CAPÍTULO" and Metafísica's 17.5 pt
+    # divider boxed as text, Dilexit's "V." boxed apart from its title.
+    page = [
+        (72, 80, "Chapter One", 18),
+        *_paragraph(120, FULL[:1], "It ends."),
+        _body(120 + LINE * 3, "CAPITULO PRIMERO"),
+        *_paragraph(120 + LINE * 5, FULL[:1], "It ends too."),
+        _body(120 + LINE * 8, "V."),
+        _body(120 + LINE * 9, "Este es el corazón"),
+        *_paragraph(120 + LINE * 11, FULL[:1], "It ends here."),
+    ]
+    pdf = make_layout_pdf([page])
+    text = "text"
+    rows = _boxes(
+        pdf,
+        (text, [0]),
+        (text, [1, 2]),
+        (text, [3]),
+        (text, [4, 5]),
+        ("paragraph_title", [6]),
+        (text, [7]),
+        (text, [8, 9]),
+    )
+    monkeypatch.setattr(structure, "HEADING_RULES", frozenset(rules))
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    md = out.read_text(encoding="utf-8").splitlines()
+    assert [line.lstrip("# ") for line in md if line.startswith("#")] == headings
 
 
 def test_a_line_left_of_the_margin_starts_a_turn(make_layout_pdf, tmp_path):

@@ -65,6 +65,47 @@ book has no headings (no fallback, as the plan says). Running heads stay dropped
   (dividers, dialogue titles), a new rule; (d) join a bare number ("1.", "V.") to the
   title line after it, a new rule.
   The code is as the plan writes it; the PR is a draft until the user decides.
+- **Test set for the decision (2026-10-30, same branch; nothing heavy run).** The user
+  picks from a test set of the books they will convert (`test_pdfs/new_test_books/`):
+  - `test_pdfs/` is gitignored (`.gitignore:18`), so the test PDFs, `manifest.json` and
+    `truth.json` stay local; nothing of them is committed.
+  - 13 books, 129 pages (`test_pdfs/book_tests_pdfs/<label>.pdf`, `manifest.json`: source
+    file, source page, role): Antropología, De Anima (the Paper Capture scan), Verneaux
+    Epistemología (one of the two identical copies) and Filosofía del Hombre twice (the
+    ABBYY scan and the Paper Capture one, the "bad" scan), Ratzinger, La Biblia en su
+    entorno, Alvira bad 2 (bad 1 is regression's `metafisica`), Copleston I (the folder's
+    only PDF: its nine EPUBs are rebuilt by `epub_reader`, which takes headings from the
+    HTML, so these rules never touch them), and four Reale y Antiseri volumes (Antigua,
+    Medieval, Renacimiento, T6). Skipped: the second copy of Antigua T1, Tomo 04, Tomo V,
+    VII (same layout as the four), "Epistemology 1985" and "epistemologia" (same title).
+    Pages picked by role from font sizes, chapter labels and numbered lines
+    (`scratch/htest/candidates.py`, `chapters.py`, `extract.py`): chapter openings,
+    numbered sections, contents, footnotes, lists, a concept map, body. No page with a
+    real table turned up cheaply.
+  - `truth.json`: 184 headings with levels (ranked within a book), judged from 55 dpi page
+    images (`scratch/htest/png/`) and the PDF's lines; an `uncertain` list per book
+    (small-caps run-in lines, anthology titles, levels guessed). Ratzinger checked
+    against its EPUB (itself a conversion: it lacks two headings the PDF sets like the
+    others and tags the contents entries; noted).
+  - Variants selectable without changing the default: `structure.HEADING_RULES` (empty =
+    the PR). "implicit" (b, the old `_implicit_heading_level` and `_Builder.bold`, back
+    behind the switch), "larger" (c), "number" (d), and "size" + "no_titles" for main's
+    old rules. Test `test_heading_rules_compared_beside_the_title_boxes` (5 cases). This
+    also mends `tools/parts_report.py`, whose `_watch_add` passed `emphasized` to an `add`
+    that no longer took it.
+  - `tools/headings_test.py`: `run OUT_DIR` (layout model per book, one at a time, then 7
+    variants: old, a, a+b, a+c, a+d, a+c+d, a+b+c+d; "c+d" and "b+c+d" read as on top of
+    a), `score OUT_DIR`, `selftest`. Builds headings with `iter_blocks` + `tidy` (no
+    Tesseract re-reading, no word check: they make no headings). Checked only with the
+    selftest, a fake `headings.json` (`scratch/htest/fake_headings.py`) and a run with
+    empty rows on two books (`scratch/htest/dry_run.py`): no model run.
+  - Limits: each small PDF is analysed alone, so the profile (body size, heading sizes,
+    running heads by repetition) comes from 10 pages, not the book; levels are compared
+    pairwise within a book, so only their order counts.
+  - Next (docs/layout-plan.md, Phase 5 headings): the user runs
+    `.venv/bin/python tools/run_logged.py headings_test .venv/bin/python
+    tools/headings_test.py run scratch/headings_test` and picks from
+    `scratch/headings_test/report.md`.
 
 ## Layout plan, Phase 5: paragraphs (2026-10-29, branch `layout/phase-5-paragraphs`)
 **User's choice (b), done (second half of this entry).** First run, as the plan wrote it:
