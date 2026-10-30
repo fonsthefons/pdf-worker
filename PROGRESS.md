@@ -1,5 +1,57 @@
 # Progress
 
+## Layout plan, Phase 6: Paddle books use the header rule (2026-10-30, branch `layout/phase-6`)
+`paddle_book.furniture(rows)`: Phase 1's rule over Paddle's blocks, decided before the
+pages are prepared. Top/bottom row (`_edge_rows`): the highest (lowest) block with a letter
+or digit and every block overlapping it in height. Furniture: a bare page number
+(`PAGE_NUMBER_RE`) in a row, or a block with 2+ letters, not a note, that shares its row
+with one or has the same `running_key` in the same row within `_RUNNING_PAGES`. The
+`_HEAD_ZONE` guard and `_DROP` are gone, and so is `paddle_ocr._relabel`'s
+"title on the number's row is a header" (now `relabel`: footer -> footnote only).
+Choices the plan doesn't spell out (blocks have no type size):
+- **Size limit**: a block counts only if no taller than `HEADING_RATIO` x the median height
+  of what it repeats (the same key within 2 pages, or the page numbers in its row). Box
+  heights wobble (philosophy's "KANT. — II: ..." heads: 25 to 37 px), so a book-wide
+  limit from the page numbers' height missed 16 of them; against its repeats, a title over
+  its dialogue ("FILE0"/"TIMEO", 32 px, over 25 px heads) and philosophy's "ÍNDICE
+  ONOMÁSTICO" (46 px) stay.
+- **Notes are never furniture**: without that, philosophy's one-line "28. Ibid.", "7. Ibid."
+  at the foot of nearby pages (about 100) would go. (The text-layer rule may have the same
+  hole; not checked.)
+- Furniture blocks still go through `prepare_blocks` (labelled `paddle_ocr.FURNITURE`) and
+  are dropped in `add_page`: the words are matched against Tesseract's (`_fix_digit_words`,
+  margin marks), and leaving the heads out first shifted that match (Platón's margin
+  references moved, philosophy's index "250s" became "paz").
+- What the rule doesn't take: a `header` stays as small type (the dramatis personae, as
+  the guard did); a `footer` stays as small type after the paragraph (a note the model
+  called a footer: philosophy p. 181 "2. 3, 1; W II, 154-155."), except a printer's
+  signature ("160. — 3", now `SIGNATURE_RE`, also for footers); a `number` the rule
+  doesn't take is dropped as before (misread page numbers: "2+5", "は", "I").
+- Tests: `test_running_heads_paddle_calls_titles_go_and_the_title_stays` (failed on main:
+  two "FILEBO" headings), `test_notes_and_paragraphs_at_the_foot_are_no_footers`;
+  `test_running_heads_and_notes_paddle_mislabels` -> `test_notes_paddle_calls_footers`.
+  Fast tests 359 passed; `test_paddle_book_platon.py` passes; ruff clean.
+- Check (`scratch/p6_paddle_build.py build`, rows cached; baseline from main's code in a
+  worktree, `scratch/p6/base2` vs `scratch/p6/after5`):
+
+  | Book | Paragraphs | Headings | Notes |
+  |---|---|---|---|
+  | philosophy.pdf | 2,632 -> 2,633 | 206, none lost or added | 678 |
+  | platon_dialogos_vi_bad.pdf | 1,487 -> 1,488 | 27, none lost or added | 354 |
+
+  The only changes: philosophy keeps the note "2. 3, 1; W II, 154-155." (p. 181, was
+  dropped as a footer); Platón keeps the colophon "Impreso en España ... Madrid, 1992." (p.
+  3, the credits page). No heading changed because main's `_relabel` already turned titles
+  beside a page number into heads; the rule now also catches heads without a number
+  (`test_running_heads_paddle_calls_titles_go_and_the_title_stays`, page 2).
+- Rule vs labels on all cached Paddle books (`scratch/p6_disagree.py`): apart from the
+  above, only the contents page's "ÍNDICE" (philosophy p. 6, dropped with the page) and
+  the Timeo excerpt's apparatus lines the model called footers (now kept as small type).
+- `regression.py build scratch/regress/phase6`: the eight text-layer books are
+  byte-identical to `p5head_acd3`.
+- Note: two builds at once race on the Paddle clip cache (`missing_refs`, the `.part`
+  file): `FileNotFoundError` in the second. Run builds one at a time.
+
 ## Layout plan, Phase 5: headings (2026-10-30, branch `layout/phase-5-headings`)
 **Decision (user, 2026-10-30, from the headings test): a+c+d.** Now the default, the switch
 gone: (a) a line in a title box is a heading; (c) the size test stays for lines larger than

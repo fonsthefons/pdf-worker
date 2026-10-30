@@ -184,24 +184,18 @@ def test_a_note_the_model_skipped_comes_from_tesseracts_lines():
 
 def test_a_printers_signature_is_no_note_but_a_short_note_is():
     for signature in ("160. — 18", "160. -4", "160. ~2", "160. - S"):
-        assert paddle_ocr._SIGNATURE_RE.match(signature)
+        assert paddle_ocr.SIGNATURE_RE.match(signature)
     for note in ("31. 7.", "30. I, 7.", "36. 13.", "²¹ Cf. Tym. 2Sa-b."):
-        assert not paddle_ocr._SIGNATURE_RE.match(note)
+        assert not paddle_ocr.SIGNATURE_RE.match(note)
 
 
-def test_running_heads_and_notes_paddle_mislabels():
-    number = [799, 126, 832, 153]
-    head = {"label": "paragraph_title", "bbox": [435, 131, 517, 156]}
-    title = {"label": "paragraph_title", "bbox": [400, 500, 800, 560]}
-    note = {"label": "footer", "bbox": [149, 1351, 356, 1379]}
-    sign = {"label": "footer", "bbox": [149, 1351, 356, 1379]}
-    assert paddle_ocr._relabel(head, "FILEBO", number) == "header"
-    assert paddle_ocr._relabel(title, "FILEBO", number) == "paragraph_title"
-    assert paddle_ocr._relabel(note, "11D Cf. Leyes 863a-c.", number) == "footnote"
-    assert paddle_ocr._relabel(note, "16. De l'esprit des lois, XI, 6.", number) == "footnote"
-    assert paddle_ocr._relabel(note, "15. C.S., III, 15, 83.", number) == "footnote"
-    assert paddle_ocr._relabel(sign, "160. - S", number) == "footer"
-    assert paddle_ocr._relabel(sign, "160. — 18", number) == "footer"
+def test_notes_paddle_calls_footers():
+    footer = {"label": "footer", "bbox": [149, 1351, 356, 1379]}
+    assert paddle_ocr.relabel(footer, "11D Cf. Leyes 863a-c.") == "footnote"
+    assert paddle_ocr.relabel(footer, "16. De l'esprit des lois, XI, 6.") == "footnote"
+    assert paddle_ocr.relabel(footer, "15. C.S., III, 15, 83.") == "footnote"
+    assert paddle_ocr.relabel(footer, "160. - S") == "footer"
+    assert paddle_ocr.relabel(footer, "160. — 18") == "footer"
 
 
 def test_a_few_made_up_chinese_letters_take_tesseracts_words():

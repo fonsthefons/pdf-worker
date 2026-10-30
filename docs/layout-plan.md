@@ -345,6 +345,9 @@ the Paddle cache also has "DIÁLOGOS" as `doc_title`), so they can end up as hea
 Apply the Phase 1 rule to Paddle blocks instead (the top and bottom rows of blocks,
 the same key on a page at most 2 pages away, bare page numbers), and delete the guard.
 Check on `philosophy.pdf` and a Platón: headings lost and added.
+**Done (`layout/phase-6`):** `paddle_book.furniture`; the size limit is a block's height
+against what it repeats (box heights wobble), and notes are never furniture. No heading
+lost or added in either book; see `PROGRESS.md`.
 
 ---
 
