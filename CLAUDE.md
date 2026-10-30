@@ -33,7 +33,9 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   numbers, passing the layout model's rows cached in `scratch/paddle-home`; `compare BEFORE AFTER` shows numbers, headings lost/added and writes diffs:
   run it before and after a change to the pipeline), `parts_report.py` (`OUT_DIR [LABEL...]`
   builds the test books and counts, part by part, the lines today's rules and the layout
-  model agree on; `--show PAGE...` prints a page's lines with both). Reuse these before
+  model agree on; `--show PAGE...` prints a page's lines with both), `headings_test.py`
+  (`run OUT_DIR` scores heading-rule variants on `test_pdfs/book_tests_pdfs/` against its
+  `truth.json`; runs the layout model; `score OUT_DIR` re-scores). Reuse these before
   writing scratch scripts; scratch/ is for throwaway files and is emptied from time to time.
 
 # Working rules for this repo

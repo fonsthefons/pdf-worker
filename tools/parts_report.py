@@ -239,9 +239,9 @@ def _watch_margin(margin, body, left, right):
     return found
 
 
-def _watch_add(self, text, line, page, emphasized=False):
+def _watch_add(self, text, line, page):
     vars(self).setdefault("seen", []).append((page, line))
-    _add(self, text, line, page, emphasized)
+    _add(self, text, line, page)
 
 
 def _watch_add_line(self, body_line, margins, new_page):

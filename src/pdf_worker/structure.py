@@ -151,18 +151,16 @@ class _Builder:
     level: int = 0
     parts: list[str] = field(default_factory=list)
     lines: int = 0
-    bold: bool = True
     size_total: float = 0.0
     page: int = -1  # where the block starts: PDF page index and top of its first line
     top: float = 0.0
     rows: list[list[str]] = field(default_factory=list)  # kind "table"
 
-    def add(self, text: str, line: Line, page: int, emphasized: bool = False) -> None:
+    def add(self, text: str, line: Line, page: int) -> None:
         if not self.lines:
             self.page, self.top = page, line.top
         self.parts.append(text)
         self.lines += 1
-        self.bold = self.bold and (line.bold or emphasized)
         self.size_total += line.size
 
     @property
@@ -359,6 +357,8 @@ class _State:
         self.pending_marks: list[str] = []  # page starts not yet attached to a line
         self.margin_label: str | None = None  # the last margin reference ("22b")
         self.has_heading = False  # a heading was yielded (or a running head made one)
+        self.title_size = 0.0  # the page's largest line in a layout-model title box
+        self.runs_on = False  # the line being added runs on into the next one (_runs_on)
 
     # -- page handling ----------------------------------------------------------------
     def add_page(
@@ -372,6 +372,7 @@ class _State:
     ) -> Iterator[Block]:
         profile = self.profile
         self.page_index = page_index
+        self.title_size = max((bl.line.size for bl in layout.lines if bl.title), default=0.0)
         # The page's start is marked on its first line (pages without text pass it on).
         self.pending_marks.append(page_mark(page_index, page_label or str(page_index + 1)))
         pictures = sorted(images or [], key=lambda image: image.top)
@@ -406,10 +407,12 @@ class _State:
         # Blank lines only separate paragraphs between two lines of the same page; blanks
         # at the top or bottom of a page are layout padding.
         self.break_next = False
-        for body_line in lines:
+        for i, body_line in enumerate(lines):
             if not body_line.text.strip():
                 self.break_next = not new_page
                 continue
+            following = next((bl for bl in lines[i + 1 :] if bl.text.strip()), None)
+            self.runs_on = _runs_on(body_line, following, margins)
             while pictures and pictures[0].top < body_line.line.top:
                 # A picture above this line follows the paragraph in progress.
                 picture = pictures.pop(0)
@@ -464,8 +467,23 @@ class _State:
         line, text = body_line.line, body_line.text
         profile = self.profile
         level = None
-        if line.size >= profile.body_size * HEADING_RATIO:
+        if body_line.title:
+            # The layout model's title box; its size gives the level.
+            sizes = profile.heading_sizes
+            level = profile.heading_level(line.size) or 1 + sum(s > line.size for s in sizes)
+        elif line.size >= profile.body_size * HEADING_RATIO and line.size > self.title_size:
+            # Large type the model boxed as text is a heading only when larger than the
+            # page's title boxes (a page without any keeps the size test).
             level = profile.heading_level(line.size)
+        # A bare "1." / "V." heading runs on into the line after it (Dilexit's "V."), unless
+        # that line opens a running paragraph (Niebla's "III", then the chapter's text).
+        joins = (
+            self.current.kind == "heading"
+            and not self.runs_on
+            and bool(_NUMBERING_RE.match(plain(self.current.text())))
+        )
+        if joins:
+            level = level or self.current.level
 
         if body_line.endnote_label:
             yield from self._flush()
@@ -512,7 +530,7 @@ class _State:
             self.break_next = False
             return
         elif level:
-            same_heading = (
+            same_heading = joins or (
                 self.current.kind == "heading"
                 and self.current.level == level
                 and not self._starts_paragraph(body_line, margins, new_page)
@@ -520,6 +538,7 @@ class _State:
             if not same_heading:
                 yield from self._flush()
                 self.current = _Builder(kind="heading", level=level)
+            self.current.level = level  # a joined number takes its title's level
         else:
             kind = "small" if is_small(line, profile.body_size) else "para"
             starts = self._starts_paragraph(body_line, margins, new_page)
@@ -535,7 +554,7 @@ class _State:
             if starts or self.current.kind != kind:
                 yield from self._flush()
                 self.current = _Builder(kind=kind)
-        self.current.add(text, line, self.page_index, profile.emphasized(line))
+        self.current.add(text, line, self.page_index)
         self.prev, self.prev_text = line, text
         self.break_next = False
 
@@ -622,30 +641,28 @@ class _State:
         else:
             text = current.text()
             if text:
-                level = self._implicit_heading_level(current, plain(text))
-                if level:
-                    self.has_heading = True
-                    yield Heading(text, level, current.page, current.top)
-                else:
-                    yield Paragraph(text, current.kind == "small", current.page, current.top)
+                yield Paragraph(text, current.kind == "small", current.page, current.top)
         yield from self._flush_notes()
 
     def _flush_notes(self) -> Iterator[Block]:
         pending, self.pending = self.pending, []
         yield from pending
 
-    def _implicit_heading_level(self, block: _Builder, text: str) -> int | None:
-        """A short, isolated, all-caps or bold line (or two) in body type reads as a heading."""
-        if block.kind != "para" or block.lines > 2 or len(text) > 120:
-            return None
-        if text.endswith((".", ",", ";", ":")) or "[^" in text:
-            return None
-        letters = [c for c in text if c.isalpha()]
-        if len(letters) < 3:
-            return None
-        if all(c.isupper() for c in letters) or block.bold:
-            return len(self.profile.heading_sizes) + 1
-        return None
+
+def _runs_on(body_line: BodyLine, following: BodyLine | None, margins: _Margins) -> bool:
+    """The line's paragraph goes on into the next line: it ends in a hyphen, or the next
+    line is in the same layout-model box (without the model: the line fills the column).
+    A line in a title box runs on only into its title (Reale's two-line titles)."""
+    if body_line.title:
+        return False
+    if plain(body_line.text).rstrip().endswith(("-", SOFT_HYPHEN)):
+        return True
+    if following is None:
+        return False
+    if following.starts is not None:
+        return not following.starts
+    line = body_line.line
+    return line.x1 >= margins.right - _SHORT_LINE_EMS * (line.size or 1)
 
 
 def _page_margins(lines: list[BodyLine], body_size: float) -> _Margins:

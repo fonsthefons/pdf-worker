@@ -1,5 +1,173 @@
 # Progress
 
+## Layout plan, Phase 5: headings (2026-10-30, branch `layout/phase-5-headings`)
+**Decision (user, 2026-10-30, from the headings test): a+c+d.** Now the default, the switch
+gone: (a) a line in a title box is a heading; (c) the size test stays for lines larger than
+any title box on the page (every large line on a page without one, so a book without rows
+keeps the size test); (d) a bare number heading ("1.", "V.") joins the line after it. (b),
+`_implicit_heading_level` and `_Builder.bold`, deleted again, with `HEADING_RULES` and its
+"size" / "no_titles" names. `tools/headings_test.py run` now builds today's code as variant
+"current"; `score` scores whatever variants a headings.json holds (the old
+`scratch/headings_test/headings.json` still reports all seven). Tests: the parametrized
+`test_heading_rules_compared_beside_the_title_boxes` became
+`test_headings_beside_the_title_boxes` (a+c+d's result); `..._not_a_heading` became
+`test_large_type_below_a_larger_title_box_is_not_a_heading`; the title-box test without
+rows now expects the 18 pt line as a heading. `tools/parts_report.py`'s `_watch_add` lost
+`emphasized` again. Fast tests 356 passed; ruff clean.
+- Headings test again (`headings_test.py run scratch/headings_test_acd`, 7 s, rows
+  cached): recall 89%, precision 87%, F1 88%, levels 59%, 21 missed, 30 extra: the same as
+  a+c+d in the comparison (main's rules: 72% / 84% / 78%, levels 64%).
+- `regression.py build scratch/regress/p5head_acd` (624 s), `compare` against `p5para_c`:
+
+  | Book | Paragraphs | Headings |
+  |---|---|---|
+  | kant | 892 -> 882 | 43 -> 52 |
+  | timeo_web | 680 -> 679 | 3 -> 4 |
+  | metafisica | 1,741 -> 1,501 | 59 -> 246 |
+  | lugones | 998 | 12 -> 14 |
+  | dilexit | 243 -> 242 | 59 -> 57 |
+  | dialogos | 1,479 -> 1,477 | 28 -> 30 |
+  | timeo_greek | 223 -> 227 | 7 -> 3 |
+  | niebla | 2,831 -> 2,829 | 54 -> 46 |
+
+  Better than a alone: Dilexit "I. LA IMPORTANCIA DEL CORAZÓN", "V. AMOR POR AMOR";
+  Metafísica's "1. N o c ió n de ente" joined; Lugones keeps "Las dos conquistas".
+- **New problem (d), not in the test: Niebla's 30 chapter numerals.** "III", "VI" ... "XXXII"
+  are title boxes without a dot, so `_NUMBERING_RE` (dot optional) joins each to the
+  chapter's first body line: `##### III — Hoy te retrasaste un poco, chico — dijo Víc-`,
+  and the paragraph is cut after it ("tor a Augusto —, ¡tú, tan puntual siempre!" starts
+  a new one). Kant's "2 Es, según su cualidad, simple." looks the same. Options for the
+  user: join only a number with its dot ("V.", "1."; Niebla's "III" has none), or not
+  join a line that is in a `text` box and runs on (ends in a hyphen / fills the line).
+  The PR stays a draft until the user picks.
+- **Fixed (coordinator's choice for the user, 2026-10-30): (d) narrowed.** A bare number
+  doesn't join a line that runs on into the next body line: `structure._runs_on` (the
+  line ends in a hyphen, or the next line has `starts` False, i.e. it is in the same `text`
+  box; at a box edge or without rows, the line fills the column). A line in a title box
+  never runs on (else Reale's and Antropología's two-line titles "3." / "LOS PROBLEMAS
+  ESENCIALES..." split: the first try did that, extra 30 -> 32). Dotless numbers still
+  join ("V" titles without a dot). Set per line in `add_page` (`_State.runs_on`). Test
+  `test_a_bare_number_does_not_take_the_first_line_of_a_running_paragraph` (Niebla's
+  "III" over a running paragraph: stays "# III", the paragraph whole). Fast tests 357
+  passed; ruff clean.
+  - Headings test (`scratch/headings_test_acd3`): 89% / 87% / 88%, levels 59%, 21 missed,
+    30 extra; every heading the same as before the fix (`scratch/htest_diff.py`).
+  - Regression `scratch/regress/p5head_acd3` (648 s): seven books are byte-identical to
+    `p5head_acd`. Only Niebla changed: its 28 dotless numerals ("III", "VI" ... "XXXII")
+    are bare headings again, each followed by the chapter's text. Against `p5para_c`, Niebla
+    has paragraphs 2,831 -> 2,840, headings 54 -> 46 and splits 634 -> 630; the other books
+    are as in the table above. The +11 "splits" from the fix are chapter openings that were
+    already cut after their first line on main ("...dijo Víc-" / "tor a Augusto"): a
+    paragraph-rule split, not new. Kant's "2 Es, según su cualidad, simple." stays (it
+    isn't this case: that line doesn't run on). No new problem.
+- Also in `12fbf96`: `margins`' section-break regex no longer backtracks on long dotted
+  leaders (`tests/test_margins.py`).
+**Draft: some books get worse; the user's call (plan: "if a book gets worse, record the
+page and line and ask the user").** As the plan writes it, in `footnotes.layout_page`:
+a body line in a `doc_title` or `paragraph_title` box gets `BodyLine.title` (also on
+chapter-notes pages, so the notes' group headings are still dropped). In `structure`, only
+such lines are headings: the heading-size test (`size >= body * HEADING_RATIO`) and
+`_implicit_heading_level` (short all-caps or bold line) are deleted, with `_Builder.bold`.
+The level comes from the size: the nearest heading size (`heading_level`), else one below
+every larger heading size (a title in body type sits under them all). Without rows a
+book has no headings (no fallback, as the plan says). Running heads stay dropped
+(furniture goes first).
+- Tests: `test_a_line_in_a_title_box_is_a_heading_its_level_from_its_size`,
+  `test_large_type_outside_a_title_box_is_not_a_heading` (both with and without rows; all
+  4 failed before). Four tests that relied on the size test now pass made-up title rows
+  (new `title_rows` fixture in `tests/conftest.py`: every line of 12 pt or more boxed
+  `paragraph_title`). Fast tests 355 passed; ruff clean.
+- `regression.py build scratch/regress/p5head_after` (630 s, log
+  `scratch/logs/p5head_after.log`), `compare` against `p5para_c` (main's code with rows):
+
+  | Book | Paragraphs | Headings |
+  |---|---|---|
+  | kant | 892 -> 883 | 43 -> 52 (22 lost, 31 new) |
+  | timeo_web | 680 -> 682 | 3 -> 1 |
+  | metafisica | 1,741 -> 1,505 | 59 -> 290 (17 lost, ~250 new) |
+  | lugones | 998 -> 999 | 12 -> 13 |
+  | dilexit | 243 | 59 -> 60 (4 lost, 5 new) |
+  | dialogos | 1,479 -> 1,481 | 28 -> 26 (8 lost, 6 new) |
+  | timeo_greek | 223 -> 227 | 7 -> 3 |
+  | niebla | 2,831 -> 2,844 | 54 -> 37 (30 lost, 11 new) |
+- Better, as Phase 4 said: Kant's "Tesis" / "Prueba" / "Antítesis" (p. 195 on), "A)
+  Primera analogía", "Analítica transcendental"; Kant p. 59's table rows ("DE LA
+  CANTIDAD", "CUALIDAD") are no longer headings. Metafísica's section titles (p. 98 "El
+  ser, acto que engloba todas las perfecciones", "Origen histórico de la ciencia del
+  ente") and its chapter labels ("C a pít u lo I"). Niebla's running heads and OCR lines
+  in large type ("98 MIGUEL DE UNAMUNO", "lestia.", "P^a^e.da^^^^-") are gone; its chapter
+  numerals "III", "VI", "IX" ... now all headings. Lugones' "Las dos conquistas", "Las
+  ruinas"; Diálogos' bibliography subheads "1. Ediciones", "2. Comentarios".
+- **Worse:**
+  1. Kant: the model boxes the chapter and section labels as `text` (p. 87: "Doctrina
+     transcendental del Juicio...", "PRIMER CAPÍTULO", "Del esquematismo de los conceptos
+     puros del entendimiento" all `text`), so "### PRIMER / SEGUNDO / TERCER CAPÍTULO",
+     "PRIMERA / SEGUNDA / TERCERA SECCIÓN", "REFUTACIÓN DEL IDEALISMO" become paragraphs
+     (they were `_implicit_heading_level` headings). Also the marks "- III -", "- VII -".
+  2. Diálogos: the dialogue titles "## TIMEO" (twice) become bold paragraphs ("**TIMEO**"),
+     with "Platón", "Traducción y notas de", "Notas".
+  3. Dilexit: "CARTA ENCÍCLICA", "¿Qué expresamos cuando decimos “corazón”?", "ESTE ES EL
+     CORAZÓN QUE TANTO AMÓ" (a chapter title, its "V." now a heading of its own) become
+     paragraphs; new heading "104. San Bernardo retomó el simbolismo..." (a numbered
+     paragraph).
+  4. Metafísica: the 17.5 pt divider "INTRODUCCION" (Phase 1 kept it on purpose) and
+     "PRIMERA PARTE", "LA CAUSALIDAD", "Noción de persona", "Ente y unidad" become
+     paragraphs. New wrong headings: numbers split from their titles ("1." / "N o c ió n
+     de ente", dozens of bare "1." ... "6."), footnotes "3. Ibidem.", "7. Ibidem, c. 66.",
+     garbled running heads "METAFISICA", "METAFISCIA", "LA CA CAUSALIDAD" (known limit, but
+     now headings instead of text), "En preparación:".
+  5. Niebla: "POST-PROLOGO", "NIEBLA" (title page) become paragraphs; new "Digitized by
+     the Internet Archive", "in 2014".
+  6. Timeo web: "TIMEO", "O DE LA NATURALEZA" merge into one heading (fine); "Platón"
+     lost. Timeo Greek: title-page lines ("PLATÓN", "JOSÉ MARÍA ZAMORA CALVO") lost.
+  Options for the user: (a) take it as it is; (b) keep `_implicit_heading_level` beside
+  the model (restores Kant's chapter labels and Dilexit's capitals, but also Kant p. 59's
+  table rows); (c) keep the size test too for lines larger than any title box on the page
+  (dividers, dialogue titles), a new rule; (d) join a bare number ("1.", "V.") to the
+  title line after it, a new rule.
+  The code is as the plan writes it; the PR is a draft until the user decides.
+- **Test set for the decision (2026-10-30, same branch; nothing heavy run).** The user
+  picks from a test set of the books they will convert (`test_pdfs/new_test_books/`):
+  - `test_pdfs/` is gitignored (`.gitignore:18`), so the test PDFs, `manifest.json` and
+    `truth.json` stay local; nothing of them is committed.
+  - 13 books, 129 pages (`test_pdfs/book_tests_pdfs/<label>.pdf`, `manifest.json`: source
+    file, source page, role): Antropología, De Anima (the Paper Capture scan), Verneaux
+    Epistemología (one of the two identical copies) and Filosofía del Hombre twice (the
+    ABBYY scan and the Paper Capture one, the "bad" scan), Ratzinger, La Biblia en su
+    entorno, Alvira bad 2 (bad 1 is regression's `metafisica`), Copleston I (the folder's
+    only PDF: its nine EPUBs are rebuilt by `epub_reader`, which takes headings from the
+    HTML, so these rules never touch them), and four Reale y Antiseri volumes (Antigua,
+    Medieval, Renacimiento, T6). Skipped: the second copy of Antigua T1, Tomo 04, Tomo V,
+    VII (same layout as the four), "Epistemology 1985" and "epistemologia" (same title).
+    Pages picked by role from font sizes, chapter labels and numbered lines
+    (`scratch/htest/candidates.py`, `chapters.py`, `extract.py`): chapter openings,
+    numbered sections, contents, footnotes, lists, a concept map, body. No page with a
+    real table turned up cheaply.
+  - `truth.json`: 184 headings with levels (ranked within a book), judged from 55 dpi page
+    images (`scratch/htest/png/`) and the PDF's lines; an `uncertain` list per book
+    (small-caps run-in lines, anthology titles, levels guessed). Ratzinger checked
+    against its EPUB (itself a conversion: it lacks two headings the PDF sets like the
+    others and tags the contents entries; noted).
+  - Variants selectable without changing the default: `structure.HEADING_RULES` (empty =
+    the PR). "implicit" (b, the old `_implicit_heading_level` and `_Builder.bold`, back
+    behind the switch), "larger" (c), "number" (d), and "size" + "no_titles" for main's
+    old rules. Test `test_heading_rules_compared_beside_the_title_boxes` (5 cases). This
+    also mends `tools/parts_report.py`, whose `_watch_add` passed `emphasized` to an `add`
+    that no longer took it.
+  - `tools/headings_test.py`: `run OUT_DIR` (layout model per book, one at a time, then 7
+    variants: old, a, a+b, a+c, a+d, a+c+d, a+b+c+d; "c+d" and "b+c+d" read as on top of
+    a), `score OUT_DIR`, `selftest`. Builds headings with `iter_blocks` + `tidy` (no
+    Tesseract re-reading, no word check: they make no headings). Checked only with the
+    selftest, a fake `headings.json` (`scratch/htest/fake_headings.py`) and a run with
+    empty rows on two books (`scratch/htest/dry_run.py`): no model run.
+  - Limits: each small PDF is analysed alone, so the profile (body size, heading sizes,
+    running heads by repetition) comes from 10 pages, not the book; levels are compared
+    pairwise within a book, so only their order counts.
+  - Next (docs/layout-plan.md, Phase 5 headings): the user runs
+    `.venv/bin/python tools/run_logged.py headings_test .venv/bin/python
+    tools/headings_test.py run scratch/headings_test` and picks from
+    `scratch/headings_test/report.md`.
+
 ## Layout plan, Phase 5: paragraphs (2026-10-29, branch `layout/phase-5-paragraphs`)
 **User's choice (b), done (second half of this entry).** First run, as the plan wrote it:
 no new paragraph inside one `text` box, as the plan says, in `footnotes.layout_page`:

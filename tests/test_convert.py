@@ -65,14 +65,17 @@ def test_join_lines_undoes_hyphenation_and_joins_refs():
     assert join_lines(["a claim.", "[^1]", "Next"]) == "a claim.[^1] Next"
 
 
-def test_headings_paragraphs_and_hyphenation(make_layout_pdf, tmp_path):
+def test_headings_paragraphs_and_hyphenation(make_layout_pdf, title_rows, tmp_path):
     page = [
         (72, 80, "Chapter One", 18),
         *_paragraph(120, FULL[:2], "and a short hyphen-"),
         _body(120 + LINE * 3, "ated ending."),
         *_paragraph(200, FULL[1:], "Second paragraph ends here."),
     ]
-    text, report = _md(make_layout_pdf, tmp_path, [page], title="Test Book")
+    pdf = make_layout_pdf([page])
+    out = tmp_path / "book.md"
+    report = convert_pdf(pdf, out, "md", title="Test Book", layout_rows=title_rows(pdf))
+    text = out.read_text(encoding="utf-8")
 
     assert text.startswith('---\ntitle: "Test Book"\nlang: en\n---\n')
     assert "\n# Chapter One\n" in text
@@ -287,6 +290,104 @@ def test_a_line_after_a_section_mark_keeps_todays_split_inside_a_text_box(
     assert report.stats.paragraphs + report.stats.headings == 3
 
 
+def _boxes(pdf, *labelled):
+    """A layout row with ``(label, line indexes)`` boxes."""
+    rows = _reference_boxes(pdf, [lines for _, lines in labelled])
+    for block, (label, _) in zip(rows[0]["blocks"], labelled, strict=True):
+        block["label"] = label
+    return rows
+
+
+@pytest.mark.parametrize("model", [False, True])
+def test_a_line_in_a_title_box_is_a_heading_its_level_from_its_size(
+    make_layout_pdf, tmp_path, model
+):
+    # Kant p. 195 "Tesis", Metafísica p. 98: a title in body type, under a larger one.
+    page = [
+        (72, 80, "Chapter One", 18),
+        *_paragraph(120, FULL[:1], "It ends."),
+        _body(120 + LINE * 3, "Tesis"),
+        *_paragraph(120 + LINE * 5, FULL[:1], "It ends too."),
+    ]
+    pdf = make_layout_pdf([page])
+    title, text = ("paragraph_title", "text")
+    rows = _boxes(pdf, ("doc_title", [0]), (text, [1, 2]), (title, [3]), (text, [4, 5]))
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows if model else None)
+
+    md = out.read_text(encoding="utf-8")
+    assert "\n# Chapter One\n" in md  # without the model, by its size
+    assert ("\n## Tesis\n" in md) == model
+    assert report.stats.headings == (2 if model else 1)
+
+
+def test_large_type_below_a_larger_title_box_is_not_a_heading(make_layout_pdf, tmp_path):
+    # Niebla p. 28 (OCR specks in large type), Kant p. 59 (table rows): the model says text.
+    page = [
+        (72, 80, "Chapter One", 20),
+        (72, 110, "A row in large type", 14),
+        *_paragraph(140, FULL[:1], "It ends."),
+    ]
+    pdf = make_layout_pdf([page])
+    rows = _boxes(pdf, ("paragraph_title", [0]), ("text", [1]), ("text", [2, 3]))
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    assert report.stats.headings == 1
+
+
+def test_headings_beside_the_title_boxes(make_layout_pdf, tmp_path):
+    # tools/headings_test.py: Metafísica's 17.5 pt divider boxed as text, larger than any
+    # title box on its page, is a heading; Kant's all-caps "PRIMER CAPÍTULO" in body type
+    # is not; Dilexit's "V." boxed apart from its title joins it.
+    page = [
+        (72, 80, "Chapter One", 18),
+        *_paragraph(120, FULL[:1], "It ends."),
+        _body(120 + LINE * 3, "CAPITULO PRIMERO"),
+        *_paragraph(120 + LINE * 5, FULL[:1], "It ends too."),
+        _body(120 + LINE * 8, "V."),
+        _body(120 + LINE * 9, "Este es el corazón"),
+        *_paragraph(120 + LINE * 11, FULL[:1], "It ends here."),
+    ]
+    pdf = make_layout_pdf([page])
+    text = "text"
+    rows = _boxes(
+        pdf,
+        (text, [0]),
+        (text, [1, 2]),
+        (text, [3]),
+        (text, [4, 5]),
+        ("paragraph_title", [6]),
+        (text, [7]),
+        (text, [8, 9]),
+    )
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    md = out.read_text(encoding="utf-8").splitlines()
+    headings = [line.lstrip("# ") for line in md if line.startswith("#")]
+    assert headings == ["Chapter One", "V. Este es el corazón"]
+
+
+def test_a_bare_number_does_not_take_the_first_line_of_a_running_paragraph(
+    make_layout_pdf, tmp_path
+):
+    # Niebla's dotless chapter numerals ("III"), each a title box over the chapter's text.
+    page = [_body(80, "III"), *_paragraph(120, FULL[:2], "It ends.")]
+    pdf = make_layout_pdf([page])
+    rows = _boxes(pdf, ("paragraph_title", [0]), ("text", [1, 2, 3]))
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    md = out.read_text(encoding="utf-8")
+    assert [line for line in md.splitlines() if line.startswith("#")] == ["# III"]
+    assert f"\n\n{FULL[0]} {FULL[1]} It ends.\n" in md
+
+
 def test_a_line_left_of_the_margin_starts_a_turn(make_layout_pdf, tmp_path):
     # A Timeo page of long speeches: few turns, so the margin is the indent (x 90), and
     # "CRITIAS.-" sticks out after a full line ending "propósito36•".
@@ -445,7 +546,7 @@ def test_markdown_escapes_syntax(make_layout_pdf, tmp_path):
     assert "\n12\\. Numbered.\n" in text
 
 
-def _epub(make_layout_pdf, tmp_path):
+def _epub(make_layout_pdf, title_rows, tmp_path):
     marker_x = 72 + pymupdf.get_text_length("A claim", fontsize=BODY)
     pages = [
         [
@@ -459,12 +560,20 @@ def _epub(make_layout_pdf, tmp_path):
     ]
     pdf = make_layout_pdf(pages)
     out = tmp_path / "book.epub"
-    report = convert_pdf(pdf, out, "epub", title="Test Book", author="A. Writer", language="en")
+    report = convert_pdf(
+        pdf,
+        out,
+        "epub",
+        title="Test Book",
+        author="A. Writer",
+        language="en",
+        layout_rows=title_rows(pdf),
+    )
     return out, report
 
 
-def test_epub_layout_metadata_and_linked_notes(make_layout_pdf, tmp_path):
-    out, report = _epub(make_layout_pdf, tmp_path)
+def test_epub_layout_metadata_and_linked_notes(make_layout_pdf, title_rows, tmp_path):
+    out, report = _epub(make_layout_pdf, title_rows, tmp_path)
 
     with zipfile.ZipFile(out) as zf:
         first = zf.infolist()[0]
@@ -490,8 +599,8 @@ def test_epub_layout_metadata_and_linked_notes(make_layout_pdf, tmp_path):
 
 
 @pytest.mark.skipif(EPUBCHECK is None, reason="epubcheck not installed")
-def test_epub_passes_epubcheck(make_layout_pdf, tmp_path):
-    out, _ = _epub(make_layout_pdf, tmp_path)
+def test_epub_passes_epubcheck(make_layout_pdf, title_rows, tmp_path):
+    out, _ = _epub(make_layout_pdf, title_rows, tmp_path)
 
     result = subprocess.run([EPUBCHECK, str(out)], capture_output=True, text=True)
 

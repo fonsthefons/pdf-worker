@@ -27,7 +27,9 @@ _TRAILING_NUMBER_RE = re.compile(r"(?<=\S)\s+\d{1,4}\s*$")
 _WORD_RE = re.compile(r"[^\W\d_]{3,}")
 _ALNUM_RE = re.compile(r"[^\W_]")
 _STYLES = STYLE_RE.pattern  # an italic/bold marker
-_BREAK_RE = re.compile(r"^\s*[*·•⁂~◆❖✱]+(?:\s*[*·•⁂~◆❖✱]+)*\s*$")
+# Groups split by required whitespace: an optional \s* nests the + and backtracks
+# exponentially on long dotted leaders.
+_BREAK_RE = re.compile(r"^\s*[*·•⁂~◆❖✱]+(?:\s+[*·•⁂~◆❖✱]+)*\s*$")
 
 
 @dataclass(frozen=True)

@@ -320,6 +320,17 @@ recognised and stays body text: no fallback rule is kept. Likely candidates:
   Gains: Metafísica's small-type section titles (p. 98), Kant's "Tesis"/"Prueba" (p. 195);
   drops the rule's mistakes (Kant p. 59 table rows, Niebla p. 28 OCR specks). Running
   heads labelled as titles must stay dropped (Phase 1's rule runs first).
+  **Done (PR #77):** the plan's rule alone (a) lost real headings, so the user compared
+  variants on 13 test books (`tools/headings_test.py` against
+  `test_pdfs/book_tests_pdfs/truth.json`, 184 headings) and chose a+c+d on 2026-10-30:
+  (a) a title-box line is a heading, (c) the size test stays for lines larger than any
+  title box on the page (all large lines on a page without one), (d) a bare number
+  ("1.", "V.") heading joins the line after it. Not taken: (b) the short all-caps/bold
+  rule. Recall 72% -> 89%, precision 84% -> 87% against main's rules (PROGRESS.md).
+  `tools/headings_test.py run OUT_DIR` scores today's code ("current"). The regression
+  showed (d) joining Niebla's dotless chapter numerals ("III") to the chapter's first body
+  line, so (d) is narrowed: no join to a line that runs on into the next body line (same
+  `text` box, a trailing hyphen, or a full line without the model).
 - **Footnotes**: only if Phase 4 shows the model finds notes the rule misses without
   new mistakes.
 
