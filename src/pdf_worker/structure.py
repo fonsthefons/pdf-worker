@@ -35,7 +35,6 @@ from pdf_worker.inline import (
     uri_target,
 )
 from pdf_worker.layout import (
-    HEADING_RATIO,
     PAGE_NUMBER_RE,
     DocumentProfile,
     Line,
@@ -151,18 +150,16 @@ class _Builder:
     level: int = 0
     parts: list[str] = field(default_factory=list)
     lines: int = 0
-    bold: bool = True
     size_total: float = 0.0
     page: int = -1  # where the block starts: PDF page index and top of its first line
     top: float = 0.0
     rows: list[list[str]] = field(default_factory=list)  # kind "table"
 
-    def add(self, text: str, line: Line, page: int, emphasized: bool = False) -> None:
+    def add(self, text: str, line: Line, page: int) -> None:
         if not self.lines:
             self.page, self.top = page, line.top
         self.parts.append(text)
         self.lines += 1
-        self.bold = self.bold and (line.bold or emphasized)
         self.size_total += line.size
 
     @property
@@ -464,8 +461,9 @@ class _State:
         line, text = body_line.line, body_line.text
         profile = self.profile
         level = None
-        if line.size >= profile.body_size * HEADING_RATIO:
-            level = profile.heading_level(line.size)
+        if body_line.title:  # the layout model's title box; its size gives the level
+            sizes = profile.heading_sizes
+            level = profile.heading_level(line.size) or 1 + sum(s > line.size for s in sizes)
 
         if body_line.endnote_label:
             yield from self._flush()
@@ -535,7 +533,7 @@ class _State:
             if starts or self.current.kind != kind:
                 yield from self._flush()
                 self.current = _Builder(kind=kind)
-        self.current.add(text, line, self.page_index, profile.emphasized(line))
+        self.current.add(text, line, self.page_index)
         self.prev, self.prev_text = line, text
         self.break_next = False
 
@@ -622,30 +620,12 @@ class _State:
         else:
             text = current.text()
             if text:
-                level = self._implicit_heading_level(current, plain(text))
-                if level:
-                    self.has_heading = True
-                    yield Heading(text, level, current.page, current.top)
-                else:
-                    yield Paragraph(text, current.kind == "small", current.page, current.top)
+                yield Paragraph(text, current.kind == "small", current.page, current.top)
         yield from self._flush_notes()
 
     def _flush_notes(self) -> Iterator[Block]:
         pending, self.pending = self.pending, []
         yield from pending
-
-    def _implicit_heading_level(self, block: _Builder, text: str) -> int | None:
-        """A short, isolated, all-caps or bold line (or two) in body type reads as a heading."""
-        if block.kind != "para" or block.lines > 2 or len(text) > 120:
-            return None
-        if text.endswith((".", ",", ";", ":")) or "[^" in text:
-            return None
-        letters = [c for c in text if c.isalpha()]
-        if len(letters) < 3:
-            return None
-        if all(c.isupper() for c in letters) or block.bold:
-            return len(self.profile.heading_sizes) + 1
-        return None
 
 
 def _page_margins(lines: list[BodyLine], body_size: float) -> _Margins:

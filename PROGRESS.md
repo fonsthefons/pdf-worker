@@ -1,5 +1,71 @@
 # Progress
 
+## Layout plan, Phase 5: headings (2026-10-30, branch `layout/phase-5-headings`)
+**Draft: some books get worse; the user's call (plan: "if a book gets worse, record the
+page and line and ask the user").** As the plan writes it, in `footnotes.layout_page`:
+a body line in a `doc_title` or `paragraph_title` box gets `BodyLine.title` (also on
+chapter-notes pages, so the notes' group headings are still dropped). In `structure`, only
+such lines are headings: the heading-size test (`size >= body * HEADING_RATIO`) and
+`_implicit_heading_level` (short all-caps or bold line) are deleted, with `_Builder.bold`.
+The level comes from the size: the nearest heading size (`heading_level`), else one below
+every larger heading size (a title in body type sits under them all). Without rows a
+book has no headings (no fallback, as the plan says). Running heads stay dropped
+(furniture goes first).
+- Tests: `test_a_line_in_a_title_box_is_a_heading_its_level_from_its_size`,
+  `test_large_type_outside_a_title_box_is_not_a_heading` (both with and without rows; all
+  4 failed before). Four tests that relied on the size test now pass made-up title rows
+  (new `title_rows` fixture in `tests/conftest.py`: every line of 12 pt or more boxed
+  `paragraph_title`). Fast tests 355 passed; ruff clean.
+- `regression.py build scratch/regress/p5head_after` (630 s, log
+  `scratch/logs/p5head_after.log`), `compare` against `p5para_c` (main's code with rows):
+
+  | Book | Paragraphs | Headings |
+  |---|---|---|
+  | kant | 892 -> 883 | 43 -> 52 (22 lost, 31 new) |
+  | timeo_web | 680 -> 682 | 3 -> 1 |
+  | metafisica | 1,741 -> 1,505 | 59 -> 290 (17 lost, ~250 new) |
+  | lugones | 998 -> 999 | 12 -> 13 |
+  | dilexit | 243 | 59 -> 60 (4 lost, 5 new) |
+  | dialogos | 1,479 -> 1,481 | 28 -> 26 (8 lost, 6 new) |
+  | timeo_greek | 223 -> 227 | 7 -> 3 |
+  | niebla | 2,831 -> 2,844 | 54 -> 37 (30 lost, 11 new) |
+- Better, as Phase 4 said: Kant's "Tesis" / "Prueba" / "Antítesis" (p. 195 on), "A)
+  Primera analogía", "Analítica transcendental"; Kant p. 59's table rows ("DE LA
+  CANTIDAD", "CUALIDAD") are no longer headings. Metafísica's section titles (p. 98 "El
+  ser, acto que engloba todas las perfecciones", "Origen histórico de la ciencia del
+  ente") and its chapter labels ("C a pít u lo I"). Niebla's running heads and OCR lines
+  in large type ("98 MIGUEL DE UNAMUNO", "lestia.", "P^a^e.da^^^^-") are gone; its chapter
+  numerals "III", "VI", "IX" ... now all headings. Lugones' "Las dos conquistas", "Las
+  ruinas"; Diálogos' bibliography subheads "1. Ediciones", "2. Comentarios".
+- **Worse:**
+  1. Kant: the model boxes the chapter and section labels as `text` (p. 87: "Doctrina
+     transcendental del Juicio...", "PRIMER CAPÍTULO", "Del esquematismo de los conceptos
+     puros del entendimiento" all `text`), so "### PRIMER / SEGUNDO / TERCER CAPÍTULO",
+     "PRIMERA / SEGUNDA / TERCERA SECCIÓN", "REFUTACIÓN DEL IDEALISMO" become paragraphs
+     (they were `_implicit_heading_level` headings). Also the marks "- III -", "- VII -".
+  2. Diálogos: the dialogue titles "## TIMEO" (twice) become bold paragraphs ("**TIMEO**"),
+     with "Platón", "Traducción y notas de", "Notas".
+  3. Dilexit: "CARTA ENCÍCLICA", "¿Qué expresamos cuando decimos “corazón”?", "ESTE ES EL
+     CORAZÓN QUE TANTO AMÓ" (a chapter title, its "V." now a heading of its own) become
+     paragraphs; new heading "104. San Bernardo retomó el simbolismo..." (a numbered
+     paragraph).
+  4. Metafísica: the 17.5 pt divider "INTRODUCCION" (Phase 1 kept it on purpose) and
+     "PRIMERA PARTE", "LA CAUSALIDAD", "Noción de persona", "Ente y unidad" become
+     paragraphs. New wrong headings: numbers split from their titles ("1." / "N o c ió n
+     de ente", dozens of bare "1." ... "6."), footnotes "3. Ibidem.", "7. Ibidem, c. 66.",
+     garbled running heads "METAFISICA", "METAFISCIA", "LA CA CAUSALIDAD" (known limit, but
+     now headings instead of text), "En preparación:".
+  5. Niebla: "POST-PROLOGO", "NIEBLA" (title page) become paragraphs; new "Digitized by
+     the Internet Archive", "in 2014".
+  6. Timeo web: "TIMEO", "O DE LA NATURALEZA" merge into one heading (fine); "Platón"
+     lost. Timeo Greek: title-page lines ("PLATÓN", "JOSÉ MARÍA ZAMORA CALVO") lost.
+  Options for the user: (a) take it as it is; (b) keep `_implicit_heading_level` beside
+  the model (restores Kant's chapter labels and Dilexit's capitals, but also Kant p. 59's
+  table rows); (c) keep the size test too for lines larger than any title box on the page
+  (dividers, dialogue titles), a new rule; (d) join a bare number ("1.", "V.") to the
+  title line after it, a new rule.
+  The code is as the plan writes it; the PR is a draft until the user decides.
+
 ## Layout plan, Phase 5: paragraphs (2026-10-29, branch `layout/phase-5-paragraphs`)
 **User's choice (b), done (second half of this entry).** First run, as the plan wrote it:
 no new paragraph inside one `text` box, as the plan says, in `footnotes.layout_page`:

@@ -69,3 +69,30 @@ def make_layout_pdf(tmp_path: Path) -> Callable[..., Path]:
         return path
 
     return _make
+
+
+@pytest.fixture
+def title_rows() -> Callable[..., dict[int, dict]]:
+    """Layout rows (``paddle_ocr.layout_pages``) that box each line of ``min_size`` or
+    more as a ``paragraph_title``: the layout model's say on a test book's headings."""
+    from pdf_worker.layout import page_lines
+
+    def _rows(pdf: Path, min_size: float = 12) -> dict[int, dict]:
+        rows = {}
+        with pymupdf.open(pdf) as doc:
+            for index, page in enumerate(doc):
+                blocks = [
+                    {"label": "paragraph_title", "score": 0.9, "bbox": list(line.bbox)}
+                    for line in page_lines(page)
+                    if line.size >= min_size
+                ]
+                rect = page.rect
+                rows[index] = {
+                    "page": index,
+                    "width": rect.width,
+                    "height": rect.height,
+                    "blocks": blocks,
+                }
+        return rows
+
+    return _rows

@@ -91,10 +91,11 @@ def test_chapter_endnotes_are_linked_in_text(make_layout_pdf, tmp_path):
     assert report.undefined_footnotes == report.unreferenced_footnotes == []
 
 
-def test_chapter_endnotes_in_markdown(make_layout_pdf, tmp_path):
+def test_chapter_endnotes_in_markdown(make_layout_pdf, title_rows, tmp_path):
+    pdf = _book(make_layout_pdf)
     out = tmp_path / "book.md"
 
-    report = convert_pdf(_book(make_layout_pdf), out, "md")
+    report = convert_pdf(pdf, out, "md", layout_rows=title_rows(pdf))
 
     text = out.read_text(encoding="utf-8")
     assert report.stats.notes == 5
@@ -124,11 +125,12 @@ def test_a_notes_page_the_model_boxes_as_references_keeps_its_note_paragraphs(
     )
 
 
-def test_notes_none_drops_notes_their_chapter_and_references(make_layout_pdf, tmp_path):
+def test_notes_none_drops_notes_their_chapter_and_references(make_layout_pdf, title_rows, tmp_path):
     pdf = _book(make_layout_pdf)
 
     for fmt in ("md", "txt"):
-        report = convert_pdf(pdf, tmp_path / f"book.{fmt}", fmt, notes_at="none")
+        out = tmp_path / f"book.{fmt}"
+        report = convert_pdf(pdf, out, fmt, notes_at="none", layout_rows=title_rows(pdf))
         text = (tmp_path / f"book.{fmt}").read_text(encoding="utf-8")
         assert report.stats.notes == 0
         assert "Claim number 2 of Chapter One is stated here." in text

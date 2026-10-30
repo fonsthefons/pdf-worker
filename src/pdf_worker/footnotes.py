@@ -83,6 +83,8 @@ class BodyLine:
     # bibliography (``reference_content`` boxes), True at a new box, False inside one;
     # False inside one ``text`` box; None leaves it to ``structure``'s rules.
     starts: bool | None = None
+    # In a layout-model title box (``doc_title``, ``paragraph_title``): a heading line.
+    title: bool = False
 
 
 @dataclass(frozen=True)
@@ -134,15 +136,17 @@ def layout_page(
             lines, region, page_index + 1, previous_label
         )
 
+    row = profile.layout.get(page_index)
+    found = boxes(page, row, lines) if row else [None] * len(lines)
+    labels = [None if i is None else row["blocks"][i]["label"] for i in found]
     # One bibliography entry per ``reference_content`` box, and no new paragraph inside
     # one ``text`` box; not on a page of chapter notes, which the model boxes alike (one
     # box per note, or across two).
-    row = None if page_index in chapter_notes.note_pages else profile.layout.get(page_index)
     entries = [
-        (i, row["blocks"][i]["label"])
-        if i is not None and row["blocks"][i]["label"] in ("reference_content", "text")
+        (i, label)
+        if label in ("reference_content", "text") and page_index not in chapter_notes.note_pages
         else None
-        for i in (boxes(page, row, lines) if row else [None] * len(lines))
+        for i, label in zip(found, labels, strict=True)
     ]
     entry = None  # the box (index, label) of the body line before
     item = False  # the body line before starts like a new item
@@ -195,7 +199,8 @@ def layout_page(
         if endnote:
             definitions.append(endnote)
         text = _render_brackets(text, profile, references)
-        body.append(BodyLine(text=text, line=line, endnote_label=endnote, starts=starts))
+        title = labels[line_index] in ("doc_title", "paragraph_title")
+        body.append(BodyLine(text, line, endnote, starts, title))
     trailing = notes[-1][0] if notes else None
     found = {label for label, _ in notes}
     for label in dict.fromkeys(marker_labels.values()):
