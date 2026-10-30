@@ -44,10 +44,8 @@
   books' missed/wrong headings and leftover texts are not written (rule 4). Both tools in
   `CLAUDE.md`'s dev-tools list.
 - **Step 5, baseline** (`scratch/quality/base`, 58 min with the layout model on the new
-  books and pages; `scratch/quality/base2` the second build): **the second build was
-  still running when this run had to stop**, so `compare base base2` (must show no
-  change) is not done. Next: let `scratch/logs/quality_base2.log` finish, run
-  `tools/quality.py compare scratch/quality/base scratch/quality/base2`.
+  books and pages; `scratch/quality/base2` the second build, 20 min with rows cached):
+  `compare base base2` shows no change in any measure, working or held-out.
 
   | Working | words | covered | matched | missing | extra | H found | H real | levels | B found | B real | notes in body | leftovers |
   |---|---|---|---|---|---|---|---|---|---|---|---|---|

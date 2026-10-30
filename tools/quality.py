@@ -147,7 +147,9 @@ def error_kinds(s: dict) -> dict:
         "notes in the body": _rate(n["in_body"], n.get("ref_words", w)) if n else None,
         "missing words": _rate(s["missing"], w),
         "reference body not covered (lost at the ends)": (
-            _rate(s["ref_body"] - s["coverage"], s["ref_body"]) if s["coverage"] is not None else None
+            _rate(s["ref_body"] - s["coverage"], s["ref_body"])
+            if s["coverage"] is not None
+            else None
         ),
         "extra words": _rate(s["extra"], w),
         "paragraph breaks missed": _rate(b["ref"] - b["found"], w),
@@ -291,7 +293,7 @@ def report(result: dict) -> str:
 
 def _change(before, after, unit, higher) -> str:
     if before is None or after is None:
-        return f"{_fmt(before, unit)} -> {_fmt(after, unit)}"
+        return "-" if before == after else f"{_fmt(before, unit)} -> {_fmt(after, unit)}"
     text = f"{_fmt(before, unit)} -> {_fmt(after, unit)}"
     gain = (after - before) if higher else (before - after)
     if gain < -1:  # the tolerance: 1 point, or 1 per 10,000 reference words
