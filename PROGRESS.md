@@ -1,5 +1,55 @@
 # Progress
 
+## Quality plan, Phase 3: heading levels from the book's numbering (2026-10-30, branch `quality/phase-3`) - no variant passed the gate; levels unchanged
+- **Outcome:** three variants tried, all failed the gate on the reference books. The pipeline
+  keeps main's size levels (`tidy.py` untouched). `heading_levels.py` and its tests ship
+  unused, for a later decision. No code path changed, so the yardstick and regression
+  builds equal `scratch/quality/phase2b` and were not rerun.
+- Step 0: levels 62.8% on the checked first page set, 52.4% / 53.8% on platon_bad / dialogos:
+  under 85%, work to do.
+- New `heading_levels.py` (`rank_headings`, `heading_key`), tried at the end of `tidy` (so the
+  regression build, the yardstick and `headings_test.py` all got it), in place of tidy's
+  "Textos under 1. BAYLE" subheading rule. Which lines are headings was unchanged (found/real
+  equal in the yardstick). Tests: `tests/test_heading_levels.py`.
+- **First round, the plan's rule as written** (key = division word, numbering style, capitals,
+  size; levels by first appearance, size only between otherwise-equal keys;
+  `scratch/quality/phase3`): every level measure worse beyond the tolerance. Working total
+  88.6% -> 43.3% (philosophy 84.7 -> 43.7, ratzinger 100 -> 41.6, platon_bad 52.4 -> 47.6,
+  dialogos 53.8 -> 50.0); pages 62.8 -> 58.4; held-out pages 53.4 -> 39.1. Causes:
+  ratzinger's contents entries ("I. DIOS: ...", small type) set the roman kind's level first,
+  so the big part heading "II - JESUCRISTO" (a new kind) went to level 6, below the
+  sections; philosophy's "CAPÍTULO PRIMERO" and "Capítulo II" were two kinds (capitals), so
+  later chapters fell below the first chapter's title. The rule throws away the size order,
+  which born-digital books get right.
+- **Second round (my choice, recorded here):** size first, numbering within one size. General
+  facts: larger type never ranks below smaller; kinds set in the same size nest in the order
+  they first appear (a division opens before its subdivisions), a division word ranked above
+  another goes above it; a division word names its division in any case. Front matter keeps
+  its size levels. Yardstick (`scratch/quality/phase3b`, `compare phase2b phase3b`): pages
+  62.8% -> 65.8% (better), held-out pages 53.4 -> 54.0; but working references worse:
+  philosophy 84.7 -> 57.3, ratzinger 100 -> 47.4, platon_bad 52.4 -> 23.8, dialogos 53.8 ->
+  50.0, total 88.6 -> 54.6.
+- **Third round** (targeted): a division word keeps the rank it first had whatever its type
+  size (philosophy's Paddle rows set "Capítulo IX" smaller than the other chapters); a note
+  reference ("...APOSTÓLICA[^p24-18]") no longer makes a capitals heading a mixed-case kind.
+  Scored without rebuilding (`scratch/quality/sim.py phase2b sim_c`: re-ranks the base build's
+  `#` lines and the page sets' headings.json, then `quality.py score`; checked against the
+  real phase3b build, within 2.4 points): pages 62.8 -> 66.3, held-out pages 53.4 -> 54.0,
+  references still worse (total 88.6 -> 53.3, ratzinger 47.4, philosophy 55.5).
+- **Why the reference books disagree:** their EPUBs tag most headings at one level. Ratzinger's
+  reference puts "II. LA FORMA ECLESIAL DE LA FE", "4. Los límites..." and "I. DIOS: ..." all at
+  h3, and philosophy's puts "CAPÍTULO II" and "1. Observaciones introductorias" both at h2, so
+  any nesting of same-size kinds counts as disagreement. Main's size-only levels are flat in
+  the same way, which is why they score 100% / 85% there. The checked page sets, where
+  levels were judged from the printed page, favour the new rule (+3.5 points), but the gate
+  is "no other measure worse".
+- **Decision (coordinator: at most one more variant, then ship without a regression):** keep
+  main's levels; ship `heading_levels.py` unused, with its tests and these findings. For the
+  user: either accept the reference books' level numbers as uninformative where the EPUB is
+  flat (then wire `rank_headings` into `tidy`: the third variant, +3.5 points on the checked
+  pages), or leave the levels as they are.
+- Fast tests 377 passed; ruff clean.
+
 ## Quality plan, Phase 2: footnotes kept as notes (2026-10-30, branch `quality/phase-2`) - STOPPED at the gate
 - Step 0: baseline notes in the body 511 (lugones) and 1,151 (dialogos) per 10,000: work to do.
 - **Causes** (working books' worst pages):
