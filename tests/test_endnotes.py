@@ -151,6 +151,22 @@ def test_notes_none_keeps_margin_references():
     ]
 
 
+def test_endnotes_numbered_in_brackets_are_linked(make_layout_pdf, tmp_path):
+    # An ebook made into a PDF: each note "[1] Text <<" on a page of its own.
+    texts = ["Bracketed note one, as printed.", "The second says something else."]
+    notes = [[(72, 100, f"[{n}] {text} <<", BODY)] for n, text in enumerate(texts, start=1)]
+    pdf = make_layout_pdf([_chapter("Chapter One", [1, 2]), *notes])
+    out = tmp_path / "book.txt"
+
+    report = extract_text_to_file(pdf, out)
+
+    text = out.read_text(encoding="utf-8")
+    assert "Claim number 2 of Chapter One is stated here.[^c1-2]" in text
+    assert "[^c1-1]: Bracketed note one, as printed." in text
+    assert "[1]" not in text
+    assert report.footnote_count == 2
+
+
 def test_numbered_list_without_references_is_not_notes(make_layout_pdf, tmp_path):
     page = [
         *[(72, 100 + LINE * i, text, BODY) for i, text in enumerate(FILLER * 2)],

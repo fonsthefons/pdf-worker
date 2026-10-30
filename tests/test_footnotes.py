@@ -111,6 +111,45 @@ def test_footnote_continued_on_next_page(make_layout_pdf):
     assert second.startswith("Next page body.")
 
 
+def test_parenthesized_markers_in_the_text_and_the_notes(make_layout_pdf):
+    pdf = make_layout_pdf(
+        [
+            [
+                _body(100, "A claim made in plain text (1). More."),
+                _body(114, "Another claim (2) here."),
+                *FILLER,
+                _note(740, "(1) The first note."),
+                _note(752, "(2) The second note."),
+            ]
+        ]
+    )
+
+    (text,) = _texts(pdf)
+
+    assert "A claim made in plain text[^p1-1]. More." in text
+    assert "Another claim[^p1-2] here." in text
+    assert "[^p1-1]: The first note.\n[^p1-2]: The second note.\n" in text
+
+
+def test_the_next_note_number_is_a_note_without_a_matching_marker(make_layout_pdf):
+    pdf = make_layout_pdf(
+        [
+            [
+                *_with_sup(100, "First claim", "1"),
+                _body(114, "A second claim, glued individual2 here."),
+                *FILLER,
+                _note(740, "1 The first note."),
+                _note(752, "2 The second note."),
+            ]
+        ]
+    )
+
+    (text,) = _texts(pdf)
+
+    assert "[^p1-1]: The first note.\n[^p1-2]: The second note.\n" in text
+    assert "2 The second note" not in text
+
+
 def test_an_exponent_is_left_alone(make_layout_pdf):
     pdf = make_layout_pdf([[*_with_sup(100, "Area in m", "2"), _body(114, "More."), *FILLER]])
 

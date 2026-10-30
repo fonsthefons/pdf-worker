@@ -62,8 +62,9 @@ _MAX_ENDNOTE_OCCURRENCES = 3
 _SAMPLE_CHARS = 20_000
 
 _BRACKET_RE = re.compile(r"\[(\d{1,4})\]")
-# A line starting a numbered note: "12. Text" (or "12.Text"; not a decimal like "3.14").
-NUMBERED_NOTE_RE = re.compile(r"^\s*(\d{1,4})\.\s*(?=[^\d\s])")
+# A line starting a numbered note: "12. Text" (or "12.Text"; not a decimal like "3.14"),
+# or "[12] Text" (a note's number may be bracketed); group 2 is the number.
+NUMBERED_NOTE_RE = re.compile(r"^\s*(\[)?(\d{1,4})(?(1)\]|\.)\s*(?=[^\d\s])")
 # ... or with no period: "235 Trato de ..." (footnotes look the same, see below).
 _PLAIN_NOTE_RE = re.compile(r"^\s*(\d{1,4})\s+(?=[^\d\s])")
 _SAME_BASELINE = 0.3  # in sizes: a hung note number sits this close to its line's
@@ -454,7 +455,7 @@ def analyze_document(
                     sup_refs.append((number, (page_index, line_index, span_index)))
             numbered = NUMBERED_NOTE_RE.match(text)
             if numbered:
-                note_lines.append((int(numbered.group(1)), (page_index, line_index)))
+                note_lines.append((int(numbered.group(2)), (page_index, line_index)))
             plain = plain_note_start(lines, line_index)
             if plain:
                 plain_note_lines.append((plain[0], (page_index, plain[1])))
