@@ -85,7 +85,7 @@ its 462 pages are in the Paddle cache).
 
 ---
 
-## Phase 0: before/after tool and baseline
+## Phase 0: before/after tool and baseline (medium)
 
 Goal: one command that shows what a change did to every book in the test set.
 
@@ -119,7 +119,7 @@ PR: "tools/regression.py: before/after numbers for the test books". This plan
 plan's `PROGRESS.md` entry and the merge rule in `CLAUDE.md` go in this PR if they're
 still uncommitted.
 
-## Phase 1: headers, footers and page numbers by repetition
+## Phase 1: headers, footers and page numbers by repetition (high)
 
 Goal: the Metafísica running heads leave the text (most of its 511 broken sentences),
 with fewer rules than today.
@@ -224,7 +224,7 @@ read as two lines on one row, so rule 2a keeps it working.)
 
 PR: "Headers and footers: the same small line at the edge of nearby pages".
 
-## Phase 2: merge exact duplicates (small PR)
+## Phase 2: merge exact duplicates (small PR) (medium)
 
 Only patterns and numbers that are the same in both places, so nothing changes:
 
@@ -243,7 +243,7 @@ them would change results.
 
 Check: fast tests; `compare` against the Phase 1 build shows no change at all.
 
-## Phase 3: the layout model for every book (no change to the output)
+## Phase 3: the layout model for every book (no change to the output) (medium)
 
 1. `paddle_worker.py --layout-only`: no MLX server; the model PaddleOCR-VL-1.5 uses,
    with its settings (`paddlex/configs/pipelines/PaddleOCR-VL-1.5.yaml` in
@@ -276,7 +276,7 @@ Check: fast tests; `compare` against the Phase 1 build shows no change at all.
 Check: `compare` shows no change. Then cache the rows of the eight books (one run,
 about 50 min: `tools/run_logged.py`).
 
-## Phase 4: measure the model against today's rules (report only)
+## Phase 4: measure the model against today's rules (report only) (high)
 
 Write `tools/parts_report.py` and run it on the eight books. For each part, count the
 lines (or pages) where today's rule and the model agree, where only the rule says so,
@@ -295,7 +295,7 @@ Look at the example pages with `tools/page_parts.py --png`. Write the numbers an
 recommendation per part in `PROGRESS.md`, then **stop and ask the user** which parts
 to switch.
 
-## Phase 5: switch the parts the user picks (one PR each)
+## Phase 5: switch the parts the user picks (one PR each) (high)
 
 Each PR uses the model for one part and deletes the rule it replaces; new tests use
 made-up layout rows. Without rows (no Paddle environment) the part simply isn't
@@ -337,7 +337,7 @@ recognised and stays body text: no fallback rule is kept. Likely candidates:
 Each one goes in `layout_page`, not in `structure.py`. Check each with `compare`, and
 read every changed paragraph of two books in the diff.
 
-## Phase 6: books built from Paddle rows use the same header rule
+## Phase 6: books built from Paddle rows use the same header rule (high)
 
 `paddle_book` drops blocks the model labels `header`, `number` or `footer`, with a
 15% guard (`paddle_book.py:55`). But the model labels running heads as titles (above;

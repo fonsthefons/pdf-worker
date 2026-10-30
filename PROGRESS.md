@@ -1,5 +1,17 @@
 # Progress
 
+## PLAN: quality plan (2026-10-30, branch `feature/quality-plan`)
+The layout plan is done. New `docs/quality-plan.md` (user: "we are not building rules to
+match these specific books but rather any pdf"): Phase 0 checks the headings test's
+`truth.json` with a second blind look and adds held-out pages; Phase 1 scores whole
+books against reference EPUBs of the same text (`tools/book_score.py`,
+`tools/quality.py`) and ranks the error kinds; Phases 2-5 fix footnotes put back into
+the body, heading levels, wrong headings, then the biggest kind left; Phase 6 reports.
+Each phase's effort (low or medium, user: maybe no high) is at the end of its heading.
+`tools/run_plan.py` now takes `--plan layout|quality` (default: the first plan not
+done) and reads each phase's effort from the plan's headings (`(medium)` added to the
+layout plan's); `/pdf-layout-plan quality` runs it. Tests: `tests/test_run_plan.py`.
+
 ## Layout plan, Phase 6: Paddle books use the header rule (2026-10-30, branch `layout/phase-6`)
 `paddle_book.furniture(rows)`: Phase 1's rule over Paddle's blocks, decided before the
 pages are prepared. Top/bottom row (`_edge_rows`): the highest (lowest) block with a letter
