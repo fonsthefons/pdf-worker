@@ -1,5 +1,68 @@
 # Progress
 
+## Quality plan, Phase 2: footnotes kept as notes (2026-10-30, branch `quality/phase-2`) - STOPPED at the gate
+- Step 0: baseline notes in the body 511 (lugones) and 1,151 (dialogos) per 10,000: work to do.
+- **Causes** (working books' worst pages):
+  - dialogos p. 177 on: an ebook made into a PDF; each endnote "[1] Text <<" on a page
+    of its own, the references superscripts. `analyze_document`'s chapter notes only
+    knew "1. Text" / "1 Text", so the notes came out as body paragraphs.
+  - lugones p. 78, p. 194: notes "(1) Text" under the body, the marker "(1)" plain text
+    in the body. `_definition_marker` didn't read "(1)", so the region stayed in the body.
+- **General facts and rules** (`layout.py`, `footnotes.py`):
+  - A note's number may be bracketed, as its marker is: `NUMBERED_NOTE_RE` takes "[12] Text"
+    (chapter notes); the footnote region takes "(1) Text" / "[1] Text"
+    (`_ENCLOSED_DEF_START_RE`).
+  - A note whose marker is plain text in the body ("(1)", "[1]") is linked there; else it
+    follows the page's last paragraph as before.
+  - Notes on a page are numbered in order: with superscript references on the page, a
+    region line starting with the number after the last note (or just before the first
+    reference) is a note even when no marker matches it ("individual5").
+  - Tests first (`test_footnotes.py`: parenthesized markers, next number; `test_endnotes.py`:
+    bracketed endnotes), checked to fail on `main`. Fast tests 365 passed; ruff clean.
+- **Yardstick** (`scratch/quality/phase2`, `compare base phase2`): notes in the body, working
+  total 244.0 -> 27.4 (lugones 511.1 -> 15.5, dialogos 1151.1 -> 156.7); leftovers 2.6 ->
+  0.8; extra words 186.5 -> 179.3; lugones breaks real 89.2% -> 94.5%. Worse beyond the
+  tolerance: **lugones missing 216.0 -> 249.8**, **gaviota (held-out) missing 1410.7 ->
+  1436.7**, held-out total missing 840.4 -> 847.9. Rule 6: held-out worse, so stopped
+  (draft PR). Regression `compare` not run.
+- **lugones, why missing rose** (no word is lost from our Markdown: a word count of the two
+  builds differs only by the "(1)" markers and re-joined hyphenations):
+  - p. 311 lines 22-26: the note "(1) En mi libro «La cuestión educacional» ..." is now a
+    note; the Wikisource reference keeps it as body text (not marked as a note), so its 36
+    words count as missing from the body.
+  - p. 215 lines 15-29: the end of a long note that starts on p. 211 runs on after two
+    plate pages (p. 213, a facsimile with OCR'd text; p. 214, blank). It stays in the body
+    before and after this change (a continuation needs a note on the page before). Before,
+    the note's start was in the body too and the scorer matched all 170 words there; now
+    the start is a note and the end, pages away in the body, aligns nowhere.
+- gaviota (held-out, numbers only): notes 2 -> 17, paragraphs 2,081 -> 2,041. Its reference
+  is plain text (no notes marked), so our notes join one alignment at their new place
+  after the paragraph; whether these are real notes moved or false ones is unknown (rule 4).
+- **Second round (the user chose to narrow the "(n)" rule, endnote paths untouched):** a note
+  numbered "(n)" at a page's foot is a note only when the book's text marks "(n)" inside a
+  line somewhere (`DocumentProfile.paren_refs`, collected by `analyze_document`). Book-wide,
+  not per page, so notes gathered at a chapter's end, their markers pages before, are still
+  found. Tests: `test_parenthesized_notes_at_a_chapter_end_are_found`,
+  `test_parenthesized_lines_are_notes_only_where_the_text_marks_them`. Fast tests 367
+  passed; ruff clean.
+  Yardstick (`scratch/quality/phase2b`, `compare base phase2b`): the same numbers as the
+  first round. dialogos and lugones keep their gains (notes in the body 1151.1 -> 156.7,
+  511.1 -> 15.5); still worse beyond the tolerance: lugones missing 216.0 -> 249.8 (the
+  traced artefact, p. 311 and p. 215; accepted by the user), **gaviota missing 1410.7 ->
+  1436.7** and held-out total 840.4 -> 847.9. gaviota keeps 16 of its 17 new notes: their
+  "(n)" numbers appear in its text, so they look like real notes, and the missing words are
+  most likely the scoring of notes against a plain-text reference that marks none (our note
+  sits after its paragraph, the reference's in place), but rule 4 forbids checking.
+  The PR stays a draft: held-out worse beyond the tolerance. Regression `compare` not run.
+- **Decision (user, via the coordinator):** gate misses accepted. gaviota +26 per 10,000
+  missing words: a yardstick artefact (our notes placed after their paragraph, against a
+  plain-text reference that marks none; the new notes' "(n)" numbers appear in its text).
+  lugones +34: the two traced cases (p. 311, p. 215). PR marked ready, not merged.
+- **For the user to decide** (first round): accept the gate miss (the lugones part is the reference's
+  unmarked note and a pre-existing continuation error), or narrow the change (e.g. keep
+  the "(1)"-region rule but only where the body has a matching "(n)" marker), or let the
+  held-out check look at gaviota's new notes.
+
 ## Quality plan, Phase 1: whole-book yardstick and baseline (2026-10-30, branch `quality/phase-1`)
 - **Step 1, reference pairs** (`scratch/quality/same_text.py`; table in
   `docs/quality-plan.md`, "Reference pairs"). The raw text layer of old scans failed the

@@ -62,8 +62,11 @@ _MAX_ENDNOTE_OCCURRENCES = 3
 _SAMPLE_CHARS = 20_000
 
 _BRACKET_RE = re.compile(r"\[(\d{1,4})\]")
-# A line starting a numbered note: "12. Text" (or "12.Text"; not a decimal like "3.14").
-NUMBERED_NOTE_RE = re.compile(r"^\s*(\d{1,4})\.\s*(?=[^\d\s])")
+# A note marker "(n)" inside a line of text (not starting it, as a note's own number does).
+_PAREN_REF_RE = re.compile(r"(?<=\S)\s?\((\d{1,3})\)")
+# A line starting a numbered note: "12. Text" (or "12.Text"; not a decimal like "3.14"),
+# or "[12] Text" (a note's number may be bracketed); group 2 is the number.
+NUMBERED_NOTE_RE = re.compile(r"^\s*(\[)?(\d{1,4})(?(1)\]|\.)\s*(?=[^\d\s])")
 # ... or with no period: "235 Trato de ..." (footnotes look the same, see below).
 _PLAIN_NOTE_RE = re.compile(r"^\s*(\d{1,4})\s+(?=[^\d\s])")
 _SAME_BASELINE = 0.3  # in sizes: a hung note number sits this close to its line's
@@ -336,6 +339,9 @@ class DocumentProfile:
     page_count: int = 0
     # The book prints its margin references in the text, in brackets ("[22b]").
     bracketed_refs: bool = False
+    # Numbers the book's text marks as "(n)" inside a line: the note markers a note
+    # numbered "(n)" at a page's foot needs somewhere in the book.
+    paren_refs: frozenset[int] = frozenset()
     # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``): bibliography
     # entries and paragraphs (``footnotes.layout_page``).
     layout: dict[int, dict] = field(default_factory=dict)
@@ -410,6 +416,7 @@ def analyze_document(
     sample: list[str] = []
     sample_len = 0
     bracketed_pages = 0
+    paren_refs: set[int] = set()
     for page_index in range(doc.page_count):
         if on_page:
             on_page(page_index, doc.page_count)
@@ -454,7 +461,7 @@ def analyze_document(
                     sup_refs.append((number, (page_index, line_index, span_index)))
             numbered = NUMBERED_NOTE_RE.match(text)
             if numbered:
-                note_lines.append((int(numbered.group(1)), (page_index, line_index)))
+                note_lines.append((int(numbered.group(2)), (page_index, line_index)))
             plain = plain_note_start(lines, line_index)
             if plain:
                 plain_note_lines.append((plain[0], (page_index, plain[1])))
@@ -463,6 +470,7 @@ def analyze_document(
                 note_marks.append((page_index, mark))
                 signs = text.split()[0] if mark == line_index else "".join(text.split())
                 mark_readings[(page_index, mark)] = signs
+            paren_refs.update(int(n) for n in _PAREN_REF_RE.findall(text))
             for match in _BRACKET_RE.finditer(text):
                 number = int(match.group(1))
                 at_line_start = match.start() == len(text) - len(text.lstrip())
@@ -533,6 +541,7 @@ def analyze_document(
         text_sample=" ".join(sample),
         page_count=doc.page_count,
         bracketed_refs=in_book(bracketed_pages, doc.page_count),
+        paren_refs=frozenset(paren_refs),
     )
 
 

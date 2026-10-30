@@ -17,7 +17,7 @@ cheap pass) before pages are processed; both passes hold a single page at a time
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pymupdf
 
@@ -46,6 +46,8 @@ _MARKER = r"\d{1,3}|[*†‡§¶]{1,3}"
 _MARKER_RE = re.compile(rf"^(?:{_MARKER})$")
 _MARKER_LIST_RE = re.compile(rf"^(?:{_MARKER})(?:\s*,\s*(?:{_MARKER}))*$")
 _DEF_START_RE = re.compile(rf"^\s*({_MARKER})(?:[.)]\s*|\s+)(?=\S)")
+# A note's number may be enclosed, as its marker in the text is: "(1) Text", "[1] Text".
+_ENCLOSED_DEF_START_RE = re.compile(r"^\s*[(\[](\d{1,3})[)\]]\s*(?=\S)")
 # OCR often garbles a superscript marker into stray symbols: "*8 It is", "‘3 See".
 _OCR_DEF_START_RE = re.compile(r"^\s*[*'‘’\"“”^°]{1,2}(\d{1,3})\s+(?=\S)")
 _BRACKET_REF_RE = re.compile(r"[ \t ]*\[(\d{1,4})\]")
@@ -133,7 +135,7 @@ def layout_page(
     consumed: set[int] = set()
     if region is not None:
         notes, marker_labels, consumed = _collect_footnotes(
-            lines, region, page_index + 1, previous_label
+            lines, region, page_index + 1, previous_label, profile.paren_refs
         )
 
     row = profile.layout.get(page_index)
@@ -178,7 +180,7 @@ def layout_page(
         chapter_def = chapter_notes.defs.get((page_index, line_index))
         if chapter_def:
             definitions.append(chapter_def)
-            number = rf"^\s*{display_marker(chapter_def)}\.?\s*"
+            number = rf"^\s*\[?{display_marker(chapter_def)}[.\]]?\s*"
             # Its number, or the misread mark taken for it ("3.¡." for 34, ".i,57").
             mark = NOTE_MARK_RE if NOTE_MARK_RE.match(text) else LOOSE_NOTE_MARK_RE
             text = (
@@ -201,6 +203,15 @@ def layout_page(
         text = _render_brackets(text, profile, references)
         title = labels[line_index] in ("doc_title", "paragraph_title")
         body.append(BodyLine(text, line, endnote, starts, title))
+    # A note's marker set as plain text in the body ("(1)", "[1]"): link it there.
+    for marker, label in marker_labels.items():
+        if label in references or not marker.isdigit():
+            continue
+        mark = re.compile(rf"\s*[(\[]{marker}[)\]]")
+        at = next((i for i, bl in enumerate(body) if mark.search(bl.text)), None)
+        if at is not None:
+            body[at] = replace(body[at], text=mark.sub(f"[^{label}]", body[at].text, count=1))
+            references.append(label)
     trailing = notes[-1][0] if notes else None
     found = {label for label, _ in notes}
     for label in dict.fromkeys(marker_labels.values()):
@@ -266,7 +277,7 @@ def _definition_marker(line: Line) -> tuple[str, str, bool] | None:
             and first["size"] < spans[1]["size"] * 0.85
         )
         return match.group(1), line.text[match.end() :], distinct
-    match = _OCR_DEF_START_RE.match(line.text)
+    match = _OCR_DEF_START_RE.match(line.text) or _ENCLOSED_DEF_START_RE.match(line.text)
     if match:
         return match.group(1), line.text[match.end() :], False
     return None
@@ -359,7 +370,11 @@ def _is_page_furniture(text: str) -> bool:
 
 
 def _collect_footnotes(
-    lines: list[Line], region: list[int], page_number: int, previous_label: str | None
+    lines: list[Line],
+    region: list[int],
+    page_number: int,
+    previous_label: str | None,
+    paren_refs: frozenset[int] = frozenset(),
 ) -> tuple[list[tuple[str, list[str]]], dict[str, str], set[int]]:
     """Split the footnote region into (label, text lines) notes.
 
@@ -385,6 +400,9 @@ def _collect_footnotes(
             consumed.add(index)
             continue
         found = _definition_marker(line)
+        enclosed = _ENCLOSED_DEF_START_RE.match(text)
+        if found and enclosed and int(enclosed.group(1)) not in paren_refs:
+            found = None  # "(n)" numbers a note only where the book marks "(n)" in its text
         if found:
             indented = line.x0 > region_left + 0.3 * (line.size or 1.0)
             found = (found[0], found[1], found[2] or indented)
@@ -430,7 +448,14 @@ def _accept_marker(
     if marker in seen:
         return False
     if body_refs:
-        return marker in body_refs
+        if marker in body_refs:
+            return True
+        # Notes on a page are numbered in order: the number after the last note (or just
+        # before the first reference) is a note whose marker wasn't read as one
+        # ("individual5").
+        numbers = [int(r) for r in body_refs if r.isdigit()]
+        expected = last_number + 1 if last_number else min(numbers, default=1) - 1
+        return marker.isdigit() and int(marker) == expected > 0
     # No superscript references to confirm against: require an increasing sequence, and
     # a marker set apart from the text or a small number (not "341 F. 2d 1003").
     if not marker.isdigit():
