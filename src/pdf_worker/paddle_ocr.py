@@ -202,6 +202,15 @@ def layout_pages(
     return _cached_rows(_pages_cache(pdf_path, LAYOUT_MODEL, "layout"), pages, on_page, run)
 
 
+def cached_rows(pdf_path: str | Path, layout: bool = False) -> dict[int, dict]:
+    """The rows ``paddle_pages`` (or with ``layout``, ``layout_pages``) already cached for
+    ``pdf_path``, page index -> row; runs no model."""
+    pdf_path = Path(pdf_path)
+    return _read_rows(
+        _pages_cache(pdf_path, LAYOUT_MODEL, "layout") if layout else _pages_cache(pdf_path)
+    )
+
+
 def _cached_rows(cache: Path, pages: list[int], on_page, run) -> dict[int, dict]:
     """The cached rows, after ``run(python, missing, results, work, report)`` has added
     the ``pages`` missing from ``cache``; a run that stops keeps the pages it finished."""

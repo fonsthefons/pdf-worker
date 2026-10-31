@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Marks</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.35 system-ui, sans-serif; display: flex; height: 100vh; color: #222; }
+  #side { width: 300px; flex: none; overflow-y: auto; padding: 8px 10px; border-right: 1px solid #ccc; background: #fafafa; }
+  #view { flex: 1; overflow: auto; background: #777; position: relative; }
+  #view.pan { cursor: grab; }
+  svg { display: block; margin: 10px auto; background: #fff; user-select: none; }
+  h1 { font-size: 14px; margin: 0 0 4px; word-break: break-all; }
+  h2 { font-size: 12px; margin: 12px 0 4px; text-transform: uppercase; color: #666; }
+  .row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 3px 0; }
+  #nav input { width: 60px; }
+  .kinds button { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 2px 4px; margin: 1px 0; background: #fff; border: 1px solid #ddd; cursor: pointer; }
+  .kinds button:hover { background: #eef; }
+  .sw { width: 14px; height: 14px; border-radius: 2px; flex: none; }
+  .key { margin-left: auto; color: #888; font-family: monospace; }
+  .levels button { width: auto; flex: 1; justify-content: center; }
+  #status { min-height: 1.4em; padding: 3px; margin: 6px 0; background: #eee; border-radius: 3px; }
+  #status.error { background: #fdd; color: #900; }
+  #status.ask { background: #ffd; }
+  #stale div, #selected div { cursor: pointer; padding: 1px 0; }
+  #stale div:hover { text-decoration: underline; }
+  .muted { color: #777; }
+  details summary { cursor: pointer; color: #666; }
+  ul { margin: 4px 0; padding-left: 16px; }
+</style>
+</head>
+<body>
+<div id="side">
+  <h1 id="title">…</h1>
+  <div class="muted" id="source"></div>
+  <div class="row" id="nav">
+    <button id="prev" title="Previous page (←)">◀</button>
+    page <input id="pageno" type="number" min="1"> / <span id="pages"></span>
+    <button id="next" title="Next page (→)">▶</button>
+  </div>
+  <div class="row">
+    <button id="zoomout" title="Zoom out (-)">−</button>
+    <button id="fit" title="Fit the width (0)">fit</button>
+    <button id="zoomin" title="Zoom in (=)">+</button>
+    <label><input type="checkbox" id="showlines" checked> lines</label>
+    <label><input type="checkbox" id="showblocks" checked> blocks</label>
+  </div>
+  <div id="status"></div>
+
+  <h2>Selected</h2>
+  <div id="selected" class="muted">nothing</div>
+
+  <h2>Mark as</h2>
+  <label class="row"><input type="checkbox" id="here"> here only (this place, not an example; or Shift+key)</label>
+  <div class="kinds" id="kinds"></div>
+
+  <h2>Section</h2>
+  <div id="insection" class="muted"></div>
+  <div class="row">starts on this page:
+    <select id="seckind"></select>
+    <label><input type="checkbox" id="seckeep" checked> keep</label>
+  </div>
+
+  <h2>Book settings</h2>
+  <div class="row">notes printed <select id="notes"></select></div>
+  <div class="row">numbers start again each <select id="numbering"></select></div>
+
+  <h2>Marks to check</h2>
+  <div id="stale" class="muted">none</div>
+
+  <h2>Help</h2>
+  <details><summary>keys and mouse</summary>
+  <ul>
+    <li>Click a line; Shift+click adds lines.</li>
+    <li>Click a block's dashed edge, or Alt+click inside it: its lines.</li>
+    <li>Drag on an empty spot: a shape. Drag its corners anywhere; click an edge's middle dot to add a corner.</li>
+    <li>Then a kind's key (Shift+key: here only). <b>h</b> then 1-4 for a heading.</li>
+    <li>Click a mark to change its kind, move its corners, or Delete it.</li>
+    <li>Esc clears; ← → or PageUp/PageDown change page; = − 0 zoom; Ctrl+wheel zooms; Space+drag or middle-drag pans.</li>
+  </ul></details>
+</div>
+<div id="view"><svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+<script>
+"use strict";
+const KINDS = [
+  ["title", "t", "#8e44ad"], ["heading", "h", "#c0392b"], ["body", "b", "#7f8c8d"],
+  ["running-head", "r", "#16a085"], ["page-number", "p", "#27ae60"], ["footnote", "f", "#2980b9"],
+  ["note-ref", "n", "#e67e22"], ["endnote", "e", "#1f3a93"], ["contents", "c", "#d35400"],
+  ["bibliography", "g", "#6d4c41"], ["index", "i", "#9e9d24"], ["caption", "k", "#ad1457"],
+  ["ignore", "x", "#000000"],
+];
+const COLOUR = Object.fromEntries(KINDS.map(([k, , c]) => [k, c]));
+const BY_KEY = Object.fromEntries(KINDS.map(([k, key]) => [key, k]));
+const SECTIONS = ["front", "contents", "introduction", "main", "notes", "bibliography", "index", "appendix", "back"];
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+const svg = $("svg"), viewport = $("view");
+
+let book, M, view, pageNo = 1, zoom = 1, stale = [];
+let sel = { lines: new Set(), shape: null, markId: null };
+let drag = null, spaceDown = false, askLevel = null;
+
+// ---- geometry (as marks.py: a box belongs to a shape when its middle is inside) ----
+function inside([x, y], shape) {
+  let found = false;
+  for (let i = 0, j = shape.length - 1; i < shape.length; j = i++) {
+    const [x0, y0] = shape[j], [x1, y1] = shape[i];
+    if ((y0 > y) !== (y1 > y) && x < x0 + (y - y0) * (x1 - x0) / (y1 - y0)) found = !found;
+  }
+  return found;
+}
+const middle = (b) => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+const inBox = ([x, y], b, pad = 0) => x >= b[0] - pad && x <= b[2] + pad && y >= b[1] - pad && y <= b[3] + pad;
+function area(shape) {
+  let a = 0;
+  for (let i = 0, j = shape.length - 1; i < shape.length; j = i++) a += (shape[j][0] + shape[i][0]) * (shape[j][1] - shape[i][1]);
+  return Math.abs(a / 2);
+}
+const rectShape = (b, pad = 0) => [[b[0] - pad, b[1] - pad], [b[2] + pad, b[1] - pad], [b[2] + pad, b[3] + pad], [b[0] - pad, b[3] + pad]];
+function union(boxes) {
+  return boxes.reduce((u, b) => [Math.min(u[0], b[0]), Math.min(u[1], b[1]), Math.max(u[2], b[2]), Math.max(u[3], b[3])],
+    [Infinity, Infinity, -Infinity, -Infinity]);
+}
+const linesIn = (shape) => view.lines.map((l, i) => i).filter((i) => inside(middle(view.lines[i].bbox), shape));
+const wordsIn = (shape) => view.words.filter((w) => inside(middle(w), shape));
+const round = (v) => Math.round(v * 10) / 10;
+
+// ---- server ----
+function status(text, kind = "") { const s = $("status"); s.textContent = text; s.className = kind; }
+async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(`${url}: ${r.status}`); return r.json(); }
+async function save() {
+  try {
+    const r = await fetch("/marks.json", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(M) });
+    const answer = await r.json();
+    if (!r.ok) { status(`Not saved: ${answer.error}`, "error"); return; }
+    stale = answer.stale; showStale();
+    status(`Saved (${M.marks.length} marks)`);
+  } catch (e) { status(`Not saved: ${e}`, "error"); }
+}
+
+// ---- pages ----
+async function goTo(n) {
+  n = Math.max(1, Math.min(book.pages, n | 0));
+  view = await getJSON(`/page/${n}.json`);
+  pageNo = n;
+  $("pageno").value = n;
+  history.replaceState(null, "", `#${n}`);
+  clearSel();
+  if (!svg.dataset.sized) { fit(); svg.dataset.sized = 1; } else setZoom(zoom);
+  showSection();
+  draw();
+}
+function setZoom(z, at) {
+  const before = at && toPage(at);
+  zoom = Math.max(0.2, Math.min(12, z));
+  svg.setAttribute("viewBox", `0 0 ${view.width} ${view.height}`);
+  svg.setAttribute("width", view.width * zoom);
+  svg.setAttribute("height", view.height * zoom);
+  if (before) {
+    const after = toScreen(before);
+    viewport.scrollLeft += after.x - at.clientX;
+    viewport.scrollTop += after.y - at.clientY;
+  }
+  draw();
+}
+function fit() { setZoom((viewport.clientWidth - 24) / view.width); }
+function toPage(e) {
+  const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
+  const q = p.matrixTransform(svg.getScreenCTM().inverse());
+  return [q.x, q.y];
+}
+function toScreen([x, y]) {
+  const p = svg.createSVGPoint(); p.x = x; p.y = y;
+  return p.matrixTransform(svg.getScreenCTM());
+}
+
+// ---- drawing ----
+function el(name, attrs, parent) {
+  const e = document.createElementNS(NS, name);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  parent.appendChild(e);
+  return e;
+}
+const pts = (shape) => shape.map((p) => p.join(",")).join(" ");
+function selectedLines() { return sel.shape ? new Set(linesIn(sel.shape)) : sel.lines; }
+function draw() {
+  if (!view) return;
+  svg.textContent = "";
+  el("image", { href: `/page/${pageNo}.png`, x: 0, y: 0, width: view.width, height: view.height }, svg);
+  const thin = { "vector-effect": "non-scaling-stroke", fill: "none" };
+  if ($("showblocks").checked)
+    for (const b of view.blocks)
+      el("rect", { ...thin, x: b.bbox[0], y: b.bbox[1], width: b.bbox[2] - b.bbox[0], height: b.bbox[3] - b.bbox[1],
+        stroke: "#d35400", "stroke-dasharray": "5 3", "stroke-opacity": 0.6 }, svg);
+  const lit = selectedLines();
+  view.lines.forEach((l, i) => {
+    const show = $("showlines").checked;
+    if (!show && !lit.has(i)) return;
+    el("rect", { "vector-effect": "non-scaling-stroke", x: l.bbox[0], y: l.bbox[1], width: l.bbox[2] - l.bbox[0], height: l.bbox[3] - l.bbox[1],
+      stroke: "#3050c0", "stroke-opacity": 0.3, fill: lit.has(i) ? "#ffeb3b" : "none", "fill-opacity": 0.45 }, svg);
+  });
+  for (const m of M.marks.filter((m) => m.page === pageNo)) {
+    const c = COLOUR[m.kind];
+    el("polygon", { points: pts(m.shape), fill: c, "fill-opacity": m.id === sel.markId ? 0.08 : 0.18, stroke: c,
+      "stroke-width": 2, "vector-effect": "non-scaling-stroke", "stroke-dasharray": m.scope === "here" ? "6 4" : "none" }, svg);
+    const top = m.shape.reduce((a, p) => (p[1] < a[1] || (p[1] === a[1] && p[0] < a[0]) ? p : a));
+    const label = el("text", { x: top[0], y: top[1] - 2 / zoom, fill: c, "font-size": 11 / zoom, "font-family": "sans-serif" }, svg);
+    label.textContent = m.kind + (m.level ? ` ${m.level}` : "") + (m.scope === "here" ? " (here)" : "");
+  }
+  if (sel.shape) {
+    for (const w of wordsIn(sel.shape))
+      el("rect", { ...thin, x: w[0], y: w[1], width: w[2] - w[0], height: w[3] - w[1], stroke: "#e00", "stroke-opacity": 0.5 }, svg);
+    el("polygon", { ...thin, points: pts(sel.shape), stroke: "#000", "stroke-width": 1.5, "stroke-dasharray": "4 3" }, svg);
+    const r = 5 / zoom;
+    sel.shape.forEach((p, i) => {
+      el("rect", { x: p[0] - r, y: p[1] - r, width: 2 * r, height: 2 * r, fill: "#fff", stroke: "#000",
+        "vector-effect": "non-scaling-stroke", "data-corner": i, style: "cursor:move" }, svg);
+      const q = sel.shape[(i + 1) % sel.shape.length];
+      el("circle", { cx: (p[0] + q[0]) / 2, cy: (p[1] + q[1]) / 2, r: r * 0.7, fill: "#000", "fill-opacity": 0.5,
+        "data-mid": i, style: "cursor:copy" }, svg);
+    });
+  }
+  showSelected();
+}
+
+// ---- selection ----
+function clearSel() { sel = { lines: new Set(), shape: null, markId: null }; askLevel = null; }
+function markAt(p) {
+  const hits = M.marks.filter((m) => m.page === pageNo && inside(p, m.shape));
+  hits.sort((a, b) => area(a.shape) - area(b.shape));
+  return hits[0];
+}
+function lineAt(p) { return view.lines.findIndex((l) => inBox(p, l.bbox)); }
+function blockAt(p, edgeOnly) {
+  const tol = 4 / zoom;
+  return view.blocks.find((b) => inBox(p, b.bbox, tol) && (!edgeOnly || !inBox(p, b.bbox, -tol)));
+}
+function selectMark(m) { clearSel(); sel.markId = m.id; sel.shape = m.shape.map((p) => [...p]); }
+function showSelected() {
+  const box = $("selected");
+  const m = sel.markId && M.marks.find((m) => m.id === sel.markId);
+  const texts = sel.shape ? linesIn(sel.shape).map((i) => view.lines[i].text) : [...sel.lines].sort((a, b) => a - b).map((i) => view.lines[i].text);
+  if (m) {
+    box.className = "";
+    box.innerHTML = `<b style="color:${COLOUR[m.kind]}">${m.kind}${m.level ? " " + m.level : ""}</b> (${m.scope}) ` +
+      `<button id="delmark">Delete</button>`;
+    $("delmark").onclick = deleteMark;
+  } else if (sel.shape || sel.lines.size) {
+    box.className = "";
+    box.textContent = `${texts.length} line(s)` + (sel.shape ? `, ${wordsIn(sel.shape).length} word(s)` : "") + ": press a kind's key";
+  } else { box.className = "muted"; box.textContent = "nothing"; return; }
+  for (const t of texts.slice(0, 6)) { const d = document.createElement("div"); d.className = "muted"; d.textContent = "· " + t.slice(0, 80); box.appendChild(d); }
+  if (texts.length > 6) box.appendChild(Object.assign(document.createElement("div"), { className: "muted", textContent: `… ${texts.length - 6} more` }));
+}
+
+// ---- marks ----
+function nextId() { return "m" + (Math.max(0, ...M.marks.map((m) => +m.id.replace(/\D/g, "") || 0)) + 1); }
+function textsOf(kind, shape) {
+  return kind === "note-ref" ? wordsIn(shape).map((w) => w[4]) : linesIn(shape).map((i) => view.lines[i].text);
+}
+function newMark(kind, level, scope, shape) {
+  const m = { id: nextId(), page: pageNo, kind, scope, shape: shape.map(([x, y]) => [round(x), round(y)]), texts: textsOf(kind, shape) };
+  if (kind === "heading") m.level = level;
+  return m;
+}
+function assign(kind, level, here) {
+  const scope = here || $("here").checked ? "here" : "style";
+  if (kind === "heading" && !level) { askLevel = { scope }; status("Heading level? press 1-4", "ask"); return; }
+  askLevel = null;
+  const old = sel.markId && M.marks.find((m) => m.id === sel.markId);
+  if (old) {
+    old.kind = kind; old.scope = scope;
+    if (kind === "heading") old.level = level; else delete old.level;
+    old.texts = textsOf(kind, old.shape);
+  } else if (sel.shape) {
+    M.marks.push(newMark(kind, level, scope, sel.shape));
+  } else if (sel.lines.size) {
+    const chosen = [...sel.lines].sort((a, b) => a - b);
+    const box = rectShape(union(chosen.map((i) => view.lines[i].bbox)), 1);
+    const taken = linesIn(box);
+    if (taken.length === chosen.length && taken.every((i) => sel.lines.has(i))) M.marks.push(newMark(kind, level, scope, box));
+    else for (const i of chosen) M.marks.push(newMark(kind, level, scope, rectShape(view.lines[i].bbox, 1)));
+  } else { status("Select lines or draw a shape first", "error"); return; }
+  clearSel(); draw(); save();
+}
+function deleteMark() {
+  if (!sel.markId) return;
+  M.marks = M.marks.filter((m) => m.id !== sel.markId);
+  clearSel(); draw(); save();
+}
+function showStale() {
+  const box = $("stale");
+  box.textContent = "";
+  box.className = stale.length ? "" : "muted";
+  if (!stale.length) { box.textContent = "none"; return; }
+  for (const s of stale) {
+    const d = document.createElement("div");
+    d.textContent = `p. ${s.page}: ${s.kind} (${s.id}) now takes ${s.now.length} line(s)`;
+    d.onclick = async () => { await goTo(s.page); const m = M.marks.find((m) => m.id === s.id); if (m) { selectMark(m); draw(); } };
+    box.appendChild(d);
+  }
+}
+
+// ---- sections and settings ----
+function showSection() {
+  const here = M.sections.find((s) => s.page === pageNo);
+  $("seckind").value = here ? here.kind : "";
+  $("seckeep").checked = here ? here.keep : true;
+  const before = M.sections.filter((s) => s.page <= pageNo).sort((a, b) => a.page - b.page).pop();
+  $("insection").textContent = before ? `This page is in: ${before.kind} (from p. ${before.page})${before.keep ? "" : ", left out"}` : "No section starts before this page.";
+}
+function setSection() {
+  M.sections = M.sections.filter((s) => s.page !== pageNo);
+  const kind = $("seckind").value;
+  if (kind) M.sections.push({ page: pageNo, kind, keep: $("seckeep").checked });
+  M.sections.sort((a, b) => a.page - b.page);
+  showSection(); save();
+}
+function setSettings() {
+  for (const k of ["notes", "numbering"]) { if ($(k).value) M.settings[k] = $(k).value; else delete M.settings[k]; }
+  save();
+}
+
+// ---- mouse ----
+svg.addEventListener("mousedown", (e) => {
+  if (!view) return;
+  if (spaceDown || e.button === 1) {
+    drag = { pan: true, x: e.clientX, y: e.clientY }; e.preventDefault(); return;
+  }
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const p = toPage(e);
+  const t = e.target.dataset || {};
+  if (t.corner !== undefined) { drag = { corner: +t.corner }; return; }
+  if (t.mid !== undefined) {
+    const i = +t.mid;
+    sel.shape.splice(i + 1, 0, p);
+    drag = { corner: i + 1 }; draw(); return;
+  }
+  const block = e.altKey ? blockAt(p, false) : (lineAt(p) < 0 && blockAt(p, true));
+  if (block) {
+    clearSel(); sel.shape = rectShape(block.bbox, 1); draw(); return;
+  }
+  const mark = !e.shiftKey && markAt(p);
+  if (mark) { selectMark(mark); draw(); return; }
+  const line = lineAt(p);
+  if (line >= 0) {
+    if (e.shiftKey && !sel.shape && !sel.markId) {
+      if (sel.lines.has(line)) sel.lines.delete(line); else sel.lines.add(line);
+    } else { clearSel(); sel.lines.add(line); }
+    draw(); return;
+  }
+  clearSel();
+  drag = { from: p };
+  draw();
+});
+window.addEventListener("mousemove", (e) => {
+  if (!drag) return;
+  if (drag.pan) {
+    viewport.scrollLeft -= e.clientX - drag.x; viewport.scrollTop -= e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY; return;
+  }
+  const p = toPage(e);
+  if (drag.corner !== undefined) { sel.shape[drag.corner] = p; drag.moved = true; }
+  else if (drag.from) {
+    const [x0, y0] = drag.from;
+    sel.shape = [[x0, y0], [p[0], y0], [p[0], p[1]], [x0, p[1]]];
+  }
+  draw();
+});
+window.addEventListener("mouseup", () => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.from && sel.shape && area(sel.shape) < 9) { clearSel(); draw(); return; }
+  if (d.corner !== undefined && sel.markId) {
+    const m = M.marks.find((m) => m.id === sel.markId);
+    m.shape = sel.shape.map(([x, y]) => [round(x), round(y)]);
+    m.texts = textsOf(m.kind, m.shape);
+    draw(); save();
+  }
+});
+viewport.addEventListener("wheel", (e) => {
+  if (!e.ctrlKey || !view) return;
+  e.preventDefault();
+  setZoom(zoom * Math.exp(-e.deltaY / 200), e);
+}, { passive: false });
+
+// ---- keys ----
+window.addEventListener("keydown", (e) => {
+  if (["INPUT", "SELECT"].includes(document.activeElement.tagName) && e.key !== "Escape") return;
+  if (e.key === " ") { spaceDown = true; viewport.classList.add("pan"); e.preventDefault(); return; }
+  if (e.metaKey || e.ctrlKey) return;
+  if (askLevel && "1234".includes(e.key)) { assign("heading", +e.key, askLevel.scope === "here"); return; }
+  const key = e.key.toLowerCase();
+  if (e.key === "Escape") { document.activeElement.blur(); clearSel(); status(""); draw(); }
+  else if (e.key === "ArrowRight" || e.key === "PageDown") goTo(pageNo + 1);
+  else if (e.key === "ArrowLeft" || e.key === "PageUp") goTo(pageNo - 1);
+  else if (e.key === "Delete" || e.key === "Backspace") deleteMark();
+  else if (e.key === "=" || e.key === "+") setZoom(zoom * 1.25);
+  else if (e.key === "-") setZoom(zoom / 1.25);
+  else if (e.key === "0") fit();
+  else if (BY_KEY[key]) assign(BY_KEY[key], null, e.shiftKey);
+  else return;
+  e.preventDefault();
+});
+window.addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; viewport.classList.remove("pan"); } });
+
+// ---- start ----
+async function start() {
+  book = await getJSON("/book.json");
+  M = await getJSON("/marks.json");
+  $("title").textContent = book.name;
+  $("source").textContent = `${book.pages} pages; lines from the ${book.source}, blocks from ${book.blocks === "MuPDF" ? "MuPDF" : "the layout model"}. Saved to ${book.marks_file}`;
+  $("pages").textContent = book.pages;
+  $("pageno").max = book.pages;
+  const kinds = $("kinds");
+  for (const [kind, key, colour] of KINDS) {
+    if (kind === "heading") {
+      const row = Object.assign(document.createElement("div"), { className: "row levels" });
+      for (const level of [1, 2, 3, 4]) {
+        const b = document.createElement("button");
+        b.innerHTML = `<span class="sw" style="background:${colour}"></span>heading ${level}`;
+        b.title = `h then ${level}`;
+        b.onclick = () => assign("heading", level, false);
+        row.appendChild(b);
+      }
+      kinds.appendChild(row);
+      continue;
+    }
+    const b = document.createElement("button");
+    b.innerHTML = `<span class="sw" style="background:${colour}"></span>${kind}<span class="key">${key}</span>`;
+    b.onclick = () => assign(kind, null, false);
+    kinds.appendChild(b);
+  }
+  $("seckind").innerHTML = `<option value="">(none)</option>` + SECTIONS.map((s) => `<option>${s}</option>`).join("");
+  $("notes").innerHTML = `<option value="">(rules decide)</option>` +
+    [["page", "at the foot of the page"], ["chapter", "after each chapter"], ["book", "at the end of the book"], ["none", "nowhere (no notes)"]]
+      .map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
+  $("numbering").innerHTML = `<option value="">(rules decide)</option>` + ["page", "chapter", "book"].map((s) => `<option>${s}</option>`).join("");
+  $("notes").value = M.settings.notes || "";
+  $("numbering").value = M.settings.numbering || "";
+  $("notes").onchange = $("numbering").onchange = setSettings;
+  $("seckind").onchange = $("seckeep").onchange = setSection;
+  $("prev").onclick = () => goTo(pageNo - 1);
+  $("next").onclick = () => goTo(pageNo + 1);
+  $("pageno").onchange = () => goTo(+$("pageno").value);
+  $("zoomin").onclick = () => setZoom(zoom * 1.25);
+  $("zoomout").onclick = () => setZoom(zoom / 1.25);
+  $("fit").onclick = fit;
+  $("showlines").onchange = $("showblocks").onchange = draw;
+  stale = await getJSON("/stale.json"); showStale();
+  // Resume: the page in the address, else the page of the last mark or section made.
+  const last = M.marks.length ? M.marks[M.marks.length - 1].page : Math.max(1, ...M.sections.map((s) => s.page));
+  await goTo(+location.hash.slice(1) || last);
+  status(`${M.marks.length} marks, ${M.sections.length} sections`);
+}
+start().catch((e) => status(String(e), "error"));
+</script>
+</body>
+</html>
