@@ -1,5 +1,69 @@
 # Progress
 
+## Marks plan, Phase 0: the marks file and the marking page (2026-10-31, branch `marks/phase-0`)
+- **`src/pdf_worker/marks.py`**: the format as dataclasses (`Marks`, `PdfInfo`, `Settings`,
+  `Section`, `Mark`), `default_marks_path` (`book.ocr.pdf` -> `book.marks.json`),
+  `from_dict` (only the format's fields, kinds and values: anything else is a `MarksError`,
+  a `PdfWorkerError`), `load` (with the PDF: page count and sha256 must match), `save`
+  (atomic; the file it replaces becomes `<book>.marks.prev.json`), `lines_in` / `words_in`
+  (a box's middle inside the polygon, even-odd rule). Tests: `tests/test_marks.py`
+  (round trip and `.prev`, each refused field, another PDF, a skewed shape taking a slanted
+  line and leaving its neighbours, the server end to end, Paddle lines).
+- **`src/pdf_worker/marking.py` + `marking.html`**: `http.server` on 127.0.0.1 (port 0: a
+  free one), one request at a time; routes `/`, `/book.json`, `/page/N.png` (150 dpi, on
+  request), `/page/N.json` (lines, words, blocks), `/marks.json` (GET; POST checked by
+  `from_dict` + same PDF, then saved), `/stale.json`. Plain JS page, no framework.
+- **Lines shown** = the pipeline's: text layer: `page_lines` after `mark_misreporting` and
+  `mark_glued_refs` (as `tools/page_parts.py`; garbled-word re-reading left out: OCR).
+  Scans: the PaddleOCR-VL rows `convert_pdf(paddle_rows=...)` builds from, one line per
+  printed line a block keeps (a block's height shared evenly, words by letters; shortcut
+  noted in code). Blocks: the layout model's cached rows, else MuPDF's blocks.
+- **Decision**: a book counts as built from Paddle rows when rows are cached for at least
+  half its pages (`paddle_ocr.cached_rows`, new; runs no model). `assess_text_layer` was the
+  first idea but takes 93 s on platon_bad.
+- **CLI**: `pdf-worker mark BOOK.pdf [--port N] [--no-browser] [--paddle-cache DIR]`; in
+  `pdf-worker help`. `convert` doesn't read marks.
+- **Browser check: blocked.** No Claude in Chrome tools in this session, no Chromium-based
+  browser installed (the "Thorium" in /Applications is the EPUB reader), `pip install
+  playwright` denied, Safari's WebDriver needs "Allow remote automation" turned on. Done
+  instead (`scratch/marks/page_check.mjs`): the page's own script run in Node against the
+  live server on copies of Ratzinger (p. 21) and platon_bad (p. 150) in `scratch/marks/`,
+  with a small DOM stand-in, through its own mouse and key handlers: arrow key to the
+  next page, click a line, shift-click adds one, `h` `1` heading, drag a shape on an empty
+  spot, drag two corners (a slanted shape: the lines it takes change live), Shift+`f`
+  (footnote, here), Alt+click a block, `b`, click a mark, an edge's middle adds a corner,
+  section and setting controls, Delete, a fresh page reads the same marks back and resumes
+  on the same page. All passed. The saved shapes drawn on the pages
+  (`scratch/marks/draw_marks.py`, `*_marks_*.png`) sit on the lines they took. Not checked:
+  the look (CSS, zoom, pan, wheel) in a real browser. **The user should open
+  `pdf-worker mark` once before marking.**
+- Marks were never written next to the real test PDFs (copies in `scratch/marks/`), so
+  `run_plan.py`'s wait for the four marks files isn't fooled.
+- Regression: (below). Fast tests 404 passed; ruff clean.
+
+### How to mark a book (read before marking)
+1. `.venv/bin/pdf-worker mark BOOK.pdf --paddle-cache scratch/paddle-home` (the cache for
+   the scans philosophy and platon_bad; harmless for the others). The page opens in the
+   browser; every change is saved at once into `BOOK.marks.json`; Ctrl+C stops it.
+2. Go to a page: ← → (or PageUp/PageDown), or type the number. `=` `-` zoom, `0` fits
+   the width, Ctrl+wheel (pinch) zooms, Space+drag or middle-drag pans.
+3. Select: click a line; Shift+click adds lines; click a block's dashed edge or Alt+click
+   inside it for its lines; drag on an empty spot for a shape, then drag its corners
+   anywhere (skewed scans) and click an edge's middle dot to add a corner. The lines it
+   takes light up.
+4. Mark: press the kind's key (shown beside each button): `t` title, `h` then `1`-`4`
+   heading, `b` body, `r` running head, `p` page number, `f` footnote, `n` note reference
+   (draw a small shape around the number), `e` endnote, `c` contents, `g` bibliography,
+   `i` index, `k` caption, `x` ignore. Shift+key (or the "here only" box) makes it a
+   one-place correction instead of an example.
+5. A few examples of each kind is enough: one or two per heading level, a running head on
+   a left and a right page, a page number, a footnote, a note reference.
+6. Click a mark to change its kind (press another key), move its corners, or Delete it.
+7. Side panel: on the first page of each section choose its kind (front, contents,
+   introduction, main, notes...) and untick "keep" to leave it out; set where notes are
+   printed and where their numbers start again.
+8. "Marks to check" lists marks whose lines have changed since they were made.
+
 ## Marks plan written (2026-10-31, branch `marks/plan`)
 - New route, decided with the user: a person marks examples of each kind of line
   (polygons with free corners, for skewed scans; lines, blocks or drawn shapes),
