@@ -1,5 +1,19 @@
 # Progress
 
+## Marks plan written (2026-10-31, branch `marks/plan`)
+- New route, decided with the user: a person marks examples of each kind of line
+  (polygons with free corners, for skewed scans; lines, blocks or drawn shapes),
+  sections and two notes settings; the pipeline follows a style sheet built from them.
+  Plan: `docs/marks-plan.md` (7 phases, efforts low/medium/high).
+- User's choices: proof of concept on copleston, ratzinger, platon_bad, philosophy; the
+  user marks them after Phase 0; a marked contents table becomes a linked list.
+- Quality plan PR #85 (Phase 5) merged with its gate marks accepted by the user; the
+  quality plan's Phase 6 (final report) is left for later.
+- `tools/run_plan.py`: the `marks` plan, and `{"needs": "marks"}` after its Phase 0
+  until the four books have `<book>.marks.json`; the `/pdf-layout-plan` skill handles it.
+- Already failing on main, not this plan's: `test_convert_endnotes_pdf_to_valid_epub`
+  (Magnifica Humanitas: 3 headings, expects >= 90).
+
 ## Quality plan, Phase 5: the biggest error left (2026-10-31, branch `quality/phase-5`) - STOPPED at the gate (working book only)
 - **Baseline** on main (`scratch/quality/p5base`): identical to Phase 4's build (`compare
   phase4 p5base`: no change). Biggest kind not covered by Phases 2-4: **reference body not

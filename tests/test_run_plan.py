@@ -30,6 +30,19 @@ def test_the_quality_plan_goes_on_from_its_own_merged_prs():
     assert "docs/quality-plan.md" in step["prompt"] and "quality/phase-1" in step["prompt"]
 
 
+def test_the_marks_plan_waits_for_the_users_marks_after_phase_0():
+    effort = run_plan.efforts("marks")
+    assert sorted(effort) == list(range(7)) and effort[1] == "high"
+
+    first = run_plan.next_step([], None, "marks", effort, ["book.pdf"])
+    after = run_plan.next_step([_merged("marks/phase-0")], None, "marks", effort, ["book.pdf"])
+    marked = run_plan.next_step([_merged("marks/phase-0")], None, "marks", effort, [])
+
+    assert first["branch"] == "marks/phase-0"
+    assert after == {"needs": "marks", "missing": ["book.pdf"]}
+    assert marked["branch"] == "marks/phase-1"
+
+
 def test_the_layout_plan_still_waits_for_its_parts():
     prs = [_merged(f"layout/phase-{n}") for n in range(5)]
 

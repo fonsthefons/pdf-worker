@@ -1,15 +1,15 @@
 ---
 name: pdf-layout-plan
-description: pdf-worker only. Run one of pdf-worker's plans (docs/layout-plan.md, docs/quality-plan.md) phase after phase, each as a subagent at that phase's effort, merging each phase's PR, until the plan needs the user. Use when the user types /pdf-layout-plan (optionally with a plan name, "layout" or "quality", and for the layout plan Phase 5's parts, e.g. "/pdf-layout-plan quality" or "/pdf-layout-plan layout bibliography,contents") or asks to continue pdf-worker's layout or quality plan.
+description: pdf-worker only. Run one of pdf-worker's plans (docs/layout-plan.md, docs/quality-plan.md, docs/marks-plan.md) phase after phase, each as a subagent at that phase's effort, merging each phase's PR, until the plan needs the user. Use when the user types /pdf-layout-plan (optionally with a plan name, "layout", "quality" or "marks", and for the layout plan Phase 5's parts, e.g. "/pdf-layout-plan marks" or "/pdf-layout-plan layout bibliography,contents") or asks to continue pdf-worker's layout, quality or marks plan.
 ---
 
 ## /pdf-layout-plan: run pdf-worker's plans in docs/
 
 You conduct; subagents do the phases' work. Never do a phase's work yourself. The user
-allowed you to merge these plans' PRs (`layout/phase-*`, `quality/phase-*`) and no
-others.
+allowed you to merge these plans' PRs (`layout/phase-*`, `quality/phase-*`,
+`marks/phase-*`) and no others.
 
-Arguments: a plan name (`layout` or `quality`) if the user gave one; for the layout
+Arguments: a plan name (`layout`, `quality` or `marks`) if the user gave one; for the layout
 plan, Phase 5's parts. With no plan name, the runner takes the first plan not yet done.
 
 Repeat this loop until it says to stop:
@@ -23,6 +23,11 @@ Repeat this loop until it says to stop:
      recommendation per part in PROGRESS.md, sum them up in a few lines, and ask which
      parts to switch (bibliography, contents, paragraphs, footnotes, margin-notes,
      headings, or none). The user answers with `/pdf-layout-plan layout <parts>`. Stop.
+   - `{"needs": "marks", "missing": [...]}`: the marks plan waits for the user to mark
+     its books. Give them the "how to mark" list from Phase 0's `PROGRESS.md` entry and
+     one `pdf-worker mark "<pdf>"` command per missing book (the venv's `pdf-worker`,
+     absolute paths), to run with `! ` in the prompt or in a terminal. When they're
+     done they run `/pdf-layout-plan marks` again. Stop.
    - a `pr` with `"isDraft": true`: the phase stopped. Read the PR
      (`gh pr view <number> --repo fonsthefons/pdf-worker`) and the top of PROGRESS.md,
      and tell the user why it stopped and what they could decide. Stop.

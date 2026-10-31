@@ -28,7 +28,19 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 GH_REPO = "fonsthefons/pdf-worker"
-PLANS = {"layout": "docs/layout-plan.md", "quality": "docs/quality-plan.md"}
+PLANS = {
+    "layout": "docs/layout-plan.md",
+    "quality": "docs/quality-plan.md",
+    "marks": "docs/marks-plan.md",
+}
+# The marks plan's proof-of-concept books: the user marks them after its Phase 0.
+_NEW = REPO / "test_pdfs" / "new_test_books"
+MARKED_BOOKS = [
+    _NEW / "copleston" / "Historia de la Filosofía Tomo 1 - Copleston.pdf",
+    _NEW / "Introduction to Christianity by Ratzinger.pdf",
+    REPO / "test_pdfs" / "platon_dialogos_vi_bad.pdf",
+    REPO / "test_pdfs" / "philosophy.pdf",
+]
 PHASE_RE = re.compile(r"^## Phase (\d+): .*\((low|medium|high)\)\s*$", re.MULTILINE)
 PARTS = ("bibliography", "contents", "paragraphs", "footnotes", "margin-notes", "headings")
 PROMPT = """Do Phase {phase} of {doc}{part}.
@@ -53,17 +65,36 @@ PICK_PARTS = (
 )
 
 
+def missing_marks() -> list[str]:
+    """The marks plan's books without a marks file yet (``book.marks.json`` beside it)."""
+    return [str(pdf) for pdf in MARKED_BOOKS if not pdf.with_suffix(".marks.json").exists()]
+
+
+def marks_message(missing: list[str]) -> str:
+    mark = REPO / ".venv" / "bin" / "pdf-worker"
+    lines = "\n".join(f'  {mark} mark "{pdf}"' for pdf in missing)
+    return f"The marks plan waits for your marks (docs/marks-plan.md). Mark these books:\n{lines}"
+
+
 def efforts(plan: str) -> dict[int, str]:
     """Each phase of the plan and its effort, from the end of its heading."""
     text = (REPO / PLANS[plan]).read_text(encoding="utf-8")
     return {int(phase): effort for phase, effort in PHASE_RE.findall(text)}
 
 
-def next_step(prs: list[dict], parts: list[str] | None, plan: str, effort: dict[int, str]) -> dict:
+def next_step(
+    prs: list[dict],
+    parts: list[str] | None,
+    plan: str,
+    effort: dict[int, str],
+    unmarked: list[str] | None = None,
+) -> dict:
     """The first phase whose PR isn't merged: {"plan", "phase", "branch", "effort",
     "prompt"}, and "pr" ({"number", "url", "isDraft"}) when its PR is open.
     {"needs": "parts"} when the layout plan's Phase 5 is next and no parts were given or
-    have PRs; {"done": True} at the end. ``effort``: ``efforts(plan)``.
+    have PRs; {"needs": "marks", "missing": [...]} when a marks plan phase after Phase 0
+    is next and ``unmarked`` (``missing_marks()``) lists books; {"done": True} at the
+    end. ``effort``: ``efforts(plan)``.
 
     ``prs``: ``gh pr list --json number,url,state,isDraft,headRefName`` rows. Without
     ``parts``, Phase 5's parts are those with a PR (``[]``: none chosen, skip it)."""
@@ -83,6 +114,8 @@ def next_step(prs: list[dict], parts: list[str] | None, plan: str, effort: dict[
             found = by_branch.get(branch, [])
             if any(pr["state"] == "MERGED" for pr in found):
                 continue
+            if plan == "marks" and phase >= 1 and unmarked and not found:
+                return {"needs": "marks", "missing": list(unmarked)}
             step = {
                 "plan": plan,
                 "phase": phase,
@@ -182,7 +215,8 @@ def current_step(plan: str | None, parts: list[str] | None) -> dict:
     prs = github_prs()
     step: dict = {"done": True}
     for name in [plan] if plan else PLANS:
-        step = next_step(prs, parts, name, efforts(name))
+        unmarked = missing_marks() if name == "marks" else []
+        step = next_step(prs, parts, name, efforts(name), unmarked)
         if not step.get("done"):
             break
     return step
@@ -216,7 +250,7 @@ def main() -> None:
             print(f"All phases of {done} are merged.")
             return
         if "needs" in step:
-            print(PICK_PARTS)
+            print(marks_message(step["missing"]) if step["needs"] == "marks" else PICK_PARTS)
             return
         if args.dry_run:
             waiting = f", PR waiting: {step['pr']['url']}" if "pr" in step else ""
