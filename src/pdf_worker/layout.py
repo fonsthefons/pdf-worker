@@ -16,7 +16,12 @@ import pymupdf
 from pdf_worker.bilingual import apply_words, page_words
 from pdf_worker.consensus import apply_fixes, page_fixes
 from pdf_worker.document import TEXT_FLAGS
-from pdf_worker.endnotes import ChapterNotes, lossy_min_run, match_chapter_notes
+from pdf_worker.endnotes import (
+    ChapterNotes,
+    lossy_min_run,
+    match_chapter_notes,
+    notes_beside_refs,
+)
 from pdf_worker.font_sizes import same_leading_sizes, sizes_by_leading
 from pdf_worker.glued_refs import apply_refs, page_refs
 from pdf_worker.letter_spacing import WORD_RE, letter_spaced
@@ -510,19 +515,21 @@ def analyze_document(
     watermarks = {text for text, n in inner_texts.items() if n >= watermark_threshold}
     # Notes numbered "235 Text" (OCR'd: numbers lost and garbled), if they link more
     # references; only as a block after all of their references, as a page's footnotes
-    # ("17 Text" at its foot) look the same.
-    chapter_notes = max(
-        match_chapter_notes(sup_refs, note_lines),
-        match_chapter_notes(
-            sup_refs,
-            plain_note_lines,
-            lossy=True,
-            least=lossy_min_run(doc.page_count),
-            marks=note_marks,
-            readings=mark_readings,
-        ),
-        key=lambda notes: sum(len(refs) for refs in notes.refs.values()),
-    )
+    # ("17 Text" at its foot) look the same. A book printing footnotes has none.
+    chapter_notes = ChapterNotes()
+    if not notes_beside_refs(sup_refs, plain_note_lines):
+        chapter_notes = max(
+            match_chapter_notes(sup_refs, note_lines),
+            match_chapter_notes(
+                sup_refs,
+                plain_note_lines,
+                lossy=True,
+                least=lossy_min_run(doc.page_count),
+                marks=note_marks,
+                readings=mark_readings,
+            ),
+            key=lambda notes: sum(len(refs) for refs in notes.refs.values()),
+        )
     return DocumentProfile(
         watermarks=watermarks,
         body_size=body_size,

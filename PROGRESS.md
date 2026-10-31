@@ -1,5 +1,48 @@
 # Progress
 
+## Quality plan, Phase 5: the biggest error left (2026-10-31, branch `quality/phase-5`) - STOPPED at the gate (working book only)
+- **Baseline** on main (`scratch/quality/p5base`): identical to Phase 4's build (`compare
+  phase4 p5base`: no change). Biggest kind not covered by Phases 2-4: **reference body not
+  covered**, 3,427.5 per 10,000 working reference words, all copleston (covered 4.4%: our
+  Markdown held 14,502 words of a 220,912-word book).
+- **Cause** (`scratch/quality/p5_cop.py`, `p5_strict.py`, `p5_share.py`): copleston prints
+  footnotes, numbered per chapter, at the foot of each reference's page. `analyze_document`
+  still paired its references as chapter endnotes: the lossy pairing made "runs" and
+  "groups" across hundreds of pages from interleaved chapters (refs on p. 3 with "notes" on
+  p. 22-179), linking a few more refs than the strict one; the whole body after each
+  "note" became note text. With that pairing filtered alone (`scratch/quality/phase5`), the
+  strict pairing won instead and was as wrong (refs on p. 190 with numbered body lines on
+  pp. 254-278): 37% of the book still missing. Pages: 25 (Anaximandro), 54, 262.
+- **General fact**: notes printed on the pages of their own references are footnotes, not
+  notes collected elsewhere. **Rule**: when more than half of a book's superscript
+  references have a note line of their number ("1 Text") on their own page, the book has
+  no chapter notes (`endnotes.notes_beside_refs`, used in `layout.analyze_document`). The
+  share on the test books: copleston 0.79, ratzinger 0.98 (its output unchanged); endnote
+  books 0.00-0.10 (Timeo-Platón, platon_dialogos_vi_good, 9-11 Commission Report).
+  Test first: `test_a_book_whose_notes_sit_beside_their_references_prints_footnotes`.
+- **Yardstick** (`compare p5base phase5b`): copleston covered 4.4% -> 98.8%, matched 95.8%
+  -> 98.9%, missing 424.1 -> 114.3, notes in the body 3.6 -> 0.2, breaks real 58.2% ->
+  76.1%. Working total: covered 65.7% -> 98.9%, missing 254.6 -> 212.5, extra 179.5 ->
+  142.7, headings found 58.3% -> 60.6%, levels 88.6% -> 91.7%. Every other working book and
+  every held-out book (and the held-out pages) unchanged; checked pages found 84.7% ->
+  86.2%.
+- **Worse beyond the tolerance, working only**: copleston extra 10.8 -> 37.0, headings
+  found 85.7% -> 68.7%, headings real 60.0% -> 58.2%, breaks found 100% -> 96.1%; total
+  headings real 70.2% -> 66.1%, breaks real 91.4% -> 89.0%. All from the scored span
+  growing from copleston's first chapters (4.4% of the book, 35 headings, up to p. 24)
+  to the whole book: the headings and breaks now scored (e.g. missed "2. Anaximandro" p. 25,
+  "CAPÍTULO IV"; wrong: the capitals chapter titles "LOS SOFISTAS", "SÓCRATES" the EPUB tags
+  differently) were absent from main's output altogether. Inside the old span nothing
+  changed (missed "PARTE I"; wrong "PRIMERA PARTE", "LA CUNA...", "LOS PIONEROS...",
+  "TALES" before and after). Rule 6 says stop: draft PR.
+- **For the user**: accept (the "worse" numbers are copleston's whole book scored for the
+  first time), or not.
+- Regression (`compare p4d p5`): all eight books the same, 0 diff lines.
+- Integration test `test_convert_endnotes_pdf_to_valid_epub` (Magnifica Humanitas: headings
+  3, expects >= 90) **already fails on main** (checked with this change stashed); not this
+  phase's kind, left.
+- Fast tests 386 passed; ruff clean.
+
 ## Quality plan, Phase 4: lines that aren't headings (2026-10-31, branch `quality/phase-4`) - STOPPED at the gate
 - **Step 0** (real % 87.1 on the checked pages: work to do). Each wrong heading of the checked
   first set checked in a full conversion: the test books' PDFs through `convert_pdf` with

@@ -217,6 +217,13 @@ def _align(
     return pairs
 
 
+def notes_beside_refs(refs: list[tuple[int, tuple]], defs: list[tuple[int, Position]]) -> bool:
+    """Whether most references have a note of their number on their own page: the book
+    prints footnotes, not notes collected elsewhere."""
+    beside = {(number, key[0]) for number, key in defs}
+    return 2 * sum((number, key[0]) in beside for number, key in refs) > len(refs)
+
+
 def match_chapter_notes(
     refs: list[tuple[int, tuple[int, int, int]]],
     defs: list[tuple[int, Position]],
