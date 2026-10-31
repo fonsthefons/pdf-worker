@@ -54,6 +54,10 @@
   set below the first `content` box of its page) for +4 points real on both page sets;
   (b) drop the contents rule (`_mark_entries`) and keep the other two (+1 point real on the
   checked pages, held-out unchanged); (c) let the held-out check look at the lost heading.
+- **Decision (coordinator, for the user away overnight): option (a), gate miss accepted.**
+  All three rules kept. Held-out pages found 81.5% -> 80.0% (one heading) and levels 53.4%
+  -> 52.1%, against real % +3.6 on the checked pages (87.1 -> 90.7) and +4.2 on the
+  held-out pages (73.1 -> 77.3); reference books unchanged. PR marked ready, not merged.
 - Fast tests 385 passed; ruff clean.
 
 ## Quality plan, Phase 3: heading levels from the book's numbering (2026-10-30, branch `quality/phase-3`) - no variant passed the gate; levels unchanged
