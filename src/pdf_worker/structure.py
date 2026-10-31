@@ -37,11 +37,13 @@ from pdf_worker.inline import (
 from pdf_worker.layout import (
     HEADING_RATIO,
     PAGE_NUMBER_RE,
+    SMALL_RATIO,
     DocumentProfile,
     Line,
     edge_rows,
     page_lines,
 )
+from pdf_worker.letter_spacing import respace
 from pdf_worker.margin_refs import bracketed, has_letter, next_label
 from pdf_worker.margins import split_columns
 
@@ -72,6 +74,8 @@ _CONTENTS_ENTRY_RE = re.compile(
     re.IGNORECASE,
 )
 _MIN_CONTENTS_ENTRIES = 5
+# A note's first line: its number or sign ("3. Ibidem.", "3.", "* See").
+_NOTE_START_RE = re.compile(r"^\s*(?:\d{1,3}|[*†‡])[.)]?(?:\s|$)")
 # Chapter numbers are short headings too: "3", "IV", "II.".
 _NUMBERING_RE = re.compile(r"^\s*(?:\d{1,3}|[IVXLC]{1,6})\.?\s*$")
 # A footnote reference in block text: ``[^label]``.
@@ -271,6 +275,43 @@ def _is_contents_page(lines: list[BodyLine]) -> bool:
     return entries >= _MIN_CONTENTS_ENTRIES and entries >= 0.5 * len(texts)
 
 
+def _mark_entries(lines: list[BodyLine], page_lines: Collection[BodyLine]) -> list[BodyLine]:
+    """On a contents page (the layout model's ``content`` boxes, or ``_is_contents_page``),
+    every line from the first entry down is an entry: the part and chapter titles listed
+    among the entries are entries too. The page's own title stands above them.
+    ``page_lines``: all of the page's lines (an entry may be set apart as a gloss)."""
+    tops = [bl.line.top for bl in page_lines if bl.entry]
+    if _is_contents_page(lines):
+        tops += [bl.line.top for bl in lines if _CONTENTS_ENTRY_RE.match(plain(bl.text))]
+    if not tops:
+        return lines
+    # shortcut: by height alone, so a spread's other page below the first entry counts
+    # too; split by column if a facing-pages scan loses headings to it.
+    first = min(tops)
+    return [replace(bl, entry=True) if bl.line.top >= first else bl for bl in lines]
+
+
+def _no_note_titles(lines: list[BodyLine], body_size: float) -> list[BodyLine]:
+    """A note in a title box ("3. Ibidem."): a line below the page's last body-size line,
+    in note-sized type, in the row of a note number, is a note whatever box it is in."""
+    body = [
+        bl.line.top for bl in lines if abs(bl.line.size - body_size) <= _SIZE_JITTER * body_size
+    ]
+    if not body:
+        return lines
+    last = max(body)
+    below = [bl for bl in lines if bl.line.top > last and bl.line.size < body_size * SMALL_RATIO]
+    numbered = [bl.line.baseline for bl in below if _NOTE_START_RE.match(plain(bl.text))]
+    return [
+        replace(bl, title=False)
+        if bl.title
+        and bl in below
+        and any(abs(bl.line.baseline - b) <= 0.5 * bl.line.size for b in numbered)
+        else bl
+        for bl in lines
+    ]
+
+
 def _running_title(layout: PageLayout, page_width: float) -> str:
     """The running head of a right-hand page (its page number on the right half of the
     top row, or merged: "TIMEO 163"): by convention there the work's title, on
@@ -392,7 +433,8 @@ class _State:
             page_width,
             profile.body_size,
         )
-        lines = list(columns.body)
+        lines = _mark_entries(list(columns.body), layout.lines)
+        lines = _no_note_titles(lines, profile.body_size)
         glosses = columns.glosses
         if _is_contents_page(lines) and not links:
             # A printed table of contents without links: the EPUB has its own, so the
@@ -467,7 +509,9 @@ class _State:
         line, text = body_line.line, body_line.text
         profile = self.profile
         level = None
-        if body_line.title:
+        if body_line.entry:
+            pass  # a contents entry is never a heading
+        elif body_line.title:
             # The layout model's title box; its size gives the level.
             sizes = profile.heading_sizes
             level = profile.heading_level(line.size) or 1 + sum(s > line.size for s in sizes)
@@ -478,7 +522,8 @@ class _State:
         # A bare "1." / "V." heading runs on into the line after it (Dilexit's "V."), unless
         # that line opens a running paragraph (Niebla's "III", then the chapter's text).
         joins = (
-            self.current.kind == "heading"
+            not body_line.entry
+            and self.current.kind == "heading"
             and not self.runs_on
             and bool(_NUMBERING_RE.match(plain(self.current.text())))
         )
@@ -627,7 +672,7 @@ class _State:
                 yield Paragraph(text, False, current.page, current.top)
             else:
                 self.has_heading = True
-                yield Heading(text, current.level, current.page, current.top)
+                yield Heading(self._respaced(text), current.level, current.page, current.top)
         elif current.kind == "note":
             yield Note(current.label, current.text())
         elif current.kind == "table":
@@ -643,6 +688,15 @@ class _State:
             if text:
                 yield Paragraph(text, current.kind == "small", current.page, current.top)
         yield from self._flush_notes()
+
+    def _respaced(self, text: str) -> str:
+        """A letter-spaced title in the book's words (``letter_spacing``); its page marks
+        kept, its italic and bold dropped (a heading's type is its look, as in ``tidy``)."""
+        marks = LEADING_PAGE_MARKS_RE.match(text)
+        prefix, rest = marks.groups() if marks else ("", text)
+        bare = STYLE_RE.sub("", rest)
+        spaced = respace(bare, self.profile.vocabulary)
+        return prefix + spaced if spaced != bare else text
 
     def _flush_notes(self) -> Iterator[Block]:
         pending, self.pending = self.pending, []

@@ -372,6 +372,88 @@ def test_headings_beside_the_title_boxes(make_layout_pdf, tmp_path):
     assert headings == ["Chapter One", "V. Este es el corazón"]
 
 
+def test_titles_listed_on_a_contents_page_are_not_headings(make_layout_pdf, tmp_path):
+    # Antropología's Índice: part titles boxed as titles among the model's content boxes.
+    page = [
+        (72, 80, "Contents", 18),
+        _body(120, "Introduction"),
+        _body(120 + LINE * 2, "PART ONE"),
+        _body(120 + LINE * 3, "The question about man"),
+        _body(120 + LINE * 5, "PART TWO"),
+        _body(120 + LINE * 6, "Man in the natural world"),
+    ]
+    pdf = make_layout_pdf([page])
+    title, content = ("paragraph_title", "content")
+    rows = _boxes(
+        pdf,
+        (title, [0]),
+        (content, [1]),
+        (title, [2]),
+        (content, [3]),
+        (title, [4]),
+        (content, [5]),
+    )
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    md = out.read_text(encoding="utf-8")
+    assert [line for line in md.splitlines() if line.startswith("#")] == ["# Contents"]
+    assert "PART ONE" in md and "Man in the natural world" in md
+
+
+def test_titles_among_printed_contents_entries_are_not_headings(make_layout_pdf, tmp_path):
+    # No model: entries ending in page numbers; the part title among them, in large type.
+    entries = [f"Chapter {n} ........ {10 * n}" for n in range(1, 7)]
+    page = [
+        (72, 80, "Contents", 18),
+        _body(120, entries[0]),
+        _body(120 + LINE, entries[1]),
+        (72, 120 + LINE * 3, "PART TWO", 16),
+        *[_body(120 + LINE * (4 + i), e) for i, e in enumerate(entries[2:])],
+    ]
+    md, _ = _md(make_layout_pdf, tmp_path, [page, [*_paragraph(80, FULL, "The end.")]])
+
+    assert [line for line in md.splitlines() if line.startswith("#")] == ["# Contents"]
+
+
+def test_a_note_in_a_title_box_below_the_body_is_not_a_heading(make_layout_pdf, tmp_path):
+    # Metafísica p. 133: "3. Ibidem." in note type below the body, boxed as a title, its
+    # number and text read as two lines; a title in note type without a number stays.
+    page = [
+        *_paragraph(100, FULL, "It ends."),
+        (72, 100 + LINE * 6, "3.", 8),
+        (90, 100 + LINE * 6, "Ibidem.", 8),
+        (72, 100 + LINE * 8, "Bibliography", 8),
+    ]
+    pdf = make_layout_pdf([page])
+    title = "paragraph_title"
+    rows = _boxes(pdf, ("text", [0, 1, 2, 3]), (title, [4, 5]), (title, [6]))
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    md = out.read_text(encoding="utf-8")
+    headings = [line for line in md.splitlines() if line.startswith("#")]
+    assert [h.lstrip("# ") for h in headings] == ["Bibliography"]
+    assert "Ibidem." in md
+
+
+def test_a_letter_spaced_heading_is_read_in_the_books_words(make_layout_pdf, tmp_path):
+    # Metafísica: "3. E l c o m p u e s t o d e s u s t a n c ia" (OCR of spaced letters).
+    words = "the notions of being and the notions of matter"
+    page = [
+        (72, 80, "1. T h e n o t io n s o f b e in g", 18),
+        *_paragraph(120, FULL, f"Here {words}."),
+        (72, 120 + LINE * 6, "X q z w v k", 18),
+        *_paragraph(140 + LINE * 6, FULL, f"And {words}."),
+    ]
+    md, _ = _md(make_layout_pdf, tmp_path, [page])
+
+    headings = [line.lstrip("# ") for line in md.splitlines() if line.startswith("#")]
+    assert headings == ["1. The notions of being", "X q z w v k"]
+
+
 def test_a_bare_number_does_not_take_the_first_line_of_a_running_paragraph(
     make_layout_pdf, tmp_path
 ):
