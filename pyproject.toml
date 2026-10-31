@@ -10,10 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pymupdf>=1.24",
-    # AI calls (Groq, MLX-VLM server, Apple Vision) and the word check (ai_client.check,
-    # with its own dictionaries); not on PyPI: install it first with
-    # pip install -e /Users/fons/Documents/programs/ai-client
-    "ai-client",
+    # ai-client (AI calls and the word check) is not on PyPI: install it first with
+    # `pip install -e /Users/fons/Documents/programs/ai-client`
 ]
 
 [project.optional-dependencies]
