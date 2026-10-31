@@ -19,6 +19,7 @@ from pdf_worker.document import TEXT_FLAGS
 from pdf_worker.endnotes import ChapterNotes, lossy_min_run, match_chapter_notes
 from pdf_worker.font_sizes import same_leading_sizes, sizes_by_leading
 from pdf_worker.glued_refs import apply_refs, page_refs
+from pdf_worker.letter_spacing import WORD_RE, letter_spaced
 from pdf_worker.margin_refs import OCR_DIGITS, apply_marks, has_bracketed, in_book, page_marks
 from pdf_worker.note_numbers import FROM_SUP, SUP_DIGITS
 
@@ -342,6 +343,8 @@ class DocumentProfile:
     # Numbers the book's text marks as "(n)" inside a line: the note markers a note
     # numbered "(n)" at a page's foot needs somewhere in the book.
     paren_refs: frozenset[int] = frozenset()
+    # The book's words, lower case (``letter_spacing``: letter-spaced titles split by them).
+    vocabulary: dict[str, int] = field(default_factory=dict)
     # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``): bibliography
     # entries and paragraphs (``footnotes.layout_page``).
     layout: dict[int, dict] = field(default_factory=dict)
@@ -417,6 +420,7 @@ def analyze_document(
     sample_len = 0
     bracketed_pages = 0
     paren_refs: set[int] = set()
+    word_counts: Counter[str] = Counter()
     for page_index in range(doc.page_count):
         if on_page:
             on_page(page_index, doc.page_count)
@@ -471,6 +475,8 @@ def analyze_document(
                 signs = text.split()[0] if mark == line_index else "".join(text.split())
                 mark_readings[(page_index, mark)] = signs
             paren_refs.update(int(n) for n in _PAREN_REF_RE.findall(text))
+            if not letter_spaced(text):  # its pieces ("C a pít u l o") aren't words
+                word_counts.update(w.lower() for w in WORD_RE.findall(text))
             for match in _BRACKET_RE.finditer(text):
                 number = int(match.group(1))
                 at_line_start = match.start() == len(text) - len(text.lstrip())
@@ -542,6 +548,8 @@ def analyze_document(
         page_count=doc.page_count,
         bracketed_refs=in_book(bracketed_pages, doc.page_count),
         paren_refs=frozenset(paren_refs),
+        # Seen twice or more: a word of the book's, not only of the line it is read in.
+        vocabulary={w: n for w, n in word_counts.items() if n >= 2},
     )
 
 

@@ -87,6 +87,9 @@ class BodyLine:
     starts: bool | None = None
     # In a layout-model title box (``doc_title``, ``paragraph_title``): a heading line.
     title: bool = False
+    # A contents entry (in a layout-model ``content`` box, or set so by ``structure``):
+    # never a heading.
+    entry: bool = False
 
 
 @dataclass(frozen=True)
@@ -202,7 +205,8 @@ def layout_page(
             definitions.append(endnote)
         text = _render_brackets(text, profile, references)
         title = labels[line_index] in ("doc_title", "paragraph_title")
-        body.append(BodyLine(text, line, endnote, starts, title))
+        listed = labels[line_index] == "content"
+        body.append(BodyLine(text, line, endnote, starts, title, listed))
     # A note's marker set as plain text in the body ("(1)", "[1]"): link it there.
     for marker, label in marker_labels.items():
         if label in references or not marker.isdigit():
