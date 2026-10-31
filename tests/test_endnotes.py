@@ -254,3 +254,19 @@ def test_a_stray_superscript_among_the_notes_does_not_end_the_references_there()
     assert notes.defs[(30, 2)] == "c1-2" and notes.refs[(1, 2)] == {0: "c1-2"}
     assert len(notes.defs) == 115
     assert (31, 3) not in notes.refs
+
+
+def test_a_book_whose_notes_sit_beside_their_references_prints_footnotes():
+    # Copleston: footnotes numbered per chapter, each at the foot of its reference's page
+    # (the lossy pairing matched one chapter's references with the next one's footnotes).
+    refs, defs = [], []
+    for chapter_start in (0, 10):
+        for n in range(1, 11):
+            page = chapter_start + n
+            refs.append((n, (page, 5, 0)))
+            defs.append((n, (page, 40)))
+    assert endnotes.notes_beside_refs(refs, defs)
+    # The same notes gathered at the chapter's end: endnotes.
+    gathered = [(n, (30, 2 * n)) for n in range(1, 11)]
+    assert not endnotes.notes_beside_refs(refs[:10], gathered)
+    assert not endnotes.notes_beside_refs([], [])
