@@ -39,7 +39,10 @@
   `pdf-worker mark` once before marking.**
 - Marks were never written next to the real test PDFs (copies in `scratch/marks/`), so
   `run_plan.py`'s wait for the four marks files isn't fooled.
-- Regression: (below). Fast tests 404 passed; ruff clean.
+- Regression (`regression.py build scratch/regress/marks0`, 624 s; `compare p5 marks0`): all
+  eight books the same numbers, 0 diff lines. Fast tests 404 passed; ruff clean.
+- PR opened as a draft: the user checks the page in their own browser before it is marked
+  ready.
 
 ### How to mark a book (read before marking)
 1. `.venv/bin/pdf-worker mark BOOK.pdf --paddle-cache scratch/paddle-home` (the cache for
