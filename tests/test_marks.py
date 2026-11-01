@@ -215,6 +215,23 @@ def test_a_scan_shows_the_lines_of_its_paddle_rows():
     assert words[1][0] > words[0][2] and blocks[0]["label"] == "text"
 
 
+def test_a_shape_round_a_glued_note_number_takes_the_number(tmp_path):
+    doc = pymupdf.open()
+    page = doc.new_page(width=300, height=200)
+    page.insert_text((50, 100), "secular", fontsize=12)
+    end = 50 + pymupdf.get_text_length("secular", fontsize=12)
+    page.insert_text((end, 95), "1", fontsize=7)
+    path = tmp_path / "glued.pdf"
+    doc.save(path)
+    page = pymupdf.open(path).load_page(0)
+    assert [w[4] for w in page.get_text("words")] == ["secular1"]  # MuPDF glues them
+
+    _, words, _ = marking._text_view(page, None)
+    shape = [(end - 1, 85), (end + 5, 85), (end + 5, 100), (end - 1, 100)]
+
+    assert [w[4] for w in marks.words_in(shape, words)] == ["1"]
+
+
 def test_words_in_takes_words_by_their_middle():
     words = [(10, 10, 20, 20, "a"), (30, 10, 40, 20, "b"), (50, 10, 60, 20, "c")]
     shape = [(25, 0), (45, 0), (45, 30), (25, 30)]

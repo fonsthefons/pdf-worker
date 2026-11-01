@@ -109,7 +109,7 @@ def _round(box) -> list[float]:
 
 def _text_view(page: pymupdf.Page, row: dict | None):
     lines = page_lines(page)
-    words = page.get_text("words", flags=TEXT_FLAGS)
+    words = _span_words(lines)
     if row and row.get("width"):
         scale = page.rect.width / row["width"]
         blocks = [
@@ -124,6 +124,21 @@ def _text_view(page: pymupdf.Page, row: dict | None):
             if b[6] == 0  # text, not an image
         ]
     return lines, words, blocks
+
+
+def _span_words(lines) -> list[tuple]:
+    """Words split at span edges too: MuPDF's words glue a note's number to its word
+    ("secular1"), whose middle a shape drawn round the number leaves out."""
+    words = []
+    for line in lines:
+        for span in line.spans:
+            x0, y0, x1, y1 = span["bbox"]
+            # shortcut: letters share the span's width evenly; exact enough to hit a word.
+            step = (x1 - x0) / max(len(span["text"]), 1)
+            for match in re.finditer(r"\S+", span["text"]):
+                start, end = match.span()
+                words.append((x0 + start * step, y0, x0 + end * step, y1, match[0]))
+    return words
 
 
 def _paddle_view(page: pymupdf.Page, row: dict | None):
