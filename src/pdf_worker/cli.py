@@ -809,6 +809,53 @@ def _run_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_mark_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "mark",
+        help="Mark examples of a book's kinds of lines on a local web page.",
+        description="Open a local web page to mark examples of each kind of line (headings, "
+        "footnotes, running heads...), where sections start, and where notes are printed. "
+        "Every change is saved at once into <pdf stem>.marks.json next to the PDF "
+        "(docs/marks-plan.md); convert doesn't read it yet.",
+    )
+    parser.add_argument("pdf", type=Path, help="The PDF to mark.")
+    parser.add_argument("--port", type=int, default=0, help="Local port (default: a free one).")
+    parser.add_argument("--no-browser", action="store_true", help="Don't open the browser.")
+    parser.add_argument(
+        "--paddle-cache",
+        type=Path,
+        help="Folder of PaddleOCR-VL's files, as given to convert (default: "
+        "~/.cache/pdf-worker/paddle); a scan whose rows are cached there shows them.",
+    )
+    parser.set_defaults(handler=_run_mark)
+
+
+def _run_mark(args: argparse.Namespace) -> int:
+    from pdf_worker import marking
+    from pdf_worker.document import open_pdf
+    from pdf_worker.marks import default_marks_path
+
+    _apply_engine_options(args)
+    with open_pdf(args.pdf) as doc:
+        print("Reading the book...")
+        book = marking.Book(doc, args.pdf, default_marks_path(args.pdf))
+        try:
+            server = marking.serve(book, args.port)
+        except OSError as exc:
+            raise PdfWorkerError(f"Port {args.port} is busy ({exc}); try --port.") from exc
+        url = f"http://127.0.0.1:{server.server_address[1]}/"
+        print(f"Marking page: {url} (every change is saved; Ctrl+C to stop)")
+        if not args.no_browser:
+            webbrowser.open(url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+    return 0
+
+
 PROCESS_FOLDER = Path("file_conversion")
 
 
@@ -1015,6 +1062,7 @@ CHEAT_SHEET = [
             ("pdf-worker convert book.pdf --to pdf", "New A5 PDF, easy to read on a tablet"),
             ("pdf-worker convert scan.pdf --ocr redo", "Redo a scan's bad OCR, then convert"),
             ("pdf-worker review scan.pdf", "Fix the OCR's suspicious words on a web page"),
+            ("pdf-worker mark book.pdf", "Mark examples of headings, notes... on a web page"),
         ],
     ),
     (
@@ -1161,6 +1209,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_ebook_to_pdf_command(subparsers)
     _add_rebuild_epub_command(subparsers)
     _add_review_command(subparsers)
+    _add_mark_command(subparsers)
     _add_process_command(subparsers)
     _add_virus_check_command(subparsers)
     _add_help_command(subparsers)

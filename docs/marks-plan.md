@@ -83,7 +83,9 @@ save is kept as `<book>.marks.prev.json`. Coordinates are PDF points in the spac
   `bibliography`, `index`, `appendix`, `back`. `keep: false` leaves it out of the book.
 - **marks**: `kind` is one of `title` (title-page lines), `heading` (with `level` 1-4),
   `body`, `running-head`, `page-number`, `footnote`, `note-ref` (a note's number in the
-  text), `endnote`, `contents`, `bibliography`, `index`, `caption`, `ignore`. `scope`:
+  text), `endnote`, `contents`, `bibliography`, `index`, `caption`, `margin-ref` (a
+  section number printed in the margin: Stephanus "22b", Bekker), `gloss` (a note in a
+  column beside the text), `line-number`, `ignore`. `scope`:
   `style` (an example: teach the style sheet) or `here` (this place only, e.g. a
   correction made in review). `shape`: the polygon the person drew (3 or more corners,
   any angle: a skewed scan's lines don't fit an upright rectangle). `texts`: the texts
@@ -198,8 +200,9 @@ references and the notes settings.
    `_superscript_markers` / `glued_refs` (note references), `endnotes` and
    `analyze_document`'s chapter-notes choice (settings.notes and settings.numbering
    replace the guess: `page` means footnotes and no chapter notes, which is the
-   Copleston error of quality Phase 5). `ignore` lines are dropped; `caption` lines
-   kept out of paragraphs.
+   Copleston error of quality Phase 5). `margin-ref` lines become margin references
+   (`margin_refs`), `gloss` lines glosses and `line-number` lines are dropped
+   (`margins`). `ignore` lines are dropped; `caption` lines kept out of paragraphs.
 3. Tests first (`make_pdf`): a footnote the rules miss found by a mark's style; a
    running head unlike the rules' found; settings.notes `page` turning off the chapter
    notes pairing.
