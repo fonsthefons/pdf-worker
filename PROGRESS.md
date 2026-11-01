@@ -53,7 +53,8 @@
 3. Select: click a line; Shift+click adds lines; click a block's dashed edge or Alt+click
    inside it for its lines; drag on an empty spot for a shape, then drag its corners
    anywhere (skewed scans) and click an edge's middle dot to add a corner. The lines it
-   takes light up.
+   takes light up. Cmd/Ctrl+click a word takes that word alone (a note's number in a
+   body line, then `n`).
 4. Mark: press the kind's key (shown beside each button): `t` title, `h` then `1`-`4`
    heading, `b` body, `r` running head, `p` page number, `f` footnote, `n` note reference
    (draw a small shape around the number), `e` endnote, `c` contents, `g` bibliography,

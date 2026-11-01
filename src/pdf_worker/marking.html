@@ -74,6 +74,7 @@
   <ul>
     <li>Click a line; Shift+click adds lines.</li>
     <li>Click a block's dashed edge, or Alt+click inside it: its lines.</li>
+    <li>Cmd/Ctrl+click a word: that word alone (a note's number, then <b>n</b>).</li>
     <li>Drag on an empty spot: a shape. Drag its corners anywhere; click an edge's middle dot to add a corner.</li>
     <li>Then a kind's key (Shift+key: here only). <b>h</b> then 1-4 for a heading.</li>
     <li>Click a mark to change its kind, move its corners, or Delete it.</li>
@@ -346,6 +347,10 @@ svg.addEventListener("mousedown", (e) => {
     sel.shape.splice(i + 1, 0, p);
     drag = { corner: i + 1 }; draw(); return;
   }
+  // Cmd/Ctrl+click takes one word: a note's number inside a body line.
+  const word = (e.metaKey || e.ctrlKey) && view.words.filter((w) => inBox(p, w, 1 / zoom))
+    .sort((a, b) => (a[2] - a[0]) - (b[2] - b[0]))[0];  // the narrowest: the number, not its word
+  if (word) { clearSel(); sel.shape = rectShape(word, 0.5); draw(); return; }
   const block = e.altKey ? blockAt(p, false) : (lineAt(p) < 0 && blockAt(p, true));
   if (block) {
     clearSel(); sel.shape = rectShape(block.bbox, 1); draw(); return;
