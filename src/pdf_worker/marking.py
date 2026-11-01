@@ -101,7 +101,10 @@ class Book:
         """``marks.missing`` with each mark's texts as its shape takes them now (marks
         saved by an older page may hold none)."""
         now = [replace(mark, texts=self.texts(mark)) for mark in self.marks.marks]
-        return marks.missing(replace(self.marks, marks=now))
+        found = marks.missing(replace(self.marks, marks=now))
+        # A scan's lines and words are placed by estimate (and OCR merges margin letters
+        # into the text): a mark taking none of them still says where the thing is.
+        return [item for item in found if not (self.paddle and item.endswith("takes no text."))]
 
     def save(self, data: object) -> None:
         new = marks.from_dict(data)
