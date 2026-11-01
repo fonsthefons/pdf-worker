@@ -1,8 +1,10 @@
 import json
 import math
+import re
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pymupdf
 import pytest
@@ -10,6 +12,14 @@ import pytest
 from pdf_worker import marking, marks
 from pdf_worker.layout import page_lines
 from pdf_worker.marks import Mark, MarksError, Section
+
+
+def test_the_marking_page_offers_every_kind_of_the_format():
+    page = (Path(marking.__file__).parent / "marking.html").read_text(encoding="utf-8")
+    offered = re.findall(r'\["([a-z-]+)", "[a-z]", "#', page)
+
+    assert offered == list(marks.KINDS)
+    assert {"margin-ref", "gloss", "line-number"} <= set(offered)
 
 
 def _sample(pdf) -> dict:

@@ -57,7 +57,8 @@
 4. Mark: press the kind's key (shown beside each button): `t` title, `h` then `1`-`4`
    heading, `b` body, `r` running head, `p` page number, `f` footnote, `n` note reference
    (draw a small shape around the number), `e` endnote, `c` contents, `g` bibliography,
-   `i` index, `k` caption, `x` ignore. Shift+key (or the "here only" box) makes it a
+   `i` index, `k` caption, `m` margin reference (Stephanus "22b", Bekker), `l` gloss
+   (a note beside the text), `u` line number, `x` ignore. Shift+key (or the "here only" box) makes it a
    one-place correction instead of an example.
 5. A few examples of each kind is enough: one or two per heading level, a running head on
    a left and a right page, a page number, a footnote, a note reference.

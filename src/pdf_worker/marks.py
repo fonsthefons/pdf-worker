@@ -33,6 +33,9 @@ KINDS = (
     "bibliography",
     "index",
     "caption",
+    "margin-ref",
+    "gloss",
+    "line-number",
     "ignore",
 )
 SECTION_KINDS = (
