@@ -41,7 +41,9 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   the body, leftovers; `selftest`), `quality.py` (`build OUT_DIR` converts the reference
   books of docs/quality-plan.md and runs both headings page sets, `score OUT_DIR`
   re-scores, `compare BEFORE AFTER` marks changes beyond the tolerance: the quality
-  plan's yardstick and merge gate). Reuse these before
+  plan's yardstick and merge gate), `marks_report.py` (`[--paddle-cache DIR] BOOK.pdf...`:
+  what a marked book's style sheet says: lines per how-sure class, kinds, conflicts,
+  doubtful pages; reads the marks, never writes them). Reuse these before
   writing scratch scripts; scratch/ is for throwaway files and is emptied from time to time.
 
 # Working rules for this repo

@@ -1,5 +1,107 @@
 # Progress
 
+## Marks plan, Phase 1: style sheet and review view (2026-11-02, branch `marks/phase-1`)
+- **Marking time (from the user, for Phase 4)**: about 20 minutes per book, for each of the
+  four books, the first included (the marking page was being fixed while it was marked).
+- The four marks files load (`marks.load` with their PDFs; read only, never written:
+  every page check ran on copies in `scratch/marks/p1/`). Copleston 112 marks, Ratzinger
+  62, platon_bad 101 (27 take no text), philosophy 75 (5 take no text).
+- **`src/pdf_worker/style_sheet.py`** (new): `measure(pages)` gives every line's
+  `Features` (size against the body size, font family, bold, italic, capitals, alignment
+  in its page's column: left / centre / indent / right / margin, share of the page above
+  and below, gaps above and below in body line spacings, numbering: division / roman /
+  arabic / letter / none, length, dot leaders); `build` the style sheet (each style
+  mark's lines' features per kind and level, note numbers' size / rise / glued);
+  `classify(pages, marks, measures)` -> `Classification` (per page, per line: kind, level,
+  how sure, odd; note numbers found; `doubtful(page)`, `next_doubtful(after)`). Book-wide
+  measures from the book: body size = character-weighted median size, line spacing =
+  median top-to-top gap of body lines, each page's column = median left / right of its
+  long body lines (pages of few lines: the pages on their side).
+- **Decisions** (round values chosen before the results, in code comments):
+  - Agreement as the plan says (font family, bold, italic, capitals, numbering where both
+    known; size within 5% of the body size on a text layer, 15% on a scan; running head /
+    page number within 1.5 body line spacings of the example's distance from its edge),
+    plus **dot leaders** (a contents line's).
+  - **Two kinds agreeing is not always a conflict.** The plan's literal rule left 70-99%
+    of the lines in conflict on all four books: each line of a multi-line example is an
+    example, and a heading's second line or a contents entry in body type looks like body
+    text (Copleston: 16,779 conflicts body / contents; Ratzinger: 5,883 body / contents /
+    heading 4 / title). Now the kind with the nearest agreeing example takes the line
+    (distance: size in tolerances, alignment, length, place on the page, gaps above and
+    below, each up to 1); a conflict only when another kind is within half a feature
+    (`CLEAR = 0.5`).
+  - A mark taking no line teaches by its place only, and only for kinds printed outside
+    the column (margin-ref, gloss, line-number) and only when it lies in the margin: inside
+    the column it marks part of a line OCR merged (platon_bad's margin letters "b", "d"),
+    which no line can follow.
+  - **Scans' sizes** are estimated as sqrt(width x height / letters) of a line's box (a
+    scan's "line" is often a whole Paddle block): units of their own, compared only with
+    the book's body. Noisy (body blocks 0.8-1.3 of the body on philosophy). Shortcut noted
+    in code: upgrade if the Paddle rows ever give each printed line's box.
+  - Note numbers matched on a text layer only (a number span after a line's first span:
+    size and rise against its line within 0.1, glued the same); scans' words are placed by
+    share. `here` marks win over `style` marks covering the same line, later over earlier.
+  - `classify` takes the pages' lines (`PageLines`), not the `doc`: the lines are the
+    marking page's (`marking.Book.pages()`), so the view and the labels agree.
+- **Review view** (`marking.html`, `marking.py`): `/labels/N.json`, `/doubtful.json?after=N`;
+  `v` (or the "kinds" box) colours each line by its kind: solid = marked, outlined =
+  matched (dashed: placed or sized like none of its examples), hatched = conflict; note
+  numbers found outlined. `d` / "next doubtful" jumps to the next page with a conflict or
+  an odd line. Clicking a line shows its kind. In the view "here only" is ticked, so a
+  correction is a `scope: here` mark; Shift+key (or unticking) makes an example. Changing
+  an existing mark's kind keeps its scope; Shift switches it. The book's lines are read
+  once (copleston 20 s, Ratzinger 6 s, scans 1 s), matched again after every save.
+- **`tools/marks_report.py`** (new, in CLAUDE.md): the numbers below.
+- Tests first (`tests/test_style_sheet.py`, failed before: no module): lines on unmarked
+  pages take their kind (heading, body, footnote, running head, page number; a number at
+  the wrong edge and another size stay `rules`), a note number found, a flush-left heading
+  is odd and its page doubtful, two equal kinds conflict, a `here` mark teaches nothing,
+  the nearer of two agreeing kinds wins and dot leaders keep a line out, a scan's margin
+  shape finds margin lines, features and numbering classes, the server's two routes.
+- Page check (no real browser here, as in Phase 0: the "Thorium" in /Applications is the
+  Electron EPUB reader and doesn't answer DevTools): `scratch/marks/p1_review_check.py`
+  serves a copy and runs the page's own script in Node (`p1_review_check.mjs`, Phase 0's
+  DOM stand-in) on Ratzinger p. 20 and platon_bad p. 150: v on (lines coloured, "here
+  only" ticked), d to the next doubtful page (27 / 151; hatched lines), click a line (its
+  kind shown), b (a `here` body mark; the line turns marked), click it again (the mark),
+  Shift+b (switched to an example), b (scope kept), v off. All passed. Kinds drawn on
+  page images (`scratch/marks/p1_draw_kinds.py`, `scratch/marks/p1/*_kinds_*.png`):
+  copleston p. 25 (running heads, body, six footnotes, six note numbers, page number all
+  right), p. 92 (a footnote line flagged odd), platon_bad p. 27 (all right). Not checked:
+  the look in a real browser.
+- **Per book** (`tools/marks_report.py`, non-blank lines; "matched" counts a kind when
+  one kind is nearest):
+
+  | | copleston | ratzinger | platon_bad | philosophy |
+  |---|---|---|---|---|
+  | marked | 490 | 367 | 157 | 114 |
+  | matched | 19,882 | 6,208 | 2,251 | 4,689 |
+  | of them odd | 70 | 15 | 146 | 1,076 |
+  | conflict | 1 | 26 | 294 | 1,112 |
+  | rules | 576 | 40 | 92 | 348 |
+  | note numbers found | 1,181 | 121 | 0 (scan) | 0 (scan) |
+  | doubtful pages | 25 / 455 | 35 / 145 | 185 / 293 | 237 / 462 |
+
+  Kinds (matched + marked): copleston body 16,951, running head 1,365, footnote 1,373,
+  page number 399, heading 2 73, heading 3 46, heading 1 5 (+41 marked heading lines),
+  contents 115. Ratzinger body 5,901, footnote 339, page number 139, heading 3 38,
+  heading 2 5, contents 124. platon_bad body 1,490, footnote 281, running head 264, page
+  number 256, margin-ref 62, heading 1 8. philosophy body 1,625, contents 1,542,
+  footnote 730, running head 423, page number 413, heading 2 19, heading 3 16.
+  Conflicts' most common pairs: copleston body / contents 1; Ratzinger contents /
+  heading 4 19 (its "a).- ..." headings are set like contents entries), heading 1 /
+  heading 3 4; platon_bad body / footnote 201, footnote / margin-ref 35, footnote / ignore
+  34; philosophy body / contents 1,010 (its bibliography and index, kinds not marked, and
+  body blocks whose estimated size falls between), body / footnote 70.
+  copleston's `rules` lines (sampled) are mostly Greek (another font), italic quotations,
+  "b) ..." lines and the appendix bibliography (a kind not marked).
+- Scans are where the style sheet is weakest: no fonts, estimated sizes; their doubtful
+  pages are most of the book. Phase 2 should lean on marked / matched lines of the text
+  layer kinds and leave scan conflicts to today's rules, as the plan says.
+- Regression (`regression.py build scratch/regress/marks1`, 620 s; `compare marks0 marks1`):
+  all eight books the same numbers, 0 diff lines (`convert` doesn't import the new code).
+  Fast tests 414 passed; ruff check and format clean.
+
 ## Marks plan, Phase 0: the marks file and the marking page (2026-10-31, branch `marks/phase-0`)
 - **`src/pdf_worker/marks.py`**: the format as dataclasses (`Marks`, `PdfInfo`, `Settings`,
   `Section`, `Mark`), `default_marks_path` (`book.ocr.pdf` -> `book.marks.json`),
