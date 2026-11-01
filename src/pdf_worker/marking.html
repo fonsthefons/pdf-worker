@@ -16,6 +16,7 @@
   #nav input { width: 60px; }
   .kinds button { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 2px 4px; margin: 1px 0; background: #fff; border: 1px solid #ddd; cursor: pointer; }
   .kinds button:hover { background: #eef; }
+  .count { color: #888; font-size: 90%; }
   .sw { width: 14px; height: 14px; border-radius: 2px; flex: none; }
   .key { margin-left: auto; color: #888; font-family: monospace; }
   .levels button { width: auto; flex: 1; justify-content: center; }
@@ -223,6 +224,12 @@ function draw() {
     });
   }
   showSelected();
+  showCounts();
+}
+// Marks per kind (and heading level) in the whole book, beside each kind's button.
+function showCounts() {
+  for (const c of document.querySelectorAll(".count"))
+    c.textContent = `(${M.marks.filter((m) => m.kind === c.dataset.kind && (!c.dataset.level || m.level === +c.dataset.level)).length})`;
 }
 
 // ---- selection ----
@@ -421,7 +428,7 @@ async function start() {
       const row = Object.assign(document.createElement("div"), { className: "row levels" });
       for (const level of [1, 2, 3, 4]) {
         const b = document.createElement("button");
-        b.innerHTML = `<span class="sw" style="background:${colour}"></span>heading ${level}`;
+        b.innerHTML = `<span class="sw" style="background:${colour}"></span>heading ${level} <span class="count" data-kind="heading" data-level="${level}"></span>`;
         b.title = `h then ${level}`;
         b.onclick = () => assign("heading", level, false);
         row.appendChild(b);
@@ -430,7 +437,7 @@ async function start() {
       continue;
     }
     const b = document.createElement("button");
-    b.innerHTML = `<span class="sw" style="background:${colour}"></span>${kind}<span class="key">${key}</span>`;
+    b.innerHTML = `<span class="sw" style="background:${colour}"></span>${kind} <span class="count" data-kind="${kind}"></span><span class="key">${key}</span>`;
     b.onclick = () => assign(kind, null, false);
     kinds.appendChild(b);
   }
