@@ -18,7 +18,7 @@
   .kinds button:hover { background: #eef; }
   .count { color: #888; font-size: 90%; }
   .sw { width: 14px; height: 14px; border-radius: 2px; flex: none; }
-  .key { margin-left: auto; color: #888; font-family: monospace; }
+  .key { margin-left: auto; padding: 0 4px; border: 1px solid #999; border-radius: 3px; background: #f4f4f4; color: #222; font-family: monospace; font-weight: bold; }
   .levels button { width: auto; flex: 1; justify-content: center; }
   #status { min-height: 1.4em; padding: 3px; margin: 6px 0; background: #eee; border-radius: 3px; }
   #status.error { background: #fdd; color: #900; }
@@ -433,7 +433,7 @@ async function start() {
       const row = Object.assign(document.createElement("div"), { className: "row levels" });
       for (const level of [1, 2, 3, 4]) {
         const b = document.createElement("button");
-        b.innerHTML = `<span class="sw" style="background:${colour}"></span>heading ${level} <span class="count" data-kind="heading" data-level="${level}"></span>`;
+        b.innerHTML = `<span class="sw" style="background:${colour}"></span>heading ${level} <span class="count" data-kind="heading" data-level="${level}"></span><span class="key">h${level}</span>`;
         b.title = `h then ${level}`;
         b.onclick = () => assign("heading", level, false);
         row.appendChild(b);
