@@ -9,6 +9,7 @@ are the layout model's boxes when its rows are cached, else MuPDF's.
 
 import json
 import re
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import NamedTuple
@@ -95,6 +96,12 @@ class Book:
             if now != mark.texts:
                 found.append({"id": mark.id, "page": mark.page, "kind": mark.kind, "now": now})
         return found
+
+    def missing(self) -> list[str]:
+        """``marks.missing`` with each mark's texts as its shape takes them now (marks
+        saved by an older page may hold none)."""
+        now = [replace(mark, texts=self.texts(mark)) for mark in self.marks.marks]
+        return marks.missing(replace(self.marks, marks=now))
 
     def save(self, data: object) -> None:
         new = marks.from_dict(data)
@@ -186,6 +193,8 @@ def serve(book: Book, port: int = 0) -> HTTPServer:
                 self._json(marks.to_dict(book.marks))
             elif path == "/stale.json":
                 self._json(book.stale())
+            elif path == "/check.json":
+                self._json(book.missing())
             elif (match := _PAGE_RE.match(path)) and 1 <= int(match[1]) <= book.info.pages:
                 number = int(match[1])
                 if match[2] == "png":
