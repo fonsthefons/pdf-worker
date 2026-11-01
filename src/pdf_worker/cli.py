@@ -853,6 +853,10 @@ def _run_mark(args: argparse.Namespace) -> int:
             pass
         finally:
             server.server_close()
+        lacking = book.missing()
+        print("\nStill to check:" if lacking else "\nNothing missing.")
+        for item in lacking:
+            print(f"  - {item}")
     return 0
 
 

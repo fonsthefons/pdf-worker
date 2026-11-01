@@ -253,6 +253,72 @@ def _replace(path: Path, write) -> None:
         raise
 
 
+def missing(marks: Marks) -> list[str]:
+    """What a book's marks still lack or contradict, as advice for the person marking
+    (the marking page's Check button, and printed when the server stops)."""
+    found: list[str] = []
+    by_kind: dict[str, list[Mark]] = {}
+    for mark in marks.marks:
+        by_kind.setdefault(mark.kind, []).append(mark)
+    notes, numbering = marks.settings.notes, marks.settings.numbering
+    footnotes, endnotes = by_kind.get("footnote", []), by_kind.get("endnote", [])
+
+    if not notes:
+        found.append("Settings: choose where notes are printed (side panel).")
+    if notes != "none" and not numbering:
+        found.append("Settings: choose where note numbers start again at 1 (side panel).")
+    if notes in ("chapter", "book") and footnotes:
+        found.append(
+            f"Settings say notes are collected at the end of each {notes}, but you marked "
+            "footnotes: should notes be 'page'?"
+        )
+    if notes == "page" and endnotes:
+        found.append(
+            "Settings say notes are at the foot of the page, but you marked endnotes: is "
+            "one a footnote running on from the page before (f)?"
+        )
+
+    if not marks.sections:
+        found.append("Sections: none set. Set one on the first page of each part of the book.")
+    else:
+        first = min(section.page for section in marks.sections)
+        if first > 1:
+            found.append(f"Sections: pages 1-{first - 1} have none; set one on page 1 (front?).")
+        if not any(section.kind == "main" for section in marks.sections):
+            found.append("Sections: none is 'main'; set it on the first page of the book's text.")
+
+    levels: dict[int, int] = {}
+    for mark in by_kind.get("heading", []):
+        levels[mark.level or 0] = levels.get(mark.level or 0, 0) + 1
+    if not levels:
+        found.append("Headings: none marked (h, then the level 1-4).")
+    for level in range(1, max(levels, default=0) + 1):
+        if level not in levels:
+            found.append(f"Headings: level {level} has no example, but level {max(levels)} has.")
+        elif levels[level] == 1:
+            found.append(f"Headings: level {level} has one example; mark one or two more.")
+
+    if notes != "none":
+        if not footnotes and not endnotes:
+            found.append("Notes: no footnote (f) or endnote (e) marked, if the book has notes.")
+        if (footnotes or endnotes) and not by_kind.get("note-ref"):
+            found.append("Notes: no note number in the text marked (Cmd/Ctrl+click it, then n).")
+        pages = sorted(mark.page for mark in footnotes + endnotes)
+        # A tenth of the book: examples closer together than that likely share a chapter.
+        if len(pages) >= 2 and pages[-1] - pages[0] < marks.pdf.pages / 10:
+            found.append(
+                f"Notes: all examples are on pages {pages[0]}-{pages[-1]}; add some from "
+                "later chapters."
+            )
+    for kind, key in (("page-number", "p"), ("running-head", "r")):
+        if kind not in by_kind:
+            found.append(f"No {kind} marked ({key}), if the pages have one.")
+    for mark in marks.marks:
+        if not mark.texts:
+            found.append(f"Mark {mark.id} ({mark.kind}, p. {mark.page}) takes no text.")
+    return found
+
+
 def inside(point: Point, shape: Sequence[Point]) -> bool:
     """Whether ``point`` lies inside the polygon ``shape`` (even-odd rule)."""
     x, y = point

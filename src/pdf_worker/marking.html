@@ -68,6 +68,7 @@
 
   <h2>Marks to check</h2>
   <div id="stale" class="muted">none</div>
+  <button id="check" title="What these marks still lack">Check what's missing</button>
 
   <h2>Help</h2>
   <details><summary>keys and mouse</summary>
@@ -455,6 +456,10 @@ async function start() {
   $("numbering").value = M.settings.numbering || "";
   $("notes").onchange = $("numbering").onchange = setSettings;
   $("seckind").onchange = $("seckeep").onchange = setSection;
+  $("check").onclick = async () => {
+    const lacking = await (await fetch("/check.json")).json();
+    alert(lacking.length ? "Still to check:\n\n" + lacking.map((s) => "• " + s).join("\n") : "Nothing missing.");
+  };
   $("prev").onclick = () => goTo(pageNo - 1);
   $("next").onclick = () => goTo(pageNo + 1);
   $("pageno").onchange = () => goTo(+$("pageno").value);

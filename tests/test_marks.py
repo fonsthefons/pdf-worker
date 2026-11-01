@@ -232,6 +232,34 @@ def test_a_shape_round_a_glued_note_number_takes_the_number(tmp_path):
     assert [w[4] for w in marks.words_in(shape, words)] == ["1"]
 
 
+def test_missing_names_what_the_marks_lack_or_contradict():
+    def mark(kind, page, level=None, texts=("x",)):
+        return Mark(f"m{page}{kind}", page, kind, [(0, 0), (1, 0), (1, 1)], list(texts), level)
+
+    book = marks.Marks(marks.PdfInfo("b.pdf", 100, "0"))
+    book.settings = marks.Settings(notes="book")
+    book.sections = [Section(3, "introduction")]
+    book.marks = [mark("heading", 5, 1), mark("heading", 9, 3), mark("heading", 12, 3)]
+    book.marks += [mark("footnote", 5), mark("footnote", 7), mark("ignore", 9, texts=())]
+
+    found = "\n".join(marks.missing(book))
+
+    for expected in (
+        "where note numbers start",
+        "you marked footnotes",
+        "pages 1-2 have none",
+        "none is 'main'",
+        "level 1 has one example",
+        "level 2 has no example",
+        "no note number",
+        "pages 5-7",
+        "No page-number",
+        "takes no text",
+    ):
+        assert expected in found
+    assert "level 3 has one" not in found and "where notes are printed" not in found
+
+
 def test_words_in_takes_words_by_their_middle():
     words = [(10, 10, 20, 20, "a"), (30, 10, 40, 20, "b"), (50, 10, 60, 20, "c")]
     shape = [(25, 0), (45, 0), (45, 30), (25, 30)]
