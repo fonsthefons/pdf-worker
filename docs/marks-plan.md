@@ -162,6 +162,12 @@ PR: "Marks: the marks file and the marking page".
 Goal: every line of a marked book gets a kind and how sure it is, and the user sees it.
 Start by checking the four marks files load; read them, never change them.
 
+On the scans (platon_bad, philosophy) the marking page's lines are the Paddle blocks'
+text, often one "line" per block, and its words are placed by share; OCR also merges
+margin letters into the text ("Y por ello renuncio solemnemente y b pongo"). Many
+`margin-ref` and `note-ref` marks there take no text: use their shapes' places on the
+page (and size against the body) as the example, not their texts.
+
 1. Features of a line (`marks.py` or a new `style_sheet.py`): size against the body
    size, font family (text layer only), bold, italic, all capitals, alignment in its
    column (centred, flush left, indented, flush right), place on the page (share of the
