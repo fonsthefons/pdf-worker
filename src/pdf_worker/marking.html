@@ -46,13 +46,17 @@
     <label><input type="checkbox" id="showlines" checked> lines</label>
     <label><input type="checkbox" id="showblocks" checked> blocks</label>
   </div>
+  <div class="row">
+    <label title="Colour each line by its kind (v)"><input type="checkbox" id="review"> kinds <span class="key">v</span></label>
+    <button id="doubtful" title="Next page with a conflict or a line unlike its examples (d)">next doubtful <span class="key">d</span></button>
+  </div>
   <div id="status"></div>
 
   <h2>Selected</h2>
   <div id="selected" class="muted">nothing</div>
 
   <h2>Mark as</h2>
-  <label class="row"><input type="checkbox" id="here"> here only (this place, not an example; or Shift+key)</label>
+  <label class="row"><input type="checkbox" id="here"> here only (this place, not an example; Shift+key turns it around)</label>
   <div class="kinds" id="kinds"></div>
 
   <h2>Section</h2>
@@ -78,8 +82,15 @@
     <li>Cmd/Ctrl+click a word: that word alone (a note's number, then <b>n</b>).</li>
     <li>Drag on an empty spot: a shape. Drag its corners anywhere; click an edge's middle dot to add a corner.</li>
     <li>Then a kind's key (Shift+key: here only). <b>h</b> then 1-4 for a heading.</li>
-    <li>Click a mark to change its kind, move its corners, or Delete it.</li>
+    <li>Click a mark to change its kind (Shift+key also switches example / here only), move its corners, or Delete it.</li>
     <li>Esc clears; ← → or PageUp/PageDown change page; = − 0 zoom; Ctrl+wheel zooms; Space+drag or middle-drag pans.</li>
+  </ul></details>
+  <details><summary>kinds view (v)</summary>
+  <ul>
+    <li>Each line in its kind's colour: <b>solid</b> a mark covers it; <b>outlined</b> its look matches that kind's examples (dashed: placed or sized like none of them); <b>hatched</b> two kinds match equally (today's rules decide); no colour: no example matches.</li>
+    <li>Note numbers found in the text are outlined in the note-ref colour.</li>
+    <li><b>d</b> jumps to the next doubtful page (hatched or dashed lines).</li>
+    <li>While the view is on, "here only" is ticked: a correction is for that place; untick it (or Shift+key) to make it an example.</li>
   </ul></details>
 </div>
 <div id="view"><svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
@@ -104,6 +115,7 @@ const svg = $("svg"), viewport = $("view");
 let book, M, view, pageNo = 1, zoom = 1, stale = [];
 let sel = { lines: new Set(), shape: null, markId: null };
 let drag = null, spaceDown = false, askLevel = null;
+let review = false, labels = null;  // the kinds view: each line's kind on this page
 
 // ---- geometry (as marks.py: a box belongs to a shape when its middle is inside) ----
 function inside([x, y], shape) {
@@ -140,7 +152,38 @@ async function save() {
     if (!r.ok) { status(`Not saved: ${answer.error}`, "error"); return; }
     stale = answer.stale; showStale();
     status(`Saved (${M.marks.length} marks)`);
+    if (review) { await loadLabels(); draw(); }
   } catch (e) { status(`Not saved: ${e}`, "error"); }
+}
+
+// ---- kinds view ----
+async function loadLabels() {
+  labels = null;
+  if (!review) return;
+  status("Finding every line's kind…");
+  labels = await getJSON(`/labels/${pageNo}.json`);
+  const count = (s) => labels.lines.filter((l) => l.sure === s).length;
+  const odd = labels.lines.filter((l) => l.odd).length;
+  status(`This page: ${count("marked")} marked, ${count("matched")} matched (${odd} unlike their examples), ` +
+    `${count("conflict")} conflicts, ${labels.refs.length} note numbers`);
+}
+async function setReview(on) {
+  review = on;
+  $("review").checked = on;
+  $("here").checked = on;  // a correction made in review is for that place
+  await loadLabels(); draw();
+}
+async function nextDoubtful() {
+  status("Looking for a doubtful page…");
+  const found = await getJSON(`/doubtful.json?after=${pageNo}`);
+  if (!found.page) { status("No doubtful page after this one"); return; }
+  review = true; $("review").checked = true; $("here").checked = true;
+  await goTo(found.page);
+}
+function labelText(label) {
+  if (label.sure === "rules") return "no example matches (rules)";
+  if (label.sure === "conflict") return `conflict: ${label.agree.join(" / ")}`;
+  return `${label.kind}${label.level ? " " + label.level : ""} (${label.sure}${label.odd ? ", unlike its examples" : ""})`;
 }
 
 // ---- pages ----
@@ -151,6 +194,7 @@ async function goTo(n) {
   $("pageno").value = n;
   history.replaceState(null, "", `#${n}`);
   clearSel();
+  await loadLabels();
   if (!svg.dataset.sized) { fit(); svg.dataset.sized = 1; } else setZoom(zoom);
   showSection();
   draw();
@@ -204,6 +248,7 @@ function draw() {
     el("rect", { "vector-effect": "non-scaling-stroke", x: l.bbox[0], y: l.bbox[1], width: l.bbox[2] - l.bbox[0], height: l.bbox[3] - l.bbox[1],
       stroke: "#3050c0", "stroke-opacity": 0.3, fill: lit.has(i) ? "#ffeb3b" : "none", "fill-opacity": 0.45 }, svg);
   });
+  if (review && labels) drawLabels();
   for (const m of M.marks.filter((m) => m.page === pageNo)) {
     const c = COLOUR[m.kind];
     el("polygon", { points: pts(m.shape), fill: c, "fill-opacity": m.id === sel.markId ? 0.08 : 0.18, stroke: c,
@@ -227,6 +272,23 @@ function draw() {
   }
   showSelected();
   showCounts();
+}
+// The kinds view: solid = marked, outlined = matched (dashed: unlike its examples),
+// hatched = conflict; note numbers found outlined.
+function drawLabels() {
+  const pattern = el("pattern", { id: "hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, el("defs", {}, svg));
+  el("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "#000", "stroke-width": 1.5, "stroke-opacity": 0.6 }, pattern);
+  labels.lines.forEach((label, i) => {
+    if (label.sure === "rules" || !view.lines[i]) return;
+    const b = view.lines[i].bbox, c = label.sure === "conflict" ? "#000" : COLOUR[label.kind];
+    el("rect", { "vector-effect": "non-scaling-stroke", x: b[0], y: b[1], width: b[2] - b[0], height: b[3] - b[1],
+      stroke: c, "stroke-width": 1.5, "stroke-dasharray": label.odd ? "4 3" : "none", "pointer-events": "none",
+      fill: label.sure === "marked" ? c : label.sure === "conflict" ? "url(#hatch)" : "none",
+      "fill-opacity": label.sure === "marked" ? 0.3 : 1 }, svg);
+  });
+  for (const b of labels.refs)
+    el("rect", { "vector-effect": "non-scaling-stroke", x: b[0], y: b[1], width: b[2] - b[0], height: b[3] - b[1],
+      stroke: COLOUR["note-ref"], "stroke-width": 1.5, fill: "none", "pointer-events": "none" }, svg);
 }
 // Marks per kind (and heading level) in the whole book, beside each kind's button.
 function showCounts() {
@@ -259,6 +321,8 @@ function showSelected() {
   } else if (sel.shape || sel.lines.size) {
     box.className = "";
     box.textContent = `${texts.length} line(s)` + (sel.shape ? `, ${wordsIn(sel.shape).length} word(s)` : "") + ": press a kind's key";
+    if (labels && !sel.shape && sel.lines.size === 1)
+      box.appendChild(Object.assign(document.createElement("div"), { textContent: "now: " + labelText(labels.lines[[...sel.lines][0]]) }));
   } else { box.className = "muted"; box.textContent = "nothing"; return; }
   for (const t of texts.slice(0, 6)) { const d = document.createElement("div"); d.className = "muted"; d.textContent = "· " + t.slice(0, 80); box.appendChild(d); }
   if (texts.length > 6) box.appendChild(Object.assign(document.createElement("div"), { className: "muted", textContent: `… ${texts.length - 6} more` }));
@@ -275,12 +339,14 @@ function newMark(kind, level, scope, shape) {
   return m;
 }
 function assign(kind, level, here) {
-  const scope = here || $("here").checked ? "here" : "style";
-  if (kind === "heading" && !level) { askLevel = { scope }; status("Heading level? press 1-4", "ask"); return; }
+  // Shift turns the "here only" box around: an example in the kinds view, a correction outside it.
+  const scope = Boolean(here) !== $("here").checked ? "here" : "style";
+  if (kind === "heading" && !level) { askLevel = { here }; status("Heading level? press 1-4", "ask"); return; }
   askLevel = null;
   const old = sel.markId && M.marks.find((m) => m.id === sel.markId);
   if (old) {
-    old.kind = kind; old.scope = scope;
+    old.kind = kind;
+    if (here) old.scope = old.scope === "here" ? "style" : "here";  // a mark keeps its scope; Shift switches it
     if (kind === "heading") old.level = level; else delete old.level;
     old.texts = textsOf(kind, old.shape);
   } else if (sel.shape) {
@@ -405,7 +471,7 @@ window.addEventListener("keydown", (e) => {
   if (["INPUT", "SELECT"].includes(document.activeElement.tagName) && e.key !== "Escape") return;
   if (e.key === " ") { spaceDown = true; viewport.classList.add("pan"); e.preventDefault(); return; }
   if (e.metaKey || e.ctrlKey) return;
-  if (askLevel && "1234".includes(e.key)) { assign("heading", +e.key, askLevel.scope === "here"); return; }
+  if (askLevel && "1234".includes(e.key)) { assign("heading", +e.key, askLevel.here); return; }
   const key = e.key.toLowerCase();
   if (e.key === "Escape") { document.activeElement.blur(); clearSel(); status(""); draw(); }
   else if (e.key === "ArrowRight" || e.key === "PageDown") goTo(pageNo + 1);
@@ -414,6 +480,8 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "=" || e.key === "+") setZoom(zoom * 1.25);
   else if (e.key === "-") setZoom(zoom / 1.25);
   else if (e.key === "0") fit();
+  else if (key === "v") setReview(!review);
+  else if (key === "d") nextDoubtful();
   else if (BY_KEY[key]) assign(BY_KEY[key], null, e.shiftKey);
   else return;
   e.preventDefault();
@@ -467,6 +535,8 @@ async function start() {
   $("zoomout").onclick = () => setZoom(zoom / 1.25);
   $("fit").onclick = fit;
   $("showlines").onchange = $("showblocks").onchange = draw;
+  $("review").onchange = () => setReview($("review").checked);
+  $("doubtful").onclick = nextDoubtful;
   stale = await getJSON("/stale.json"); showStale();
   // Resume: the page in the address, else the page of the last mark or section made.
   const last = M.marks.length ? M.marks[M.marks.length - 1].page : Math.max(1, ...M.sections.map((s) => s.page));

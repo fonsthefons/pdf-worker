@@ -5,25 +5,29 @@ The page shows the lines the pipeline sees: ``page_lines`` after ``convert_pdf``
 preparation for a text layer, or, for a scan built from PaddleOCR-VL's rows (cached rows
 only: no model runs here), the rows' blocks, one line per printed line they keep. Blocks
 are the layout model's boxes when its rows are cached, else MuPDF's.
+
+The kinds view (``/labels/N.json``, ``/doubtful.json``) shows each line's kind by the
+book's style sheet (``pdf_worker.style_sheet``), matched again after every save.
 """
 
 import json
 import re
-from dataclasses import replace
+from dataclasses import asdict, replace
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import parse_qs, urlsplit
 
 import pymupdf
 
-from pdf_worker import bilingual, font_sizes, glued_refs, marks
+from pdf_worker import bilingual, font_sizes, glued_refs, marks, style_sheet
 from pdf_worker.document import TEXT_FLAGS
 from pdf_worker.layout import page_lines
 from pdf_worker.paddle_ocr import cached_rows, clean_text
 
 PAGE_HTML = Path(__file__).with_name("marking.html")
 DPI = 150
-_PAGE_RE = re.compile(r"^/page/(\d+)\.(png|json)$")
+_PAGE_RE = re.compile(r"^/(page|labels)/(\d+)\.(png|json)$")
 
 
 class ViewLine(NamedTuple):
@@ -50,6 +54,9 @@ class Book:
         self.marks = marks.load(self.path, None) if self.path.exists() else marks.Marks(self.info)
         marks.check_pdf(self.marks, self.info)
         self._views: dict[int, dict] = {}
+        self._lines: dict[int, list] = {}  # the lines each view was made from
+        self._measures: style_sheet.Measures | None = None
+        self._classified: tuple[marks.Marks, style_sheet.Classification] | None = None
 
     def summary(self) -> dict:
         return {
@@ -68,6 +75,7 @@ class Book:
                 lines, words, blocks = _paddle_view(page, self.paddle.get(number - 1))
             else:
                 lines, words, blocks = _text_view(page, self.layout.get(number - 1))
+            self._lines[number] = lines
             self._views[number] = {
                 "width": page.rect.width,
                 "height": page.rect.height,
@@ -76,6 +84,33 @@ class Book:
                 "blocks": blocks,
             }
         return self._views[number]
+
+    def pages(self) -> list[style_sheet.PageLines]:
+        """Every page's lines, as the page shows them (read once: about 15 s for a
+        450-page text layer)."""
+        found = []
+        for number in range(1, self.info.pages + 1):
+            view = self.view(number)
+            found.append(style_sheet.PageLines(view["width"], view["height"], self._lines[number]))
+        return found
+
+    def classified(self) -> style_sheet.Classification:
+        """Every line's kind by the current marks (measured once, matched again after
+        the marks change)."""
+        if self._classified is None or self._classified[0] is not self.marks:
+            pages = self.pages()
+            self._measures = self._measures or style_sheet.measure(pages)
+            found = style_sheet.classify(pages, self.marks, self._measures)
+            self._classified = (self.marks, found)
+        return self._classified[1]
+
+    def labels(self, number: int) -> dict:
+        """Page ``number``'s lines' kinds, and the note numbers found in its text."""
+        found = self.classified()
+        return {
+            "lines": [asdict(label) for label in found.labels[number - 1]],
+            "refs": [_round(box) for box in found.refs[number - 1]],
+        }
 
     def png(self, number: int) -> bytes:
         return self.doc.load_page(number - 1).get_pixmap(dpi=DPI, annots=False).tobytes("png")
@@ -198,9 +233,17 @@ def serve(book: Book, port: int = 0) -> HTTPServer:
                 self._json(book.stale())
             elif path == "/check.json":
                 self._json(book.missing())
-            elif (match := _PAGE_RE.match(path)) and 1 <= int(match[1]) <= book.info.pages:
-                number = int(match[1])
-                if match[2] == "png":
+            elif path == "/doubtful.json":
+                after = parse_qs(urlsplit(self.path).query).get("after", ["0"])[0]
+                after = int(after) if after.isdigit() else 0
+                self._json({"page": book.classified().next_doubtful(after)})
+            elif (match := _PAGE_RE.match(path)) and 1 <= int(match[2]) <= book.info.pages:
+                number = int(match[2])
+                if match[1] == "labels" and match[3] == "json":
+                    self._json(book.labels(number))
+                elif match[1] == "labels":
+                    self.send_error(404)
+                elif match[3] == "png":
                     self._reply(book.png(number), "image/png")
                 else:
                     self._json(book.view(number))
