@@ -103,7 +103,7 @@ save is kept as `<book>.marks.prev.json`. Coordinates are PDF points in the spac
 | 1: style sheet and review view | high | none (labels for the four books' pages, no conversion) |
 | 2: page furniture and notes from marks | medium | two builds of the four books, the regression set |
 | 3: headings and levels from marks | medium | same |
-| 4: proof-of-concept verdict | low | one whole yardstick run; stops for the user |
+| 4: proof-of-concept verdict | low | one whole yardstick run |
 | 5: sections, and the contents as links | medium | two builds of the four books, the regression set |
 | 6: margin references from marks | high | margin crops re-read on platon_bad; two builds, the regression set |
 | 7: final report and the marks-first workflow | low | one whole yardstick run |
@@ -235,7 +235,7 @@ PR: "Marks: headings and levels".
 
 ## Phase 4: proof-of-concept verdict (low)
 
-Goal: does marking pay? Stop for the user.
+Goal: does marking pay? Record it; the plan goes on.
 
 1. One whole yardstick run with marks (`scratch/marks/verdict`) and one with
    `--no-marks` (`scratch/marks/verdict_base`), `compare`.
@@ -247,8 +247,11 @@ Goal: does marking pay? Stop for the user.
 3. A table before / after per book, the errors left on the marked books ranked with
    one example page each, and the review view's doubtful pages per book (how much
    checking the user would face).
-4. Always end with a draft PR and `STOPPED: proof-of-concept verdict, the user decides
-   whether the marks route goes on` (Phase 5 waits for the user).
+4. No stop: the user decided (2026-11-02, after seeing Phase 3's numbers) that the marks
+   route goes on whatever the bar says; a kind marks don't help with is simply left
+   unmarked. Heading losses on Ratzinger and philosophy are the user's marks disagreeing
+   with the references (the user judged the marks right): list them, don't count them
+   as a failure. A normal PR, merged.
 
 PR: "Marks: proof-of-concept verdict".
 
@@ -312,8 +315,7 @@ PR: "Marks plan: results".
 
 - In Claude Code, `/pdf-layout-plan marks` runs the phases one after another, each as a
   subagent at its effort, merging each PR, updating `main` and running the fast tests in
-  between; it stops after Phase 0 until the four marks files exist, and at Phase 4's
-  verdict. In a terminal, `tools/run_plan.py --plan marks` does the same.
+  between; it stops after Phase 0 until the four marks files exist. In a terminal, `tools/run_plan.py --plan marks` does the same.
 - One phase per PR. Branch from an up-to-date `main`; never stack PRs.
 - Follow `CLAUDE.md`: absolute paths; no `cd`, pipes or heredocs; throwaway code in
   `scratch/`; long runs with `tools/run_logged.py` and `tools/wait_log.py`; one pytest
