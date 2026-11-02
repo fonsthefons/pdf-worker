@@ -1,5 +1,30 @@
 # Progress
 
+## Fix: Magnifica Humanitas headings without the layout model (2026-11-02, branch `fix/humanitas-headings`)
+- **Root cause** (bisected with a worktree over the merges, `scratch/humanitas/count.py`):
+  not quality Phase 4. 99 headings at `f552fb4` (layout Phase 5 bibliography), 3 from
+  `cab0453` (layout Phase 5 headings, a+c+d). That phase deleted `_implicit_heading_level`
+  (a short, isolated, all-caps or bold body-type line is a heading) and left headings to the
+  layout model's title boxes. The integration test converts without model rows, and
+  Humanitas sets its section titles ("El Magisterio reciente", p. 10) in body size in Type3
+  fonts of their own (no bold flag; `DocumentProfile.emphasized` sees them by font), so only
+  its 3 large titles were left. Its contents rule (`_mark_entries`) marks no line in it.
+- **Fix** (`structure`): on a page the layout model didn't box (no row for the page), and for
+  lines without a marks kind or contents entry, `_implicit_heading_level` decides again,
+  as it did before the model. Same reasoning as the user's a+c+d ("a book without rows keeps
+  the size test"). Pages with rows are unchanged. `_Builder.free` / `_Builder.bold` back.
+  Decision: restore the old rule as it was (all-caps too) instead of a bold-only variant,
+  as that is the behaviour the test was written against.
+- Test: `test_a_body_size_title_in_another_face_is_a_heading_without_the_model` (with and
+  without rows; the no-rows case fails on main).
+- Regression (`scratch/humanitas/reg-before` -> `reg-after`): all eight books the same,
+  0 diff lines (they are built with rows).
+- Yardstick: whole `quality.py build scratch/humanitas/quality` (1282 s), `compare
+  scratch/marks/final scratch/humanitas/quality`: 0 changes beyond the tolerance for the
+  worse.
+- Humanitas: 3 -> 99 headings, 224 notes. Fast tests, the full suite (integration too),
+  ruff check and format: see the PR.
+
 ## Quality plan, Phase 6: final check and report (2026-11-02, branch `quality/phase-6`)
 - No rebuild: `scratch/marks/final` (marks Phase 7) is main's build today; no pipeline
   code changed since. Re-scored `scratch/quality/base` and `scratch/marks/verdict_base`

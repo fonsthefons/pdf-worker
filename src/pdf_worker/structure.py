@@ -172,13 +172,20 @@ class _Builder:
     page: int = -1  # where the block starts: PDF page index and top of its first line
     top: float = 0.0
     rows: list[list[str]] = field(default_factory=list)  # kind "table"
+    # Every line is free for ``_implicit_heading_level`` (no model boxes, no marks), and bold.
+    free: bool = True
+    bold: bool = True
 
-    def add(self, text: str, line: Line, page: int) -> None:
+    def add(self, text: str, line: Line, page: int, emphasized: bool | None = None) -> None:
+        """``emphasized``: whether the line is bold; None when the model or the marks
+        decide its headings."""
         if not self.lines:
             self.page, self.top = page, line.top
         self.parts.append(text)
         self.lines += 1
         self.size_total += line.size
+        self.free = self.free and emphasized is not None
+        self.bold = self.bold and bool(emphasized)
 
     @property
     def size(self) -> float:
@@ -667,7 +674,10 @@ class _State:
             if starts or self.current.kind != kind:
                 yield from self._flush()
                 self.current = _Builder(kind=kind)
-        self.current.add(text, line, self.page_index)
+        # A page the layout model didn't box keeps the rules from before it (the user's
+        # a+c+d: "a book without rows keeps the size test"), short bold lines included.
+        free = not (body_line.kind or body_line.entry or self.page_index in profile.layout)
+        self.current.add(text, line, self.page_index, profile.emphasized(line) if free else None)
         self.prev, self.prev_text = line, text
         self.break_next = False
 
@@ -757,9 +767,27 @@ class _State:
                 yield Paragraph(text, False, current.page, current.top)
         else:
             text = current.text()
-            if text:
+            level = self._implicit_heading_level(current, plain(text)) if text else None
+            if level:
+                self.has_heading = True
+                yield Heading(text, level, current.page, current.top)
+            elif text:
                 yield Paragraph(text, current.kind == "small", current.page, current.top)
         yield from self._flush_notes()
+
+    def _implicit_heading_level(self, block: _Builder, text: str) -> int | None:
+        """Without the layout model: a short, isolated, all-caps or bold line (or two) in
+        body type reads as a heading."""
+        if not block.free or block.kind != "para" or block.lines > 2 or len(text) > 120:
+            return None
+        if text.endswith((".", ",", ";", ":")) or "[^" in text:
+            return None
+        letters = [c for c in text if c.isalpha()]
+        if len(letters) < 3:
+            return None
+        if all(c.isupper() for c in letters) or block.bold:
+            return len(self.profile.heading_sizes) + 1
+        return None
 
     def _respaced(self, text: str) -> str:
         """A letter-spaced title in the book's words (``letter_spacing``); its page marks
