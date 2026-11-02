@@ -288,6 +288,10 @@ def report(result: dict) -> str:
                 f"- missed ({len(s['headings']['missed'])}): {s['headings']['missed'][:20]}"
             )
             lines.append(f"- wrong ({len(s['headings']['wrong'])}): {s['headings']['wrong'][:20]}")
+            only = s["headings"].get("contents_only", [])
+            lines.append(f"- only in the printed contents ({len(only)}): {only[:20]}")
+            absent = s["headings"].get("absent", [])
+            lines.append(f"- title nowhere in ours ({len(absent)}): {absent[:20]}")
         lines.append(f"- leftovers: {s['leftover_kinds']}")
         lines.append("")
     return "\n".join(lines) + "\n"
