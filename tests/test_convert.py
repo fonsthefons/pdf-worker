@@ -372,6 +372,30 @@ def test_headings_beside_the_title_boxes(make_layout_pdf, tmp_path):
     assert headings == ["Chapter One", "V. Este es el corazón"]
 
 
+@pytest.mark.parametrize("model", [False, True])
+def test_a_body_size_title_in_another_face_is_a_heading_without_the_model(tmp_path, model):
+    # Magnifica Humanitas: section titles in body size, set in fonts of their own (Type3,
+    # no bold flag). Without the layout model the rules from before it decide; with it,
+    # its text box does.
+    pdf = tmp_path / "faces.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    items = [*_paragraph(80, FULL * 3, "It ends."), (72, 80 + LINE * 11, "El Magisterio", BODY)]
+    items += _paragraph(80 + LINE * 13, FULL * 3, "It ends too.")
+    for x, y, text, size in items:
+        face = "tiro" if text == "El Magisterio" else "helv"
+        page.insert_text((x, y), text, fontsize=size, fontname=face)
+    doc.save(pdf)
+    doc.close()
+    rows = _boxes(pdf, ("text", list(range(10))), ("text", [10]), ("text", list(range(11, 21))))
+    out = tmp_path / "book.md"
+
+    convert_pdf(pdf, out, "md", layout_rows=rows if model else None)
+
+    md = out.read_text(encoding="utf-8")
+    assert ("\n# El Magisterio\n" in md) != model
+
+
 def test_titles_listed_on_a_contents_page_are_not_headings(make_layout_pdf, tmp_path):
     # Antropología's Índice: part titles boxed as titles among the model's content boxes.
     page = [
