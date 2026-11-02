@@ -80,7 +80,8 @@
     <li>Click a line; Shift+click adds lines.</li>
     <li>Click a block's dashed edge, or Alt+click inside it: its lines.</li>
     <li>Cmd/Ctrl+click a word: that word alone (a note's number, then <b>n</b>).</li>
-    <li>Drag on an empty spot: a shape. Drag its corners anywhere; click an edge's middle dot to add a corner.</li>
+    <li>Drag on an empty spot: a box. Hold <b>s</b> and drag anywhere (over lines, blocks or marks): a box exactly that size, for small note numbers on scans (zoom in first).</li>
+    <li>Drag a box's corner: it stays a rectangle. Alt+drag a corner: that corner alone moves (any shape); click an edge's middle dot to add a corner.</li>
     <li>Then a kind's key (Shift+key: here only). <b>h</b> then 1-4 for a heading.</li>
     <li>Click a mark to change its kind (Shift+key also switches example / here only), move its corners, or Delete it.</li>
     <li>Esc clears; ← → or PageUp/PageDown change page; = − 0 zoom; Ctrl+wheel zooms; Space+drag or middle-drag pans.</li>
@@ -114,7 +115,7 @@ const svg = $("svg"), viewport = $("view");
 
 let book, M, view, pageNo = 1, zoom = 1, stale = [];
 let sel = { lines: new Set(), shape: null, markId: null };
-let drag = null, spaceDown = false, askLevel = null;
+let drag = null, spaceDown = false, boxDown = false, askLevel = null;
 let review = false, labels = null;  // the kinds view: each line's kind on this page
 
 // ---- geometry (as marks.py: a box belongs to a shape when its middle is inside) ----
@@ -128,6 +129,14 @@ function inside([x, y], shape) {
 }
 const middle = (b) => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
 const inBox = ([x, y], b, pad = 0) => x >= b[0] - pad && x <= b[2] + pad && y >= b[1] - pad && y <= b[3] + pad;
+// Four corners, each sharing x with one neighbour and y with the other: a straight box.
+function isRect(s) {
+  if (!s || s.length !== 4) return false;
+  return s.every(([x, y], k) => {
+    const [a, b] = [s[(k + 1) % 4], s[(k + 3) % 4]];
+    return (a[0] === x && b[1] === y) || (a[1] === y && b[0] === x);
+  });
+}
 function area(shape) {
   let a = 0;
   for (let i = 0, j = shape.length - 1; i < shape.length; j = i++) a += (shape[j][0] + shape[i][0]) * (shape[j][1] - shape[i][1]);
@@ -407,8 +416,14 @@ svg.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
   e.preventDefault();
   const p = toPage(e);
+  // s held: a box from here, over lines, blocks and marks alike (small note numbers on scans).
+  if (boxDown) { clearSel(); drag = { from: p }; draw(); return; }
   const t = e.target.dataset || {};
-  if (t.corner !== undefined) { drag = { corner: +t.corner }; return; }
+  if (t.corner !== undefined) {
+    const i = +t.corner;
+    drag = { corner: i, orig: sel.shape.map((q) => [...q]), rect: isRect(sel.shape) };
+    return;
+  }
   if (t.mid !== undefined) {
     const i = +t.mid;
     sel.shape.splice(i + 1, 0, p);
@@ -442,7 +457,12 @@ window.addEventListener("mousemove", (e) => {
     drag.x = e.clientX; drag.y = e.clientY; return;
   }
   const p = toPage(e);
-  if (drag.corner !== undefined) { sel.shape[drag.corner] = p; drag.moved = true; }
+  if (drag.corner !== undefined && drag.rect && !e.altKey) {
+    // A rectangle stays one: the corner's neighbours follow it, the opposite one stays.
+    const [cx, cy] = drag.orig[drag.corner];
+    sel.shape = drag.orig.map(([x, y]) => [x === cx ? p[0] : x, y === cy ? p[1] : y]);
+    drag.moved = true;
+  } else if (drag.corner !== undefined) { sel.shape[drag.corner] = p; drag.moved = true; }
   else if (drag.from) {
     const [x0, y0] = drag.from;
     sel.shape = [[x0, y0], [p[0], y0], [p[0], p[1]], [x0, p[1]]];
@@ -470,6 +490,7 @@ viewport.addEventListener("wheel", (e) => {
 window.addEventListener("keydown", (e) => {
   if (["INPUT", "SELECT"].includes(document.activeElement.tagName) && e.key !== "Escape") return;
   if (e.key === " ") { spaceDown = true; viewport.classList.add("pan"); e.preventDefault(); return; }
+  if (e.key.toLowerCase() === "s" && !e.metaKey && !e.ctrlKey) { boxDown = true; svg.style.cursor = "crosshair"; e.preventDefault(); return; }
   if (e.metaKey || e.ctrlKey) return;
   if (askLevel && "1234".includes(e.key)) { assign("heading", +e.key, askLevel.here); return; }
   const key = e.key.toLowerCase();
@@ -486,7 +507,11 @@ window.addEventListener("keydown", (e) => {
   else return;
   e.preventDefault();
 });
-window.addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; viewport.classList.remove("pan"); } });
+window.addEventListener("keyup", (e) => {
+  if (e.key === " ") { spaceDown = false; viewport.classList.remove("pan"); }
+  if (e.key.toLowerCase() === "s") { boxDown = false; svg.style.cursor = ""; }
+});
+window.addEventListener("blur", () => { boxDown = false; svg.style.cursor = ""; });
 
 // ---- start ----
 async function start() {

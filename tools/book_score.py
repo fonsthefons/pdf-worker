@@ -523,20 +523,74 @@ def score(ref: Text, ours: Text, collected: bool = False) -> dict:
     }
 
 
+_SECTION_NO_RE = re.compile(r"^(?:\d{1,3}|[ivxlc]{1,6}|[a-z])$")
+
+
+def _titled(text: Text, at: list[int]) -> list[int]:
+    """A heading's words without its leading section number ("1. TALES" -> "tales"):
+    one edition prints the number, another drops it."""
+    if len(at) > 1 and _SECTION_NO_RE.match(text.words[at[0]]):
+        return at[1:]
+    return at
+
+
+def _contents_only(at, partner, ours, contents) -> bool:
+    """The heading's words align only into the printed contents' blocks of ours."""
+    return all(partner[i] < 0 or ours.block[partner[i]] in contents for i in at)
+
+
+CONTENTS_RUN = 6  # short paragraphs in a row that read as a printed contents page
+CONTENTS_WORDS = 15  # a contents entry's most words
+
+
+def _contents_blocks(ours: Text, titled=lambda j: True) -> set[int]:
+    """Blocks of ours in a printed contents page: runs of CONTENTS_RUN or more short
+    body paragraphs whose words are, by FOUND or more, reference heading words
+    (``titled(j)``); entries kept as text or as links look alike once read. Dialogue
+    is short too, but its words are body words."""
+    pairs = list(zip(ours.block, ours.kind, strict=True))
+    size: dict[int, int] = Counter(b for b, k in pairs if k == BODY)
+    title = Counter(b for j, (b, k) in enumerate(pairs) if k == BODY and titled(j))
+    heads = {b for b, k in pairs if k != BODY}
+    out: set[int] = set()
+    run: list[int] = []
+    for b in range(ours.blocks + 1):
+        n = size.get(b, 0)
+        if b < ours.blocks and b not in heads and 0 < n <= CONTENTS_WORDS:
+            if title[b] >= FOUND * n:
+                run.append(b)
+                continue
+        elif b < ours.blocks and b not in heads and not n:
+            continue  # an empty block (an image) doesn't break the run
+        if len(run) >= CONTENTS_RUN:
+            out.update(run)
+        run = []
+    return out
+
+
 def _headings(ref, ours, partner, back, counted, mine) -> dict | None:
     if HEADING not in ref.kind:
         return None
     out = {"ref": 0, "found": 0, "ours": 0, "real": 0, "pairs": 0, "agree": 0}
-    out.update(missed=[], wrong=[])
+    out.update(missed=[], wrong=[], contents_only=[], absent=[])
+    contents = _contents_blocks(ours, lambda j: back[j] >= 0 and ref.head[back[j]] >= 0)
     words_of: dict[int, list[int]] = {}
     for i, h in enumerate(ref.head):
         if h >= 0 and counted[i]:
             words_of.setdefault(h, []).append(i)
     levels = []  # (reference level, our level) of each found heading
     for h, at in words_of.items():
+        at = _titled(ref, at)
         ours_heads = [ours.head[partner[i]] for i in at if partner[i] >= 0]
         if not ours_heads:
-            continue  # its words are nowhere in ours: another edition's heading
+            # Its words are nowhere in ours: another edition's heading, or a title the
+            # PDF only lists (philosophy's chapter summaries: "...—Fontenelle.—...").
+            out["absent"].append(ref.headings[h][1])
+            continue
+        if contents and _contents_only(at, partner, ours, contents):
+            # Printed only in the book's contents, never in its body: out of reach.
+            out["contents_only"].append(ref.headings[h][1])
+            continue
         out["ref"] += 1
         in_heads = [g for g in ours_heads if g >= 0]
         if len(in_heads) >= FOUND * len(at):
@@ -550,6 +604,7 @@ def _headings(ref, ours, partner, back, counted, mine) -> dict | None:
         if g >= 0 and mine[j]:
             our_words.setdefault(g, []).append(j)
     for g, at in our_words.items():
+        at = _titled(ours, at)
         out["ours"] += 1
         real = sum(back[j] >= 0 and ref.head[back[j]] >= 0 for j in at)
         if real >= FOUND * len(at):
@@ -700,6 +755,15 @@ Historia breve
         z.writestr("OEBPS/c.xhtml", sub)
     heads = [text for _, text in read_epub(work / "sub.epub").headings]
     assert heads == ["Capítulo primero El origen", "La sección dos", "Otra sección"], heads
+    # "1. TALES" and "TALES" are the same heading; a lone "1" stays.
+    t = Text(words=["1", "tales", "iv"])
+    assert _titled(t, [0, 1]) == [1] and _titled(t, [2]) == [2]
+    # Six short paragraphs in a row are a contents page; one between long ones is not.
+    c = Text()
+    for b in range(9):
+        c.add(["w"] * (40 if b in (0, 7) else 3), BODY, b)
+        c.blocks += 1
+    assert _contents_blocks(c) == {1, 2, 3, 4, 5, 6}, _contents_blocks(c)
     print("selftest passed")
 
 

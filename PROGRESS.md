@@ -1,5 +1,22 @@
 # Progress
 
+## Scorer headings and marking-page boxes (2026-11-02, branch `tools/headings-score-boxes`)
+- `tools/book_score.py` headings: a leading section number ("1.", "IV", "a") is left out
+  of both sides before matching, so "1. TALES" in the reference finds our "TALES".
+  Reference headings are now split three ways besides found/missed: `contents_only`
+  (their words align only into ours' printed contents page: a run of 6+ short paragraphs
+  whose words are mostly reference heading words, so dialogue doesn't count) and `absent`
+  (no word of the title anywhere in ours); neither counts in `ref`. `quality.py` report
+  lists both. Selftest covers `_titled` and `_contents_blocks`.
+- Rescored `scratch/marks/final` into `scratch/marks/rescore` (same Markdown):
+  headings found/ref: philosophy 128/244 -> 129/155 (96 absent: titles only in the chapter
+  summary lines), copleston 97/136 -> 108/134, ratzinger 70/120 -> 70/89 (31 contents
+  only). **Compare future builds against `scratch/marks/rescore`, not `final`**: the
+  denominators changed.
+- `marking.html`: hold **s** and drag draws a box anywhere (over lines, blocks, marks);
+  dragging a rectangle's corner keeps it a rectangle, Alt+drag moves one corner freely
+  (the old behaviour). Help updated. Checked only with `node --check`, not in a browser.
+
 ## Fix: Magnifica Humanitas headings without the layout model (2026-11-02, branch `fix/humanitas-headings`)
 - **Root cause** (bisected with a worktree over the merges, `scratch/humanitas/count.py`):
   not quality Phase 4. 99 headings at `f552fb4` (layout Phase 5 bibliography), 3 from
