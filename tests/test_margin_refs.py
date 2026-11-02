@@ -1,6 +1,9 @@
 """Margin references (Stephanus "22", "b", "c" ...) and running heads ("TIMEO 163")."""
 
+import shutil
+
 import pymupdf
+import pytest
 
 from pdf_worker import pdf_export
 from pdf_worker.convert import convert_pdf
@@ -15,15 +18,20 @@ from pdf_worker.margin_refs import (
     ScanWord,
     assign_labels,
     in_book,
+    learn_strip,
     mark_paddle_blocks,
     next_label,
     outer_marks,
+    page_column,
+    scan_page,
 )
+from pdf_worker.ocr import tesseract_path
 from pdf_worker.output import Metadata
 from pdf_worker.structure import Heading, Note, Paragraph, _State
 from pdf_worker.text_export import write_text
 
 BODY = 11
+HAS_TESSERACT = bool(shutil.which("tesseract") or shutil.which("/opt/homebrew/bin/tesseract"))
 FULL = [
     "The quick brown fox jumps over the lazy dog and keeps running far",
     "away across the green fields until the evening light finally fades",
@@ -249,6 +257,106 @@ def test_estimated_labels_are_pink_in_the_reflowed_pdf(tmp_path):
             for span in line["spans"]
         }
     assert colors["22a"] >> 16 < 0x80 < colors["~22b"] >> 16  # green, then pink
+
+
+def test_the_strip_is_learnt_from_the_marks_and_facing_pages_swap_it():
+    doc = pymupdf.open()
+    for _ in range(4):
+        doc.new_page(width=330, height=520)
+    pages = list(doc)
+    column = (50.0, 280.0, 10.0)  # left, right, line height (points)
+    # Two marks right of the column on a first (odd) page, one left on a second.
+    strip = learn_strip(
+        [
+            (pages[0], (285, 100, 292, 108)),
+            (pages[2], (284, 300, 296, 310)),
+            (pages[1], (38, 90, 45, 98)),
+        ],
+        lambda page: column,
+    )
+    side, near, far = strip.sides[0]
+    assert side == "right" and near == pytest.approx(0.15) and far == pytest.approx(1.85)
+    assert strip.sides[1][0] == "left" and strip.sides[1][1:] == pytest.approx((0.25, 1.45))
+    # Never closer to the text than its own ink reaches (a shape drawn into the column).
+    close = learn_strip([(pages[0], (279, 100, 290, 108))], lambda page: column)
+    assert close.sides[0][1] == pytest.approx(0.15)
+    # Marks on one side only: the facing pages have theirs on the other side.
+    one = learn_strip([(pages[0], (285, 100, 292, 108))], lambda page: column)
+    assert one.sides[1] == ("left", *one.sides[0][1:])
+    assert learn_strip([], lambda page: column) is None
+
+
+_WORDS = [
+    "la",
+    "vida",
+    "del",
+    "alma",
+    "es",
+    "una",
+    "cosa",
+    "que",
+    "nadie",
+    "ignora",
+    "bien",
+    "pues",
+    "todo",
+    "lo",
+]
+
+
+def _scanned_book(path, pages):
+    """A scan in Courier (justified by construction: 38 letters a line), each page
+    ``(side, labels, ink)``: the margin labels ``[(line, label, gap in points)]`` on that
+    side, and ``ink`` (a number) on the other."""
+    doc = pymupdf.open()
+    for index, (side, labels, ink) in enumerate(pages):
+        page = doc.new_page(width=330, height=520)
+        x = 60 if index % 2 == 0 else 45
+        for k in range(30):
+            words = (_WORDS * 3)[k % len(_WORDS) :]
+            page.insert_text((x, 60 + 14 * k), " ".join(words)[:38], fontsize=10, fontname="cour")
+        right = x + 6 * 38
+        for k, label, gap in labels:
+            lx = right + gap if side == "right" else x - gap - 5 * len(label)
+            page.insert_text((lx, 60 + 14 * k), label, fontsize=9, fontname="tiro")
+        ix = x - 20 if side == "right" else right + 8
+        page.insert_text((ix, 60 + 14 * 14), ink, fontsize=9, fontname="tiro")
+    scan = pymupdf.open()
+    for page in doc:
+        picture = page.get_pixmap(dpi=300)
+        scan.new_page(width=330, height=520).insert_image(page.rect, pixmap=picture)
+    scan.save(path)
+    return path
+
+
+@pytest.mark.skipif(not HAS_TESSERACT, reason="Tesseract not installed")
+def test_margin_references_are_looked_for_where_the_marks_say(tmp_path):
+    # The first page: 22, b, d (c is not printed) right of the text, b glued to its line
+    # (Tesseract reads it into the line's first word); the second: 23, b on the left; the
+    # third has its references inside, on the left. The first two have a "12" on their
+    # spine side.
+    pages = [
+        ("right", [(3, "22", 6), (8, "b", 2), (19, "d", 6)], "12"),
+        ("left", [(4, "23", 6), (12, "b", 6)], "12"),
+        ("left", [(2, "c", 6), (9, "d", 6)], ""),
+    ]
+    path = _scanned_book(tmp_path / "scan.pdf", pages)
+    tesseract = tesseract_path()
+    with pymupdf.open(path) as doc:
+        marked = [(doc[0], (293, 41, 302, 50)), (doc[1], (28, 102, 39, 111))]
+        strip = learn_strip(marked, lambda page: page_column(page, tesseract, "spa"))
+        scans = [scan_page(page, tesseract, "spa", strip) for page in doc]
+        before = [scan_page(page, tesseract, "spa") for page in doc]
+
+    # One side each, the marked one unless the page has its references on the other.
+    assert [{m.side for m in s.marks} for s in scans] == [{"right"}, {"left"}, {"left"}]
+    assert any(m.side == "left" for m in before[0].marks)  # the "12" was a mark before
+    # Each mark beside its line, the glued "b" too (lost before).
+    assert [len(s.marks) for s in scans] == [3, 2, 2]
+    assert sum(m.side == "right" for m in before[0].marks) == 2
+    # Labelled in order; the unprinted 22c stays missing.
+    readings = [(i, m.reading) for i, s in enumerate(scans) for m in s.marks]
+    assert assign_labels(readings) == ["22a", "22b", "22d", "23a", "23b", "23c", "23d"]
 
 
 def test_reflowed_pdf_sets_margin_references_in_the_margin(tmp_path):
