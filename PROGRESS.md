@@ -1,6 +1,11 @@
 # Progress
 
-## Marks plan, Phase 6: margin references from marks (2026-11-02, branch `marks/phase-6`) - STOPPED
+## Marks plan, Phase 6: margin references from marks (2026-11-02, branch `marks/phase-6`) - merged
+- **The user's decision (2026-11-02)**: `book_score` leaves our margin labels
+  (`**\[11b\]**`) out of our words (references print none; selftest covers it).
+  Re-scored `p5c` and `p6b`: platon_bad extra words 187.4 in both, missing 548.9 ->
+  544.1. Phase 5 contents drops (philosophy extra words, Ratzinger breaks real) were
+  accepted by the user as the references' way with a contents.
 - **Stopped (draft PR)**: on platon_bad, "extra words" is worse than Phase 5's build by
   1.6 per 10,000 (268.4 -> 270.0; tolerance 1). The 13 extra words are the 13 margin
   labels found more: the reference prints no margin labels, so every label found counts

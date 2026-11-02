@@ -77,6 +77,8 @@ _MD_NOTE_RE = re.compile(r"^\[\^[^\]]+\]:")
 _MD_NOTEREF_RE = re.compile(r"\[\^[^\]]+\]")
 _MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _MD_LINK_RE = re.compile(r"\]\([^)]*\)")
+# Our margin labels ("**\[11b\]**"): references print none, so they are left out.
+_MD_MARGIN_RE = re.compile(r"\*\*\\\[[^\]\\]+\\\]\*\*")
 
 
 def words(text: str) -> list[str]:
@@ -113,7 +115,7 @@ def read_markdown(path: Path) -> Text:
         for line in block.split("\n"):
             if line.startswith("!["):
                 continue
-            text = _MD_LINK_RE.sub("]", _MD_IMAGE_RE.sub(" ", line))
+            text = _MD_LINK_RE.sub("]", _MD_IMAGE_RE.sub(" ", _MD_MARGIN_RE.sub(" ", line)))
             if line.startswith("#"):
                 level = len(line) - len(line.lstrip("#"))
                 out.headings.append((level, line.lstrip("#").strip()))
@@ -647,7 +649,7 @@ title: t
 
 # Capítulo primero
 
-{p1}[^1]
+**\\[11b\\]** {p1}[^1]
 
 {note}
 
