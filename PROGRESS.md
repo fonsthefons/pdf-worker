@@ -1,5 +1,56 @@
 # Progress
 
+## Marks plan, Phase 4: proof-of-concept verdict (2026-11-02, branch `marks/phase-4`)
+- **Runs**: the whole-yardstick builds made after Phase 3's stop (`scratch/marks/verdict`
+  with marks, `scratch/marks/verdict_base` with `--no-marks`; code unchanged since, main =
+  Phase 3 merged) re-scored with `quality.py score` (the scorer changed after them: a
+  heading's subtitle paragraph is part of the heading), then `quality.py compare
+  verdict_base verdict`: 7 changes beyond the tolerance for the worse, all headings. Four
+  books' totals from `scratch/marks/p4_totals.py`, errors from `p4_errors.py`, doubtful
+  pages from `tools/marks_report.py`. No code changed (no tests / regression needed).
+- **Before / after** (`--no-marks` -> marks):
+
+  | | headings found | headings real | levels | notes in body | leftovers |
+  |---|---|---|---|---|---|
+  | philosophy | 50.0 -> 52.5 | 84.1 -> 81.8 WORSE | 87.5 -> 74.5 WORSE | 0.7 | 0.3 |
+  | copleston | 70.9 -> 71.6 | 84.7 -> 88.2 better | 100 -> 100 | 0.2 | 1.5 |
+  | ratzinger | 64.2 -> 58.3 WORSE | 75.2 -> 73.4 WORSE | 100 -> 78.8 WORSE | 0.0 | 0.0 |
+  | platon_bad | 77.8 -> 88.9 better | 25.9 -> 31.0 better | 52.4 -> 75.0 better | 0.0 | 0.4 |
+  | four books | 301/507 = 59.4 -> 302/507 = 59.6 | 365/462 = 79.0 -> 318/407 = 78.1 | 93.7 -> 82.9 | 0.32 -> 0.32 | 0.70 -> 0.70 |
+
+  Other: extra 89.4 -> 87.4, missing 180.1 -> 180.0 per 10,000 (four books); platon_bad
+  extra 282.1 -> 268.4 better. Unmarked books and both headings page sets unchanged.
+- **Verdict: the bar is not met.** Found +0.2 and real -0.9 points (bar: +5 each); notes in
+  body and leftovers were already below 1 per 10,000 and stay the same (met, nothing to
+  gain); levels worse beyond the tolerance (not met); marking time about 20 minutes a book
+  (met: Phase 1's entry, the user's figure; the PR asks to confirm). As the user decided
+  (2026-11-02), the plan goes on: marks clearly help the scan (platon_bad: all three
+  heading measures up, extra down); on text-layer books they change what counts as a
+  heading to what the person marked, which the references often don't tag.
+- **Marks vs. references (the user judged the marks right; listed, not counted as
+  failure)**: Ratzinger levels 100 -> 78.8 and its wrong "a).- ..." / "b).- ..."
+  subsections (marked level 4, the reference has no such level) and "I. LA FE EN EL MUNDO
+  DE HOY:"; philosophy levels 87.5 -> 74.5 and wrong "PARTE III", "KANT.—I: VIDA Y
+  ESCRITOS", "LA ILUSTRACIÓN ALEMANA.—I" (marked parts and chapter titles); copleston
+  "TERCERA PARTE Platón", "Cuarta Parte ARISTÓTELES" (number + title in one mark).
+- **Errors left on the marked books, ranked** (headings missed + wrong; example page):
+  1. philosophy 116 missed: the reference's numbered section titles ("3. Fontenelle")
+     are printed as a bare number "3." starting the paragraph (p17); no heading line to
+     mark. Not a marks kind; left to today's rules.
+  2. ratzinger 50 missed / 25 wrong: contents-style mixed-case headings the reference
+     has in the contents only ("4. Los límites ...", p1) and the marked "a).- Primer
+     estadio ..." subsections (p14), above.
+  3. copleston 38 missed / 14 wrong: section headings in capitals without the
+     reference's number ("ANAXIMANDRO", reference "2. Anaximandro", p24); 33 number
+     leftovers.
+  4. platon_bad 20 wrong: the translator's introduction subheads ("Estructura y finalidad
+     del diálogo", p138) the reference doesn't tag, and the speakers' list "SÓCRATES,
+     PROTARCO, FILEBO" marked level 2.
+- **Review view's doubtful pages** (`marks_report.py`): philosophy 237 of 462, platon_bad
+  185 of 293, Ratzinger 32 of 145, copleston 25 of 455. Philosophy's are almost all body /
+  contents conflicts (1010: its contents lines and body share a style), platon_bad's body /
+  footnote (201). Checking those two books by page would cost more than marking did.
+
 ## Marks plan, Phase 3: headings and levels from marks (2026-11-02, branch `marks/phase-3`) - STOPPED
 - **Stopped (draft PR)**: following the marks makes headings measures worse beyond the
   tolerance on three of the four books (rule 5), and the plan doesn't say what to do when
