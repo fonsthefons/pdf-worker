@@ -2,13 +2,15 @@
 (docs/quality-plan.md, Phase 1).
 
 Usage:
-  .venv/bin/python tools/quality.py build OUT_DIR    (heavy: converts every book)
+  .venv/bin/python tools/quality.py build OUT_DIR [--no-marks] [--only LABEL,...]
+                                                     (heavy: converts every book)
   .venv/bin/python tools/quality.py score OUT_DIR    (re-score a build: no conversion)
   .venv/bin/python tools/quality.py compare BEFORE_DIR AFTER_DIR
 
 ``build`` converts each book of ``PAIRS`` to ``OUT_DIR/<label>.md`` one at a time, as
 ``tools/regression.py`` does (title and author given, the review file in OUT_DIR, cached
-model rows), then runs ``tools/headings_test.py run`` on both page sets
+model rows; a book's marks file followed unless ``--no-marks``; ``--only`` converts those
+books and skips the page sets), then runs ``tools/headings_test.py run`` on both page sets
 (``OUT_DIR/headings``, ``OUT_DIR/headings_heldout``) and ``score``. ``score`` scores each
 book against its reference (``tools/book_score.py``) and writes ``OUT_DIR/quality.json``
 and ``OUT_DIR/report.md``: a working and a held-out table (one row per book, a total row)
@@ -19,6 +21,7 @@ change beyond the tolerance (1 point for percentages, 1 per 10,000 reference wor
 rates) as better or WORSE.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -176,12 +179,14 @@ def page_measures(t: dict) -> dict:
 # --- build and score -------------------------------------------------------------------
 
 
-def build(out: Path) -> None:
+def build(out: Path, marks: bool = True, only: list[str] | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for label, pdf, _, _, paddle in PAIRS:
+        if only and label not in only:
+            continue
         print(f"{label}: {pdf.name}", flush=True)
-        convert_book(label, pdf, out, paddle)
-    for which, folder in PAGE_SETS.items():
+        convert_book(label, pdf, out, paddle, marks)
+    for which, folder in PAGE_SETS.items() if not only else ():
         print(f"headings test pages: {which}", flush=True)
         headings_test.run(out / folder, PAGE_TESTS[which])
     score(out)
@@ -330,8 +335,15 @@ def compare(before: Path, after: Path) -> None:
 
 
 def main(argv: list[str]) -> None:
-    if len(argv) == 2 and argv[0] in ("build", "score"):
-        (build if argv[0] == "build" else score)(Path(argv[1]))
+    if argv[:1] == ["build"] and len(argv) >= 2:
+        options = argparse.ArgumentParser(prog="quality.py build")
+        options.add_argument("out", type=Path)
+        options.add_argument("--no-marks", dest="marks", action="store_false")
+        options.add_argument("--only", type=lambda s: s.split(","))
+        args = options.parse_args(argv[1:])
+        build(args.out, args.marks, args.only)
+    elif len(argv) == 2 and argv[0] == "score":
+        score(Path(argv[1]))
     elif len(argv) == 3 and argv[0] == "compare":
         compare(Path(argv[1]), Path(argv[2]))
     else:

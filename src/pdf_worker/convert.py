@@ -13,7 +13,14 @@ from pathlib import Path
 
 import pymupdf
 
-from pdf_worker import bilingual, book_metadata, font_sizes, glued_refs, margin_estimates
+from pdf_worker import (
+    bilingual,
+    book_metadata,
+    follow_marks,
+    font_sizes,
+    glued_refs,
+    margin_estimates,
+)
 from pdf_worker.cover import cover_jpeg
 from pdf_worker.document import open_pdf
 from pdf_worker.docx_export import write_docx
@@ -27,6 +34,7 @@ from pdf_worker.inline import MARGIN_REF_RE, plain
 from pdf_worker.layout import analyze_document
 from pdf_worker.margin_refs import in_book, page_marks
 from pdf_worker.markdown_export import write_markdown
+from pdf_worker.marks import Settings
 from pdf_worker.ocr_check import assess_text_layer
 from pdf_worker.output import Metadata, WriteStats
 from pdf_worker.pdf_export import write_pdf
@@ -121,6 +129,7 @@ def convert_pdf(
     fixes_path: str | Path | None = None,
     source_pdf: str | Path | None = None,
     layout_rows: dict[int, dict] | None = None,
+    marks: bool = True,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
@@ -145,6 +154,9 @@ def convert_pdf(
     ``pdf_worker.fixes``) is applied to the text, then updated with what looks wrong.
     ``layout_rows`` (``paddle_ocr.layout_pages``, books built from the text layer) go
     to the ``DocumentProfile``'s ``layout``; not used yet.
+    With ``marks``, the book's marks file (``<pdf stem>.marks.json``, ``pdf_worker.marks``),
+    if there is one, says which lines are running heads, page numbers, footnotes, note
+    numbers... and where notes are printed (``pdf_worker.follow_marks``).
     """
     if estimate_margin_refs:
         margin_refs = True
@@ -162,6 +174,8 @@ def convert_pdf(
         info = source.metadata or {}
     facing, reread = set(), 0
     greek: list[Paragraph] = []  # Greek paragraphs left out
+    marked = follow_marks.load(pdf_path) if marks else None
+    settings = marked.settings if marked else Settings()
 
     steps = ["re-reading garbled words", "reading the layout", "building the book"]
     steps += ["laying out the PDF"] * (fmt == "pdf") + ["sorting the flagged words"]
@@ -183,14 +197,20 @@ def convert_pdf(
                 restored=restored,
                 on_page=on_page,
                 margin_refs=margin_refs,
+                kinds=follow_marks.paddle_kinds(doc, paddle_rows, marked) if marked else None,
+                numbering=settings.numbering,
             )
         else:
             font_sizes.mark_misreporting(doc)
             language, facing = bilingual.facing_pages(doc)
             reread = _reread_words(doc, language, facing, step("re-reading garbled words", "lines"))
             glued_refs.mark_glued_refs(doc, skip=facing)
-            profile = analyze_document(doc, on_page=step("reading the layout"))
+            profile = analyze_document(
+                doc, on_page=step("reading the layout"), notes=settings.notes
+            )
             profile.layout = layout_rows or {}
+            if marked:
+                profile.kinds, profile.note_refs = follow_marks.text_kinds(doc, marked)
             sample = profile.text_sample
             blocks = iter_blocks(
                 doc,

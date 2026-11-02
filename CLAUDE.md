@@ -39,7 +39,8 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   held-out pages), `book_score.py` (`REFERENCE OURS.md`: a whole converted book against a
   reference EPUB or `.txt` of the same text: words, headings, paragraph breaks, notes in
   the body, leftovers; `selftest`), `quality.py` (`build OUT_DIR` converts the reference
-  books of docs/quality-plan.md and runs both headings page sets, `score OUT_DIR`
+  books of docs/quality-plan.md and runs both headings page sets (`--no-marks` ignores the
+  books' marks files, `--only LABEL,...` converts those books only), `score OUT_DIR`
   re-scores, `compare BEFORE AFTER` marks changes beyond the tolerance: the quality
   plan's yardstick and merge gate), `marks_report.py` (`[--paddle-cache DIR] BOOK.pdf...`:
   what a marked book's style sheet says: lines per how-sure class, kinds, conflicts,

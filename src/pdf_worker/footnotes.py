@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 
 import pymupdf
 
+from pdf_worker.inline import margin_ref
 from pdf_worker.layout import (
     LOOSE_NOTE_MARK_RE,
     NOTE_MARK_RE,
@@ -33,6 +34,7 @@ from pdf_worker.layout import (
     page_lines,
     plain_note_start,
 )
+from pdf_worker.marks import DROPPED_KINDS, FURNITURE_KINDS
 from pdf_worker.styles import span_text
 
 # Footnote regions must start in the lower part of the page.
@@ -90,6 +92,8 @@ class BodyLine:
     # A contents entry (in a layout-model ``content`` box, or set so by ``structure``):
     # never a heading.
     entry: bool = False
+    # Its kind by the book's marks (``follow_marks``), None: today's rules.
+    kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -130,9 +134,21 @@ def layout_page(
     lines = page_lines(page)
     furniture = profile.furniture(page_index, lines, page.rect.height)
     chapter_notes = profile.chapter_notes
+    # The marks' kinds (``follow_marks``) win over the rules; None leaves a line to them.
+    kinds = profile.kinds.get(page_index) or [None] * len(lines)
+    _raise_refs(lines, profile.note_refs.get(page_index, ()))
+    furniture = {i for i in furniture if kinds[i] is None} | {
+        i for i, kind in enumerate(kinds) if kind in FURNITURE_KINDS
+    }
+    dropped = furniture | {i for i, kind in enumerate(kinds) if kind in DROPPED_KINDS}
     region = None
-    if page_index not in chapter_notes.note_pages:
-        region = _find_region(lines, profile.body_size, page.rect.height, furniture)
+    # Notes printed elsewhere (or nowhere, by the marks' settings): no footnotes by rule.
+    if page_index not in chapter_notes.note_pages and profile.notes in (None, "page"):
+        region = _find_region(lines, profile.body_size, page.rect.height, dropped)
+    marked = {i for i, kind in enumerate(kinds) if kind == "footnote"} - dropped
+    if marked or any(kinds):
+        region = [i for i in region or () if kinds[i] is None] + list(marked)
+        region = sorted(region, key=lambda i: (lines[i].top, lines[i].x0)) or None
     notes: list[tuple[str, list[str]]] = []
     marker_labels: dict[str, str] = {}
     consumed: set[int] = set()
@@ -161,7 +177,7 @@ def layout_page(
     definitions = [label for label, _ in notes if label != previous_label]
     body: list[BodyLine] = []
     for line_index, line in enumerate(lines):
-        if line_index in consumed or line_index in furniture:
+        if line_index in consumed or line_index in dropped:
             continue
         before, entry = entry, entries[line_index]
         after_item = item  # the last line with text: blank lines don't count
@@ -206,7 +222,10 @@ def layout_page(
         text = _render_brackets(text, profile, references)
         title = labels[line_index] in ("doc_title", "paragraph_title")
         listed = labels[line_index] == "content"
-        body.append(BodyLine(text, line, endnote, starts, title, listed))
+        kind = kinds[line_index]
+        if kind == "margin-ref" and text.strip():
+            text = margin_ref(text.strip())  # its place in the text: ``structure`` labels it
+        body.append(BodyLine(text, line, endnote, starts, title, listed, kind))
     # A note's marker set as plain text in the body ("(1)", "[1]"): link it there.
     for marker, label in marker_labels.items():
         if label in references or not marker.isdigit():
@@ -285,6 +304,18 @@ def _definition_marker(line: Line) -> tuple[str, str, bool] | None:
     if match:
         return match.group(1), line.text[match.end() :], False
     return None
+
+
+def _raise_refs(lines: list[Line], boxes) -> None:
+    """Spans at ``boxes`` (note numbers by the marks) are set as superscript, as the
+    rules' references are. The spans are this page's own copy (``page_lines``)."""
+    boxes = {tuple(round(c, 1) for c in box) for box in boxes}
+    if not boxes:
+        return
+    for line in lines:
+        for span in line.spans:
+            if tuple(round(c, 1) for c in span["bbox"]) in boxes:
+                span["flags"] |= SUPERSCRIPT
 
 
 def _superscript_markers(lines: list[Line]) -> list[str]:

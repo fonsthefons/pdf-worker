@@ -38,6 +38,9 @@ KINDS = (
     "line-number",
     "ignore",
 )
+# How ``convert`` follows the kinds (``pdf_worker.follow_marks``).
+FURNITURE_KINDS = ("running-head", "page-number")
+DROPPED_KINDS = ("ignore", "line-number")  # left out of the book
 SECTION_KINDS = (
     "front",
     "contents",
