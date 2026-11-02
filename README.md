@@ -272,7 +272,19 @@ pdf-worker process --to epub,pdf,md,html,txt,docx,searchable   # formats (defaul
 pdf-worker process book.pdf --title T --author A --language es --notes page --margin-refs
 pdf-worker process            # again: offers the review of waiting books, finishes reviewed ones
 pdf-worker process --clean    # delete what no book in file_inbox needs; file_outbox stays
+pdf-worker process --mark     # stop each new book to mark it first
 ```
+
+The steps of a book:
+
+1. OCR, if it's a scan.
+2. Mark (only with `--mark`): the book waits; mark it, then run `process` again. The marks
+   are kept in `file_work/<book>/`.
+3. Build: a book with words to check goes to `file_outbox/drafts`.
+4. Review the words (`process` offers it), then run `process` again.
+5. Done: the EPUB and PDF are in `file_outbox`.
+
+Marking fixes headings, notes and such; the review fixes words. An EPUB skips all of this.
 
 Several PDFs of one book go in a folder named after the book inside `file_inbox`. `process`
 compares them in a few seconds (`pdf_worker.copies`): first how much OCR each needs

@@ -880,7 +880,8 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
         "(OCR when needed). Given a FILE, only that book: it is copied into "
         "./file_conversion/file_inbox and goes through the same folders. Books with words "
         "to review get drafts in file_outbox/drafts; `process` offers the review, then the "
-        "rebuild. Intermediate files go in file_work; finished originals move to "
+        "rebuild. Steps of a book: OCR (scans), mark (--mark), build, review, done. "
+        "Intermediate files go in file_work; finished originals move to "
         "file_work/converted. A book's --to and options are kept for its later runs.",
     )
     parser.add_argument(
@@ -1069,6 +1070,7 @@ CHEAT_SHEET = [
             ("pdf-worker process", "EPUB + PDF in file_outbox; offers review, then rebuild"),
             ("pdf-worker process book.pdf", "Only this book (copied into file_inbox)"),
             ("pdf-worker process --to epub,md,searchable", "Other formats (kept for rebuilds)"),
+            ("pdf-worker process --mark", "Mark each new book first, then build, then review"),
             ("pdf-worker process", "Again later: reviews waiting books, finishes reviewed ones"),
             ("pdf-worker process --clean", "Delete work files and originals of finished books"),
         ],
