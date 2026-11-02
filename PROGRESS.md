@@ -1,5 +1,90 @@
 # Progress
 
+## Marks plan, Phase 5: sections, and the contents as links (2026-11-02, branch `marks/phase-5`) - STOPPED
+- **Stopped (draft PR)**: keeping the printed contents (plan item 2) makes two measures worse
+  beyond the tolerance (rule 5), and the references disagree on whether a printed contents
+  belongs in the text, so no choice passes on all four books. The user decides (below).
+- **What `convert` does now with marks**:
+  - Sections (`follow_marks.page_sections`, `follow_marks.sections`): a `SectionStart` block
+    (`structure.py`) goes before the first block of each section, by the page a block
+    starts on (its `page`, else its leading page mark, else the page reached; a scan's
+    headings now carry their page). The EPUB closes a chapter there, so each section is a
+    chapter of its own, named by its first heading, else by its kind (`epub._SECTION_NAMES`,
+    Spanish and English). Other formats ignore the block. `keep: false` pages are left out
+    (text layer: `iter_blocks(skip=)`; scans: `iter_paddle_blocks(skip=)`).
+  - `notes` sections: `analyze_document(notes_pages=)` collects the chapter notes there and
+    only there, whatever `settings.notes` says (text layer; scans left to today's rules: no
+    test book has a notes section).
+  - `bibliography` sections: a short line ends its entry whatever the next line starts with
+    ("- Otra obra", "de Unamuno"; the rules want a capital or a digit); on scans a page's
+    first block goes on with the last page's entry only when it starts in lowercase.
+  - `index` sections as today (`index_links`).
+  - Contents: lines of kind `contents` (marked or matched) in the marks' contents sections
+    (anywhere when the book has none) become entries, one paragraph each, with a link
+    (`inline.contents_entry`, target `toc`; leaders and page number taken off; a line
+    without letters, a column of page numbers, dropped). An entry goes on into the next
+    line at a hyphen, or when the next line doesn't start like an item ("1.", "II.-",
+    "a).-") and is in lowercase or the line before fills the column without a page number.
+    Scans: a block of kind contents keeps its lines, one entry each, and a page with
+    Paddle's `content` boxes is no longer dropped when the marks have contents on it. The
+    EPUB writes them as `<ol class="contents">` and resolves each link at the end
+    (`epub._link_entries`): by text (`_entry_key`: accents, case, arabic and roman numbers,
+    punctuation left out; the same words or one the start of the other), in order; then
+    entries left between two found ones by order when as many headings lie between; an
+    entry naming no heading stays plain text. The EPUB's own navigation is as before;
+    Markdown drops in-book links, so there the entries are plain paragraphs.
+- Tests first (`tests/test_sections.py`, failed before: no `SectionStart`, no
+  `contents_entry`): a section marker before its first block (a scan's blocks by their
+  page marks); each section a chapter, named by its heading or its kind; a section not
+  kept left out; contents entries linked by text and by order, plain when naming nothing,
+  a lettered item its own entry, a lowercase line going on; without marks a contents page
+  dropped as before; bibliography entries one paragraph each; a notes section holding the
+  endnotes against `notes: page`; a scan's contents block and bibliography.
+- **Builds** (`scratch/marks/p5c`, the four books with marks; before = `scratch/marks/verdict`,
+  Phase 4's build with marks, code unchanged since; `quality.py compare verdict p5c`):
+
+  | | extra | leftovers | breaks found | breaks real | headings real | other |
+  |---|---|---|---|---|---|---|
+  | philosophy | 106.9 -> 128.1 WORSE | 0.3 | 98.4 | 98.7 | 81.8 -> 81.2 | same |
+  | copleston | 37.0 | 1.5 | 96.1 | 76.1 | 88.2 -> 89.9 better | found 71.6 -> 71.3 |
+  | ratzinger | 0.1 | 0.0 | 96.1 -> 99.2 better | 100.0 -> 97.4 WORSE | 73.4 | same |
+  | platon_bad | 268.4 | 0.4 | 99.9 | 98.9 | 31.0 | same |
+
+  - philosophy: its contents pages (5-7; Paddle's `content` boxes, dropped before) are kept
+    as entries: 390 words its reference doesn't have. One bibliography entry split ("...
+    Buenos Aires," / "LANSON, G., ...", right).
+  - ratzinger: its contents (pages 1-3) was in the text before too, the rules running its
+    lines into a few paragraphs ("*1. Duda y fe ...* *2. El salto ...*"); now one entry a
+    line. The reference has the contents as text (extra 0.1 with it), its breaks found
+    rise, but some of ours aren't its ("CIELO Y DE LA TIERRA", the second line of a
+    title, still an entry of its own).
+  - copleston: its contents (p. 451-453, dropped before by the contents-page rule) is kept;
+    its reference has it as text (extra unchanged).
+  - platon_bad: unchanged (no contents marks; no section not kept).
+  - Leftovers (the phase's own measure) unchanged on all four; extra better nowhere: no
+    marked section is `keep: false`, so nothing is dropped.
+- **Contents links in the EPUB** (`scratch/marks/p5_epub.py`): Ratzinger 91 of 97 entries
+  linked to the right heading (plain: "INDICE GENERAL", "CIELO Y DE LA TIERRA", two
+  entries whose heading the text lacks or splits); Copleston 107 of 107; its appendices
+  are chapters of their own, the contents section a chapter named "Índice".
+- **Experiment, the other way** (`scratch/marks/p5_no_entries.py`, `scratch/marks/p5_noent`:
+  Markdown without the entries, as if the printed contents were left out of the text): 
+  philosophy extra back to 106.8 but missing 178.1 -> 183.0 WORSE (its chapter summaries,
+  marked `contents` in the main section, are in its reference); ratzinger missing 1.6 ->
+  91.2 WORSE (its reference keeps the contents). So leaving the contents out fails too.
+- **For the user**: (a) accept the two drops as the references' conventions (philosophy's
+  reference has no printed contents; Ratzinger's paragraphs its contents otherwise), or (b)
+  keep the printed contents in the EPUB only and leave it out of Markdown and text output
+  (fails Ratzinger's missing words by ~90 per 10,000), or (c) mark such pages `keep: false`
+  (a section not kept is left out entirely, EPUB too).
+- Regression (`regression.py build scratch/regress/marks5`, 625 s; `compare marks3 marks5`):
+  all eight the same numbers, 0 diff lines (rule 1). The `--no-marks` side is Phase 4's
+  `verdict_base` (that code path is unchanged, as the regression shows). Fast tests 435
+  passed; ruff check and format clean.
+- Also fixed: `convert_pdf` reused the name `marked` (the marks file) for a count of pages
+  with margin references; now `with_refs`.
+- Slip: one `python -c` one-liner (reading an EPUB file) instead of a scratch script.
+
 ## Marks plan, Phase 4: proof-of-concept verdict (2026-11-02, branch `marks/phase-4`)
 - **Runs**: the whole-yardstick builds made after Phase 3's stop (`scratch/marks/verdict`
   with marks, `scratch/marks/verdict_base` with `--no-marks`; code unchanged since, main =

@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import tempfile
+import unicodedata
 import uuid
 import zipfile
 import zlib
@@ -20,11 +21,13 @@ from array import array
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 
 from pdf_worker.footnotes import display_marker
 from pdf_worker.index_links import parse_word_target, word_keys
 from pdf_worker.inline import (
+    CONTENTS_TARGET,
     ESTIMATED,
     LINE_BREAK,
     LinkClose,
@@ -32,6 +35,7 @@ from pdf_worker.inline import (
     MarginRef,
     PageMark,
     Style,
+    is_contents_entry,
     parse_page_target,
     pieces,
     plain,
@@ -45,6 +49,7 @@ from pdf_worker.structure import (
     Image,
     Note,
     Paragraph,
+    SectionStart,
     Table,
 )
 
@@ -69,6 +74,37 @@ _KEY_SEP = ""
 _KEY_CHARS = 40
 _MIN_KEY = 6
 _TRAILING_PAGE_RE = re.compile(r"(?<=\S)[\s.·…]+(?:\d{1,4}|[ivxlcdm]{1,7})\s*$", re.I)
+_ROMAN = set("ivxlcdm")
+# A contents entry's link placeholder, with its text: a link if it names a heading.
+_ENTRY_LINK_RE = re.compile(
+    f'<a href="{_LINK_START}{CONTENTS_TARGET}:(\\d+)[^{_LINK_END}]*{_LINK_END}">(.*?)</a>',
+    re.DOTALL,
+)
+# A chapter of a marked section without headings is named by the section's kind.
+_SECTION_NAMES = {
+    "en": {
+        "front": "Front matter",
+        "contents": "Contents",
+        "introduction": "Introduction",
+        "main": "Text",
+        "notes": "Notes",
+        "bibliography": "Bibliography",
+        "index": "Index",
+        "appendix": "Appendix",
+        "back": "Back matter",
+    },
+    "es": {
+        "front": "Preliminares",
+        "contents": "Índice",
+        "introduction": "Introducción",
+        "main": "Texto",
+        "notes": "Notas",
+        "bibliography": "Bibliografía",
+        "index": "Índice alfabético",
+        "appendix": "Apéndice",
+        "back": "Final",
+    },
+}
 # Characters that are not allowed in XML 1.0 documents.
 _XML_INVALID_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
 
@@ -85,6 +121,8 @@ p.small { text-indent: 0; margin: 0.4em 0; }
 nav#toc ol { list-style: none; padding-left: 1.2em; }
 nav#toc > ol { padding-left: 0; }
 nav#toc li { margin: 0.2em 0; }
+ol.contents { list-style: none; padding-left: 0; }
+ol.contents li { margin: 0.2em 0; }
 a.noteref { text-decoration: none; }
 span.mref { color: #2e7d32; font-family: sans-serif; font-weight: bold; font-size: 0.95em;
   padding: 0 0.2em; }
@@ -101,6 +139,40 @@ div.figure img { max-width: 100%; height: auto; }
 div.cover { text-align: center; margin: 0; }
 div.cover img { max-width: 100%; max-height: 100%; }
 """
+
+
+def _entry_key(text: str) -> str:
+    """A contents entry's or heading's words, to match one with the other: accents, case,
+    numbers (arabic and roman) and punctuation left out ("1. Capítulo I - Jonia" and
+    "CAPÍTULO I JONIA" compare equal)."""
+    bare = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    words = re.findall(r"[^\W_]+", bare.casefold())
+    return "".join(w for w in words if not (w.isdigit() or set(w) <= _ROMAN))
+
+
+def _names(entry: str, heading: str) -> bool:
+    """The entry names the heading: the same words, or one's the start of the other's."""
+    if not entry or not heading:
+        return False
+    short, long = sorted((entry, heading), key=len)
+    return short == long or (len(short) >= _MIN_KEY and long.startswith(short))
+
+
+def _link_entries(entries: list[str], headings: list[tuple[str, str]]) -> dict[int, str]:
+    """Contents entry (its index) -> the href of the heading it names (``headings``: key,
+    href, in book order). By text first, in order (an entry names the next heading of
+    its words after the one the entry before it named); then the entries left between two
+    found ones, by order, when as many headings lie between those two."""
+    found: dict[int, int] = {}
+    start = 0
+    for i, key in enumerate(entries):
+        k = next((k for k in range(start, len(headings)) if _names(key, headings[k][0])), None)
+        if k is not None:
+            found[i], start = k, k + 1
+    for (i, a), (j, b) in pairwise(sorted(found.items())):
+        if j - i == b - a:
+            found.update({i + n: a + n for n in range(1, j - i)})
+    return {i: headings[k][1] for i, k in found.items()}
 
 
 def _match_key(text: str) -> str:
@@ -175,6 +247,10 @@ class _EpubBuilder:
         self.parts: list[str] = []
         self.chars = 0
         self.chapter_title = ""
+        self.section_name = ""  # the marked section's name: a chapter title (_SECTION_NAMES)
+        self.in_list = False  # a list of contents entries is open
+        self.entries: list[str] = []  # each contents entry's key (_entry_key)
+        self.entry_hrefs: dict[int, str] = {}  # entry -> its heading's href, at the end
         self.note_ids: dict[str, str] = {}  # label -> "n7"
         self.first_ref: dict[str, str] = {}  # label -> "c003.xhtml#r7"
         self.ref_counts: dict[str, int] = {}
@@ -196,11 +272,21 @@ class _EpubBuilder:
     def current_file(self) -> str:
         return f"c{len(self.chapter_files) + 1:03d}.xhtml"
 
+    def _close_list(self) -> None:
+        if self.in_list:
+            self.parts.append("</ol>\n")
+            self.in_list = False
+
     def _close_chapter(self) -> None:
+        self._close_list()
         if not self.parts:
             return
         name = self.current_file
-        title = self.chapter_title or f"{self.meta.title} ({len(self.chapter_files) + 1})"
+        title = (
+            self.chapter_title
+            or self.section_name
+            or f"{self.meta.title} ({len(self.chapter_files) + 1})"
+        )
         page = _xhtml_page(title, self.meta.language, "".join(self.parts))
         (self.work_dir / name).write_text(page, encoding="utf-8")
         self.chapter_files.append(name)
@@ -209,7 +295,23 @@ class _EpubBuilder:
         self.parts, self.chars, self.chapter_title = [], 0, ""
 
     def add(self, block: Block) -> None:
-        if isinstance(block, Heading):
+        entry = isinstance(block, Paragraph) and is_contents_entry(block.text)
+        if not entry:
+            self._close_list()
+        if isinstance(block, SectionStart):
+            self._close_chapter()  # each section a chapter of its own
+            names = _SECTION_NAMES.get(self.meta.language.split("-")[0], _SECTION_NAMES["en"])
+            self.section_name = names.get(block.kind, block.kind)
+        elif entry:
+            if not self.in_list:
+                self.parts.append('<ol class="contents">\n')
+                self.in_list = True
+            self.stats.paragraphs += 1
+            self.parts.append(
+                f'<li id="b{self.stats.paragraphs}">{self._inline(block.text)}</li>\n'
+            )
+            self.chars += len(block.text)
+        elif isinstance(block, Heading):
             if self.chars >= _MIN_CHAPTER_CHARS:
                 self._close_chapter()
             self.stats.headings += 1
@@ -325,7 +427,11 @@ class _EpubBuilder:
                 # The placeholder carries the link's text too, to match it with the start
                 # of the target block (a contents entry and its heading).
                 key = _match_key(_link_text(items, position))
-                out.append(f'<a href="{_LINK_START}{piece.target}{_KEY_SEP}{key}{_LINK_END}">')
+                target = piece.target
+                if target == CONTENTS_TARGET:  # resolved at the end (_link_entries)
+                    target = f"{CONTENTS_TARGET}:{len(self.entries)}"
+                    self.entries.append(_entry_key(_link_text(items, position)))
+                out.append(f'<a href="{_LINK_START}{target}{_KEY_SEP}{key}{_LINK_END}">')
                 open_links = 1
             elif isinstance(piece, LinkClose):
                 if open_links:
@@ -368,7 +474,12 @@ class _EpubBuilder:
             target, _, key = match.group(1).partition(_KEY_SEP)
             return _attr(self._target_href(target, key))
 
-        return _PLACEHOLDER_RE.sub(_href, text)
+        def _entry(match: re.Match) -> str:
+            # A contents entry naming no heading stays plain text.
+            href = self.entry_hrefs.get(int(match.group(1)))
+            return f'<a href="{_attr(href)}">{match.group(2)}</a>' if href else match.group(2)
+
+        return _PLACEHOLDER_RE.sub(_href, _ENTRY_LINK_RE.sub(_entry, text))
 
     def _target_href(self, target: str, key: str = "") -> str:
         if target.startswith("u:"):
@@ -466,6 +577,9 @@ class _EpubBuilder:
             self.parts.append(f"<p>{_esc(self.meta.title)}</p>\n")
             self._close_chapter()
         self.stats.chapters = len(self.chapter_files)
+        if self.entries:
+            headings = [(_entry_key(e.text), e.href) for e in self.toc if "#" in e.href]
+            self.entry_hrefs = _link_entries(self.entries, headings)
 
 
 def write_epub(

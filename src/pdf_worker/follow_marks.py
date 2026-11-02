@@ -9,13 +9,15 @@ takes the kind most of its lines (more than half) have.
 import re
 import statistics
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 
 import pymupdf
 
 from pdf_worker import marks
+from pdf_worker.inline import LEADING_PAGE_MARKS_RE, PageMark, pieces
 from pdf_worker.layout import page_lines
 from pdf_worker.marks import FURNITURE_KINDS
+from pdf_worker.structure import Block, SectionStart
 from pdf_worker.style_sheet import PLACE_KINDS, Label, PageLines, classify, key, measure
 
 TITLE_LABELS = ("doc_title", "paragraph_title")  # the layout model's headings
@@ -110,6 +112,38 @@ def text_kinds(
             and marks.inside(_middle(span["bbox"]), mark.shape)
         ]
     return kinds, {index: boxes for index, boxes in refs.items() if boxes}, levels
+
+
+def page_sections(book: marks.Marks, page_count: int) -> dict[int, marks.Section]:
+    """Page index -> the marked section it is in (each runs from its page to the next
+    section's); pages before the first section are in none."""
+    starts = sorted(book.sections, key=lambda s: s.page)
+    return {
+        index: section
+        for section, after in zip(starts, [*starts[1:], None], strict=False)
+        for index in range(section.page - 1, after.page - 1 if after else page_count)
+    }
+
+
+def sections(blocks: Iterable[Block], book: marks.Marks) -> Iterator[Block]:
+    """``blocks`` with a ``SectionStart`` before the first block of each section, by the
+    page a block starts on: its own (``page``), else its first page start, else the page
+    the blocks before it reached (notes, a scan's blocks)."""
+    starts = sorted(((s.page - 1, s.kind) for s in book.sections), reverse=True)
+    page = -1
+    for block in blocks:
+        text = getattr(block, "text", "")
+        marks_in = [p.index for p in pieces(text) if isinstance(p, PageMark)]
+        first = getattr(block, "page", -1)
+        if first < 0:
+            first = marks_in[0] if LEADING_PAGE_MARKS_RE.match(text) else page
+        kind = None
+        while starts and starts[-1][0] <= first:
+            kind = starts.pop()[1]
+        if kind:
+            yield SectionStart(kind)
+        page = max([page, first, *marks_in])
+        yield block
 
 
 def _middle(box) -> tuple[float, float]:
