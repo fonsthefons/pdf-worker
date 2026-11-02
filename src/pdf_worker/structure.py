@@ -312,6 +312,15 @@ def _no_note_titles(lines: list[BodyLine], body_size: float) -> list[BodyLine]:
     ]
 
 
+def _captions_apart(lines: list[BodyLine]) -> list[BodyLine]:
+    """A caption by the marks starts a paragraph of its own, and the line after it too."""
+    out = []
+    for before, bl in zip([None, *lines], lines, strict=False):
+        caption_before = before is not None and before.kind == "caption"
+        out.append(replace(bl, starts=True) if caption_before != (bl.kind == "caption") else bl)
+    return out
+
+
 def _running_title(layout: PageLayout, page_width: float) -> str:
     """The running head of a right-hand page (its page number on the right half of the
     top row, or merged: "TIMEO 163"): by convention there the work's title, on
@@ -428,14 +437,16 @@ class _State:
             [
                 bl
                 for i, bl in enumerate(layout.lines)
-                if i not in labels and not SEPARATOR_RE.match(bl.text)
+                if i not in labels and not SEPARATOR_RE.match(bl.text) and bl.kind != "gloss"
             ],
             page_width,
             profile.body_size,
         )
         lines = _mark_entries(list(columns.body), layout.lines)
         lines = _no_note_titles(lines, profile.body_size)
-        glosses = columns.glosses
+        lines = _captions_apart(lines)
+        # Glosses by the marks, then the rules'.
+        glosses = tuple(bl.text for bl in layout.lines if bl.kind == "gloss") + columns.glosses
         if _is_contents_page(lines) and not links:
             # A printed table of contents without links: the EPUB has its own, so the
             # entries ("Chapter One ...... 42") and a column of page numbers are dropped.

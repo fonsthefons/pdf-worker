@@ -338,6 +338,13 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         help="Review file of OCR fixes, applied to the text and updated with suspicious "
         "words, notes and margin references (default: <pdf stem>.fixes.tsv next to the PDF).",
     )
+    parser.add_argument(
+        "--no-marks",
+        dest="marks",
+        action="store_false",
+        help="Ignore the book's marks file (<pdf stem>.marks.json, made with 'pdf-worker "
+        "mark'), which otherwise says which lines are running heads, footnotes...",
+    )
     _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
 
@@ -354,6 +361,7 @@ def _run_convert(args: argparse.Namespace) -> int:
         margin_refs=args.margin_refs,
         estimate_margin_refs=args.estimate_margin_refs,
         fixes_path=args.fixes or default_fixes_path(args.pdf),  # not the OCR'd copy's
+        marks=args.marks,
     )
     if args.ocr in ("redo", "force") and args.engine == "paddle":
         # The book is built from Paddle's blocks themselves, not from a text layer.

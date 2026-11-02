@@ -206,7 +206,7 @@ def test_a_scan_shows_the_lines_of_its_paddle_rows():
         "height": 800,
         "blocks": [{"label": "text", "bbox": [100, 100, 500, 140], "text": "uno dos\ntres"}],
     }
-    lines, words, blocks = marking._paddle_view(page, row)
+    lines, words, blocks = marking.paddle_view(page, row)
     assert [(line.text, line.bbox) for line in lines] == [
         ("uno dos", (50, 50, 250, 60)),
         ("tres", (50, 60, 250, 70)),

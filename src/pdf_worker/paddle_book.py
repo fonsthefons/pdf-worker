@@ -30,6 +30,7 @@ from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
 from pdf_worker.layout import _RUNNING_PAGES, HEADING_RATIO, PAGE_NUMBER_RE, _roman, running_key
 from pdf_worker.margin_refs import assign_labels, in_book
+from pdf_worker.marks import DROPPED_KINDS, FURNITURE_KINDS
 from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
 from pdf_worker.paddle_ocr import (
@@ -207,6 +208,32 @@ def furniture(rows: list[dict]) -> dict[int, set[int]]:
     return found
 
 
+# Paddle's label for a block of each kind by the marks; a block of another kind in the
+# text (body, heading...) that Paddle took for a note, footer, number or aside is text.
+# Running heads, page numbers and ignored lines are left out as furniture. Margin
+# references keep Paddle's label: this path finds them in the scan (``prepare_blocks``).
+_KIND_LABELS = {"footnote": "footnote", "gloss": "aside_text", "caption": "header"}
+_OUT_OF_TEXT = {"footnote", "footer", "number", "aside_text"}
+_LEFT_OUT = (*FURNITURE_KINDS, *DROPPED_KINDS)
+
+
+def _follow(row: dict, kinds: dict[int, str], skip: set[int]) -> dict:
+    """``row`` with its blocks relabelled by ``kinds``; ``skip`` (its furniture) updated."""
+    blocks = []
+    for i, block in enumerate(row["blocks"]):
+        kind = kinds.get(i)
+        label = None
+        if kind in _LEFT_OUT:
+            skip.add(i)
+        elif kind and kind != "margin-ref":
+            skip.discard(i)
+            label = _KIND_LABELS.get(kind)
+            if label is None and block.get("label") in _OUT_OF_TEXT:
+                label = "text"
+        blocks.append({**block, "label": label} if label else block)
+    return {**row, "blocks": blocks}
+
+
 def iter_paddle_blocks(
     doc: pymupdf.Document,
     rows: list[dict],
@@ -215,13 +242,17 @@ def iter_paddle_blocks(
     restored: list[str] | None = None,
     on_page: Callable[[int, int], None] | None = None,
     margin_refs: bool | None = None,
+    kinds: dict[int, dict[int, str]] | None = None,
+    numbering: str | None = None,
 ) -> Iterator[Block]:
     """The book's blocks from Paddle's ``rows`` (one per page, as ``paddle_pages``
     returns them) for the scanned ``doc``. References put back by
     ``pdf_worker.missing_refs`` are told in ``restored``, one line each.
     ``on_page(done, total)`` is called after each page. With ``margin_refs`` False no
     margin mark is labelled; with None only when labels are on enough pages
-    (``margin_refs.in_book``)."""
+    (``margin_refs.in_book``). ``kinds`` (``follow_marks.paddle_kinds``: page -> block ->
+    kind) win over Paddle's labels and the furniture rule; ``numbering`` (a marks file's
+    setting: where note numbers start again) replaces the guess of a new part."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
     scan_of = page_scanner(language)
     read_mixed = mixed_reader(language)
@@ -244,6 +275,8 @@ def iter_paddle_blocks(
     ]
     labels = printed_labels([(row["page"], n) for row, n in zip(rows, numbers, strict=True)])
     furniture_of = furniture(rows)
+    if kinds:
+        rows = [_follow(row, kinds.get(row["page"], {}), furniture_of[row["page"]]) for row in rows]
     try:
         for done, (row, number) in enumerate(zip(rows, numbers, strict=True)):
             if on_page:
@@ -306,6 +339,7 @@ def iter_paddle_blocks(
         clips.close()
 
     def build(book: _Book, pictures: bool) -> Iterator[Block]:
+        book.numbering = numbering
         for mark, row, blocks, anchors in prepared:
             book.marks.append(mark)
             book.page = row["page"]
@@ -344,6 +378,7 @@ class _Book:
         self.part = 0
         self.notes_seen = False
         self.last_note: str | None = None
+        self.numbering: str | None = None  # a marks file's: where note numbers start again
 
     def flush(self) -> Iterator[Block]:
         if self.para is not None:
@@ -355,7 +390,12 @@ class _Book:
     def add_page(self, page, row, blocks, anchors, images) -> Iterator[Block]:
         notes = [b for b in blocks if b[0] == "footnote"]
         # A note count starting again from 1: the next part (introduction -> dialogue).
-        if any(n[2].startswith("¹ ") for n in notes) and self.notes_seen:
+        # The marks' setting says where it starts again: on every page, never (one count
+        # for the book), or (chapter, unset) where the count does.
+        restart = {"page": bool(notes), "book": False}.get(
+            self.numbering, any(n[2].startswith("¹ ") for n in notes)
+        )
+        if restart and self.notes_seen:
             self.part += 1
         self.notes_seen = self.notes_seen or bool(notes)
         first_text = True

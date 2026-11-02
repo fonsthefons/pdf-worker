@@ -33,6 +33,7 @@ _PAGE_RE = re.compile(r"^/(page|labels)/(\d+)\.(png|json)$")
 class ViewLine(NamedTuple):
     bbox: tuple[float, float, float, float]
     text: str
+    block: int = -1  # a scan's line: the index of its Paddle block in the row
 
 
 class Book:
@@ -72,7 +73,7 @@ class Book:
         if number not in self._views:
             page = self.doc.load_page(number - 1)
             if self.paddle:
-                lines, words, blocks = _paddle_view(page, self.paddle.get(number - 1))
+                lines, words, blocks = paddle_view(page, self.paddle.get(number - 1))
             else:
                 lines, words, blocks = _text_view(page, self.layout.get(number - 1))
             self._lines[number] = lines
@@ -186,7 +187,7 @@ def _span_words(lines) -> list[tuple]:
     return words
 
 
-def _paddle_view(page: pymupdf.Page, row: dict | None):
+def paddle_view(page: pymupdf.Page, row: dict | None):
     """Lines, words and blocks from a page's Paddle row: each block's printed lines share
     its height evenly, and a line's words its width by their letters."""
     # shortcut: lines and words are placed by share, not found on the scan; enough to
@@ -196,7 +197,7 @@ def _paddle_view(page: pymupdf.Page, row: dict | None):
     sx = page.rect.width / (row.get("width") or page.rect.width)
     sy = page.rect.height / (row.get("height") or page.rect.height)
     lines, words, blocks = [], [], []
-    for block in row["blocks"]:
+    for index, block in enumerate(row["blocks"]):
         if len(block.get("bbox", [])) != 4:
             continue
         x0, y0, x1, y1 = block["bbox"]
@@ -206,7 +207,7 @@ def _paddle_view(page: pymupdf.Page, row: dict | None):
         step = (y1 - y0) / max(len(texts), 1)
         for k, text in enumerate(texts):
             top, bottom = y0 + k * step, y0 + (k + 1) * step
-            lines.append(ViewLine((x0, top, x1, bottom), text))
+            lines.append(ViewLine((x0, top, x1, bottom), text, index))
             left, width = x0, (x1 - x0) / len(text)
             for match in re.finditer(r"\S+", text):
                 start, end = match.span()

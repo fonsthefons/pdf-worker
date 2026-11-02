@@ -135,6 +135,8 @@ described in detail under [Features](#features).
                                          ▼
   --notes end (default) | page (reflowed PDF) | none (drop notes and their refs)
   --no-images  --no-cover
+  --no-marks   ignore book.marks.json (pdf-worker mark: running heads, page numbers,
+               footnotes, note numbers and where notes are printed, from marked examples)
                                          ▼
   WRITE (atomic)  --to / -o extension:
     epub → book.epub         EPUB 3, pop-up notes, nav+NCX, page list, cover

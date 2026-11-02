@@ -353,6 +353,11 @@ class DocumentProfile:
     # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``): bibliography
     # entries and paragraphs (``footnotes.layout_page``).
     layout: dict[int, dict] = field(default_factory=dict)
+    # From the book's marks (``pdf_worker.follow_marks``): page index -> each line's kind
+    # (None: today's rules), the boxes of note numbers, and where notes are printed.
+    kinds: dict[int, list[str | None]] = field(default_factory=dict)
+    note_refs: dict[int, list[tuple]] = field(default_factory=dict)
+    notes: str | None = None
 
     def heading_level(self, size: float) -> int | None:
         """Level of the nearest heading size, if ``size`` is within its jitter band."""
@@ -401,10 +406,15 @@ class DocumentProfile:
 
 
 def analyze_document(
-    doc: pymupdf.Document, on_page: Callable[[int, int], None] | None = None
+    doc: pymupdf.Document,
+    on_page: Callable[[int, int], None] | None = None,
+    notes: str | None = None,
 ) -> DocumentProfile:
     """One pass over every page collecting font, spacing, margin and endnote statistics.
-    ``on_page(done, total)`` follows the pages."""
+    ``on_page(done, total)`` follows the pages. ``notes`` (a marks file's
+    ``settings.notes``) says where the book prints its notes instead of the guess:
+    ``page`` or ``none``, no chapter notes; ``chapter`` or ``book``, notes collected
+    elsewhere even when numbers repeat beside their references."""
     sizes: Counter[float] = Counter()
     gaps: Counter[float] = Counter()
     edge_pages: defaultdict[tuple[str, str], set[int]] = defaultdict(set)
@@ -517,7 +527,10 @@ def analyze_document(
     # references; only as a block after all of their references, as a page's footnotes
     # ("17 Text" at its foot) look the same. A book printing footnotes has none.
     chapter_notes = ChapterNotes()
-    if not notes_beside_refs(sup_refs, plain_note_lines):
+    collected = (
+        notes in ("chapter", "book") if notes else not notes_beside_refs(sup_refs, plain_note_lines)
+    )
+    if collected:
         chapter_notes = max(
             match_chapter_notes(sup_refs, note_lines),
             match_chapter_notes(
@@ -557,6 +570,7 @@ def analyze_document(
         paren_refs=frozenset(paren_refs),
         # Seen twice or more: a word of the book's, not only of the line it is read in.
         vocabulary={w: n for w, n in word_counts.items() if n >= 2},
+        notes=notes,
     )
 
 

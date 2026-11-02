@@ -82,10 +82,13 @@ def _write_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def convert_book(label: str, pdf: Path, out: Path, paddle: bool = False) -> dict:
+def convert_book(
+    label: str, pdf: Path, out: Path, paddle: bool = False, marks: bool = True
+) -> dict:
     """``pdf`` to ``out/<label>.md`` and its numbers to ``out/<label>.json``. ``paddle``:
     built from PaddleOCR-VL's rows (a scan; all its pages must be cached), else from the
-    text layer with the layout model's rows, as the inbox passes them."""
+    text layer with the layout model's rows, as the inbox passes them. ``marks``: follow
+    the book's marks file, if it has one."""
     # Both kinds of rows are cached in scratch/paddle-home.
     os.environ.setdefault("PDF_WORKER_PADDLE_CACHE", str(ROOT / "scratch" / "paddle-home"))
     from pdf_worker.convert import convert_pdf
@@ -107,6 +110,7 @@ def convert_book(label: str, pdf: Path, out: Path, paddle: bool = False) -> dict
         author="-",
         cover=False,
         fixes_path=out / f"{label}.fixes.tsv",
+        marks=marks,
         **rows,
     )
     result = numbers(md, report.stats)
