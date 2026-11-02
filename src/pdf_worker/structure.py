@@ -27,6 +27,7 @@ from pdf_worker.inline import (
     LEADING_PAGE_MARKS_RE,
     MARGIN_REF_RE,
     STYLE_RE,
+    contents_entry,
     link,
     margin_ref,
     page_mark,
@@ -75,6 +76,8 @@ _CONTENTS_ENTRY_RE = re.compile(
     re.IGNORECASE,
 )
 _MIN_CONTENTS_ENTRIES = 5
+# A numbered or lettered item: "1. Duda", "II.- LA FE", "a).- Primer", "b.).-", "A. EL".
+_ITEM_RE = re.compile(r"(?:\d{1,3}|[IVXLC]{1,6})\s?[.)\-–—]|[A-Za-z]\.?\)|[A-Za-z]\.\s")
 # A note's first line: its number or sign ("3. Ibidem.", "3.", "* See").
 _NOTE_START_RE = re.compile(r"^\s*(?:\d{1,3}|[*†‡])[.)]?(?:\s|$)")
 # Chapter numbers are short headings too: "3", "IV", "II.".
@@ -137,7 +140,15 @@ class Table:
     rows: tuple[tuple[str, ...], ...]
 
 
-Block = Heading | Paragraph | Note | Gloss | Image | Table
+@dataclass(frozen=True)
+class SectionStart:
+    """A section of the book's marks starts here (``follow_marks.sections``): the EPUB
+    gives it a chapter of its own; other formats ignore it."""
+
+    kind: str  # marks.SECTION_KINDS
+
+
+Block = Heading | Paragraph | Note | Gloss | Image | Table | SectionStart
 
 
 @dataclass
@@ -397,6 +408,8 @@ def _link_line(body_line: BodyLine, links: list[tuple[pymupdf.Rect, str]]) -> Bo
 class _State:
     def __init__(self, profile: DocumentProfile) -> None:
         self.profile = profile
+        # Where contents lines are entries: the marks' contents sections, or anywhere.
+        self.contents_pages = {i for i, kind in profile.sections.items() if kind == "contents"}
         self.current = _Builder()
         # Glosses and notes wait until the paragraph in progress ends.
         self.pending: list[Note | Gloss | Image] = []
@@ -411,6 +424,7 @@ class _State:
         self.has_heading = False  # a heading was yielded (or a running head made one)
         self.title_size = 0.0  # the page's largest line in a layout-model title box
         self.runs_on = False  # the line being added runs on into the next one (_runs_on)
+        self.ran_on = False  # ... and the line before it did
         self.after_mark = False  # the line added before was a heading by the marks
 
     # -- page handling ----------------------------------------------------------------
@@ -452,8 +466,13 @@ class _State:
         glosses = tuple(bl.text for bl in layout.lines if bl.kind == "gloss") + columns.glosses
         if _is_contents_page(lines) and not links:
             # A printed table of contents without links: the EPUB has its own, so the
-            # entries ("Chapter One ...... 42") and a column of page numbers are dropped.
-            lines = [bl for bl in lines if not _CONTENTS_ENTRY_RE.match(plain(bl.text))]
+            # entries ("Chapter One ...... 42") and a column of page numbers are dropped;
+            # the marks' contents lines are kept, as links (``_add_line``).
+            lines = [
+                bl
+                for bl in lines
+                if bl.kind == "contents" or not _CONTENTS_ENTRY_RE.match(plain(bl.text))
+            ]
             glosses = ()
         lines = self._label_margin_refs(lines)
         # Printed in the text, so taken as read: notes cite them out of order ("[38e]").
@@ -468,7 +487,7 @@ class _State:
                 self.break_next = not new_page
                 continue
             following = next((bl for bl in lines[i + 1 :] if bl.text.strip()), None)
-            self.runs_on = _runs_on(body_line, following, margins)
+            self.ran_on, self.runs_on = self.runs_on, _runs_on(body_line, following, margins)
             while pictures and pictures[0].top < body_line.line.top:
                 # A picture above this line follows the paragraph in progress.
                 picture = pictures.pop(0)
@@ -586,6 +605,26 @@ class _State:
             self.prev, self.prev_text = line, text
             self.break_next = False
             return
+        elif kind == "contents" and (
+            not self.contents_pages or self.page_index in self.contents_pages
+        ):
+            # A printed contents entry (by the marks): a paragraph of its own, linked to the
+            # heading it names (``inline.contents_entry``). An entry goes on into the next
+            # line when it breaks at a hyphen, or the next line doesn't start like an entry
+            # ("1.", "II.-", "a).-") and is in lowercase or this one fills the column
+            # without a page number at its end.
+            if not any(c.isalpha() for c in plain(text)):  # a page number's column
+                marks = LEADING_PAGE_MARKS_RE.match(text.strip())
+                if marks:
+                    self.pending_marks.append(marks.group(1))
+                return
+            before, start = plain(self.prev_text).rstrip(), plain(text).lstrip()
+            full = self.ran_on and not _CONTENTS_ENTRY_RE.match(before)
+            item = bool(_ITEM_RE.match(start))
+            wrapped = before.endswith("-") or (not item and (start[:1].islower() or full))
+            if not (self.current.kind == "entry" and wrapped):
+                yield from self._flush()
+                self.current = _Builder(kind="entry")
         elif CELL in text and not level:
             # A row of side-by-side cells: start or extend a table.
             cells = [cell.strip() for cell in text.split(CELL)]
@@ -683,8 +722,10 @@ class _State:
         right = (self.prev_margins if new_page and self.prev_margins else margins).right
         short = prev.x1 < right - _SHORT_LINE_EMS * (prev.size or size)
         # A short line ends its paragraph when the sentence ended, or when the next line
-        # starts like a new item (contents entries, lists, verse).
-        return short and (ends_sentence or first.isupper() or first.isdigit())
+        # starts like a new item (contents entries, lists, verse); in the marks'
+        # bibliography, always: one entry per paragraph ("— Otra obra", "de Unamuno").
+        bibliography = self.profile.sections.get(self.page_index) == "bibliography"
+        return short and (ends_sentence or first.isupper() or first.isdigit() or bibliography)
 
     # -- output -----------------------------------------------------------------------
     def _flush(self) -> Iterator[Block]:
@@ -704,6 +745,8 @@ class _State:
                 yield Heading(self._respaced(text), current.level, current.page, current.top)
         elif current.kind == "note":
             yield Note(current.label, current.text())
+        elif current.kind == "entry":
+            yield Paragraph(contents_entry(current.text()), False, current.page, current.top)
         elif current.kind == "table":
             if len(current.rows) >= 2:
                 width = max(len(row) for row in current.rows)

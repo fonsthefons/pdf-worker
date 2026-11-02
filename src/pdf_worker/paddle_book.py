@@ -21,14 +21,14 @@ import re
 import statistics
 import unicodedata
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 
 import pymupdf
 
 from pdf_worker import missing_refs, styles
 from pdf_worker.follow_marks import TITLE_LABELS
 from pdf_worker.images import _render
-from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
+from pdf_worker.inline import MARGIN_REF_RE, contents_entry, margin_ref, page_mark, plain
 from pdf_worker.layout import _RUNNING_PAGES, HEADING_RATIO, PAGE_NUMBER_RE, _roman, running_key
 from pdf_worker.margin_refs import assign_labels, in_book
 from pdf_worker.marks import DROPPED_KINDS, FURNITURE_KINDS, NOT_HEADING_KINDS
@@ -213,7 +213,13 @@ def furniture(rows: list[dict]) -> dict[int, set[int]]:
 # text (body, heading...) that Paddle took for a note, footer, number or aside is text.
 # Running heads, page numbers and ignored lines are left out as furniture. Margin
 # references keep Paddle's label: this path finds them in the scan (``prepare_blocks``).
-_KIND_LABELS = {"footnote": "footnote", "gloss": "aside_text", "caption": "header"}
+CONTENTS = "contents"  # a block of printed contents entries by the marks: one link a line
+_KIND_LABELS = {
+    "footnote": "footnote",
+    "gloss": "aside_text",
+    "caption": "header",
+    CONTENTS: CONTENTS,
+}
 _OUT_OF_TEXT = {"footnote", "footer", "number", "aside_text"}
 _LEFT_OUT = (*FURNITURE_KINDS, *DROPPED_KINDS)
 
@@ -260,6 +266,8 @@ def iter_paddle_blocks(
     margin_refs: bool | None = None,
     kinds: dict[int, dict[int, str]] | None = None,
     numbering: str | None = None,
+    sections: dict[int, str] | None = None,
+    skip: Collection[int] = (),
 ) -> Iterator[Block]:
     """The book's blocks from Paddle's ``rows`` (one per page, as ``paddle_pages``
     returns them) for the scanned ``doc``. References put back by
@@ -268,7 +276,9 @@ def iter_paddle_blocks(
     margin mark is labelled; with None only when labels are on enough pages
     (``margin_refs.in_book``). ``kinds`` (``follow_marks.paddle_kinds``: page -> block ->
     kind) win over Paddle's labels and the furniture rule; ``numbering`` (a marks file's
-    setting: where note numbers start again) replaces the guess of a new part."""
+    setting: where note numbers start again) replaces the guess of a new part.
+    ``sections`` (page index -> the kind of its marked section): a bibliography's entries
+    don't run on from page to page; ``skip`` pages are left out (a section not kept)."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
     scan_of = page_scanner(language)
     read_mixed = mixed_reader(language)
@@ -292,11 +302,23 @@ def iter_paddle_blocks(
     labels = printed_labels([(row["page"], n) for row, n in zip(rows, numbers, strict=True)])
     furniture_of = furniture(rows)
     if kinds:
-        rows = [_follow(row, kinds.get(row["page"], {}), furniture_of[row["page"]]) for row in rows]
+        # Contents lines are entries in the marks' contents sections (if there are any);
+        # elsewhere text of a kind never a heading, as body lines are.
+        contents_pages = {i for i, kind in (sections or {}).items() if kind == CONTENTS}
+
+        def kinds_on(page: int) -> dict[int, str]:
+            found = kinds.get(page, {})
+            if not contents_pages or page in contents_pages:
+                return found
+            return {i: "body" if kind == CONTENTS else kind for i, kind in found.items()}
+
+        rows = [_follow(row, kinds_on(row["page"]), furniture_of[row["page"]]) for row in rows]
     try:
         for done, (row, number) in enumerate(zip(rows, numbers, strict=True)):
             if on_page:
                 on_page(done, len(rows))
+            if row["page"] in skip:
+                continue
             page = doc.load_page(row["page"])
             label = labels[row["page"]]
             mark = page_mark(row["page"], label)
@@ -311,9 +333,11 @@ def iter_paddle_blocks(
                     prepared.append((mark, row, None, None))
                     continue
                 front = False
-            if any(b.get("label") == "content" for b in row["blocks"]):
+            labels_here = {b.get("label") for b in row["blocks"]}
+            if "content" in labels_here and CONTENTS not in labels_here:
                 # A printed table of contents ("ROUSSEAU.—I ..... 6"): the book's own
-                # navigation stands for it, as in the text-layer path.
+                # navigation stands for it, as in the text-layer path (unless the marks
+                # have contents lines on the page: then they are links).
                 prepared.append((mark, row, None, None))
                 continue
             if number.isdigit() and printed is not None and int(number) - printed > _PAGE_JUMP:
@@ -359,6 +383,7 @@ def iter_paddle_blocks(
         for mark, row, blocks, anchors in prepared:
             book.marks.append(mark)
             book.page = row["page"]
+            book.bibliography = (sections or {}).get(row["page"]) == "bibliography"
             if blocks is not None:
                 yield from book.add_page(doc.load_page(row["page"]), row, blocks, anchors, pictures)
         yield from book.flush()
@@ -395,6 +420,7 @@ class _Book:
         self.notes_seen = False
         self.last_note: str | None = None
         self.numbering: str | None = None  # a marks file's: where note numbers start again
+        self.bibliography = False  # the page is in the marks' bibliography section
 
     def flush(self) -> Iterator[Block]:
         if self.para is not None:
@@ -430,7 +456,17 @@ class _Book:
                     text += " " + self._body_text(blocks[k][2], anchors.get(k, []), False)
                     joined.add(k)
                     k += 1
-                yield Heading(text, found[1])
+                yield Heading(text, found[1], self.page)
+                continue
+            if label in (CONTENTS, "content"):
+                # The marks' contents lines: one entry a line, a link to the heading it
+                # names; a line without letters (a column of page numbers) left out.
+                yield from self.flush()
+                for line in text.splitlines():
+                    if any(c.isalpha() for c in line):
+                        lead = "".join(self.marks)
+                        self.marks = []
+                        yield Paragraph(contents_entry(lead + line))
                 continue
             if label == "header":
                 yield from self.flush()  # "SÓCRATES, PROTARCO, FILEBO" under the title
@@ -457,18 +493,22 @@ class _Book:
                 continue
             if label in TITLE_LABELS:
                 yield from self.flush()
-                yield Heading(" ".join(text.split()), 1 if label == "doc_title" else 2)
+                yield Heading(" ".join(text.split()), 1 if label == "doc_title" else 2, self.page)
                 continue
             text = self._body_text(text, anchors.get(i, []))
             lead = "".join(self.marks)
             self.marks = []
             # The page's first text block goes on with the previous page's paragraph
-            # when that one ended mid-sentence or this one starts in lowercase.
+            # when that one ended mid-sentence or this one starts in lowercase; in the
+            # marks' bibliography, only in lowercase (entries end without a full stop).
             plain_start = plain(text).lstrip()
             continues = (
                 self.para is not None
                 and first_text
-                and (plain_start[:1].islower() or not self.para.rstrip().endswith(_SENTENCE_END))
+                and (
+                    plain_start[:1].islower()
+                    or not (self.bibliography or self.para.rstrip().endswith(_SENTENCE_END))
+                )
             )
             first_text = False
             if continues:

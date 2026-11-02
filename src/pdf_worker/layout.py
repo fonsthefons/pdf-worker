@@ -8,7 +8,7 @@ import re
 import statistics
 import unicodedata
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 
 import pymupdf
@@ -361,6 +361,8 @@ class DocumentProfile:
     # A size (to 0.1 pt) -> the marked heading level a heading by today's rules of that
     # size takes (``follow_marks.text_kinds``).
     rule_levels: dict[float, int] = field(default_factory=dict)
+    # Page index -> the kind of the marked section it is in (``follow_marks.page_sections``).
+    sections: dict[int, str] = field(default_factory=dict)
 
     def heading_level(self, size: float) -> int | None:
         """Level of the nearest heading size, if ``size`` is within its jitter band."""
@@ -412,12 +414,15 @@ def analyze_document(
     doc: pymupdf.Document,
     on_page: Callable[[int, int], None] | None = None,
     notes: str | None = None,
+    notes_pages: Collection[int] = (),
 ) -> DocumentProfile:
     """One pass over every page collecting font, spacing, margin and endnote statistics.
     ``on_page(done, total)`` follows the pages. ``notes`` (a marks file's
     ``settings.notes``) says where the book prints its notes instead of the guess:
     ``page`` or ``none``, no chapter notes; ``chapter`` or ``book``, notes collected
-    elsewhere even when numbers repeat beside their references."""
+    elsewhere even when numbers repeat beside their references. ``notes_pages`` (the
+    marks' notes sections, page indexes): the notes are collected there, whatever
+    ``notes`` says."""
     sizes: Counter[float] = Counter()
     gaps: Counter[float] = Counter()
     edge_pages: defaultdict[tuple[str, str], set[int]] = defaultdict(set)
@@ -533,6 +538,11 @@ def analyze_document(
     collected = (
         notes in ("chapter", "book") if notes else not notes_beside_refs(sup_refs, plain_note_lines)
     )
+    if notes_pages:
+        # A notes section by the marks: the book's notes are printed there and only there.
+        collected = True
+        note_lines = [n for n in note_lines if n[1][0] in notes_pages]
+        plain_note_lines = [n for n in plain_note_lines if n[1][0] in notes_pages]
     if collected:
         chapter_notes = max(
             match_chapter_notes(sup_refs, note_lines),

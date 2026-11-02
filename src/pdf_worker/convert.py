@@ -186,6 +186,9 @@ def convert_pdf(
         return on_step(f"Step {steps.index(name) + 1}/{len(steps)}, {name}", unit)
 
     with open_pdf(pdf_path) as doc:
+        in_section = follow_marks.page_sections(marked, doc.page_count) if marked else {}
+        section_kinds = {index: section.kind for index, section in in_section.items()}
+        left_out = {index for index, section in in_section.items() if not section.keep}
         if paddle_rows is not None:
             from pdf_worker.paddle_book import iter_paddle_blocks, text_sample
 
@@ -199,6 +202,8 @@ def convert_pdf(
                 margin_refs=margin_refs,
                 kinds=follow_marks.paddle_kinds(doc, paddle_rows, marked) if marked else None,
                 numbering=settings.numbering,
+                sections=section_kinds,
+                skip=left_out,
             )
         else:
             font_sizes.mark_misreporting(doc)
@@ -206,9 +211,13 @@ def convert_pdf(
             reread = _reread_words(doc, language, facing, step("re-reading garbled words", "lines"))
             glued_refs.mark_glued_refs(doc, skip=facing)
             profile = analyze_document(
-                doc, on_page=step("reading the layout"), notes=settings.notes
+                doc,
+                on_page=step("reading the layout"),
+                notes=settings.notes,
+                notes_pages={index for index, kind in section_kinds.items() if kind == "notes"},
             )
             profile.layout = layout_rows or {}
+            profile.sections = section_kinds
             if marked:
                 profile.kinds, profile.note_refs, profile.rule_levels = follow_marks.text_kinds(
                     doc, marked
@@ -218,13 +227,13 @@ def convert_pdf(
                 doc,
                 profile,
                 images=keep_images,
-                skip=facing,
+                skip=facing | left_out,
                 on_page=step("building the book"),
             )
             blocks = bilingual.drop_greek(blocks, greek, language)
             if margin_refs is None:
-                marked = sum(bool(page_marks(p)) for p in doc)
-                margin_refs = profile.bracketed_refs or in_book(marked, doc.page_count)
+                with_refs = sum(bool(page_marks(p)) for p in doc)
+                margin_refs = profile.bracketed_refs or in_book(with_refs, doc.page_count)
             if not margin_refs:
                 blocks = _without_margin_refs(blocks)
             elif profile.bracketed_refs:
@@ -250,6 +259,8 @@ def convert_pdf(
             blocks = drop_notes(blocks)
         if fmt in ("epub", "html", "pdf"):
             blocks = link_index(blocks)
+        if marked:
+            blocks = follow_marks.sections(blocks, marked)
         if fmt == "epub":
             stats = write_epub(blocks, output_path, meta, cover=cover_jpeg(meta) if cover else None)
         elif fmt == "pdf":

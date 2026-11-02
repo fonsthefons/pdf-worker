@@ -132,6 +132,30 @@ def _pieces(text: str) -> Iterator[str | PageMark | LinkOpen | LinkClose]:
         yield text[last:]
 
 
+# A printed contents entry's link: to the heading it names, found by the EPUB writer.
+CONTENTS_TARGET = "toc"
+# Dot leaders and the page number after them: "Capítulo II ....... 15", ". . . 149".
+_LEADERS_RE = re.compile(
+    r"\s*[.·…_](?:\s?[.·…_]){2,}\s*(?:\d{1,4}|[ivxlcdm]{1,7})?\s*$", re.IGNORECASE
+)
+
+
+def contents_entry(text: str) -> str:
+    """A printed contents entry as a link to the heading it names, without its leaders
+    and page number; its page starts stay in front. Nothing left: the page starts only.
+    An entry the PDF links already keeps its own link."""
+    if _LINK_OPEN in text:
+        return text
+    marks = LEADING_PAGE_MARKS_RE.match(text)
+    lead, rest = marks.groups() if marks else ("", text)
+    rest = _LEADERS_RE.sub("", rest).strip()
+    return lead + link(CONTENTS_TARGET, rest) if rest else lead
+
+
+def is_contents_entry(text: str) -> bool:
+    return f"{_LINK_OPEN}{CONTENTS_TARGET}{_LINK_MID}" in text
+
+
 def plain(text: str) -> str:
     """The text without page, link, margin-reference and style markers (table cells
     joined by spaces)."""

@@ -655,8 +655,11 @@ def prepare_blocks(
             and column_left is not None
             and column_left <= rect.x0 < column_right
         )
-        if column_left is not None and (
-            rect.width > page.rect.width * _PARAGRAPH_WIDTH or in_column
+        # The marks' contents lines (``paddle_book.CONTENTS``) keep their lines: an entry each.
+        if (
+            column_left is not None
+            and block.get("label") != "contents"
+            and (rect.width > page.rect.width * _PARAGRAPH_WIDTH or in_column)
         ):
             # A body paragraph (or a short one in the column: "PRO. — Sí."): rewrap it
             # (the model keeps the printed line breaks), align it with the column, and
