@@ -69,6 +69,9 @@ _BLOCKS = {
     "article", "table", "tr", "ul", "ol", "body", "figure", "figcaption", "header",
     "footer", "nav", "h1", "h2", "h3", "h4", "h5", "h6",
 }  # fmt: skip
+# A heading's title printed as a styled paragraph straight after it (Copleston's and
+# philosophy's references: "<h2>CAPÍTULO II</h2><p class="subtitint">LA CUNA…</p>").
+_SUBTITLES = {"subtit", "subtitint"}
 _VOID = {"br", "img", "hr", "meta", "link", "input", "col", "area", "base", "wbr", "source"}
 _MD_NOTE_RE = re.compile(r"^\[\^[^\]]+\]:")
 _MD_NOTEREF_RE = re.compile(r"\[\^[^\]]+\]")
@@ -193,6 +196,7 @@ class _Html(HTMLParser):
         self.stack: list[list] = []  # [tag, note, skip, heading index or -1]
         self.text: list[str] = []  # the open block's text, inline tags joined
         self.link: tuple[int, str] | None = None  # (len(self.text) before it, its text)
+        self.last_head = -1  # the heading the last block belonged to, or -1
 
     def flush(self) -> None:
         """The text since the last block tag, as one block; read as the stack is now,
@@ -209,6 +213,7 @@ class _Html(HTMLParser):
             self.out.headings[head] = (level, " ".join(f"{old} {text}".split()))
         self.out.add(ws, kind, self.out.blocks, head)
         self.out.blocks += 1
+        self.last_head = head
 
     def handle_starttag(self, tag, attrs):
         if tag in _BLOCKS:
@@ -239,6 +244,8 @@ class _Html(HTMLParser):
         if re.fullmatch(r"h[1-6]", tag):
             self.out.headings.append((int(tag[1]), ""))
             head = len(self.out.headings) - 1
+        elif tag in _BLOCKS and _SUBTITLES & set(a.get("class", "").split()):
+            head = self.last_head
         if tag not in _VOID:
             self.stack.append([tag, note, skip, head])
 
@@ -681,6 +688,16 @@ Historia breve
     assert s["breaks"] == {"ref": 4, "found": 4, "ours": 5, "real": 4}, s["breaks"]
     assert s["notes"] == {"words": 8, "in_notes": 0, "in_body": 8}, s["notes"]
     assert s["leftovers"] == 3 and s["leftover_kinds"] == {"historia breve": 3}, s
+    sub = xhtml.replace(
+        "<h1>Capítulo primero</h1>",
+        '<h1>Capítulo primero</h1><div class="subtitint"><p>El origen</p></div>',
+    ).replace("<h2>Otra sección</h2>", '<h2>Otra sección</h2><p class="nota">Aparte</p>')
+    with zipfile.ZipFile(work / "sub.epub", "w") as z:
+        z.writestr("META-INF/container.xml", container)
+        z.writestr("OEBPS/content.opf", opf)
+        z.writestr("OEBPS/c.xhtml", sub)
+    heads = [text for _, text in read_epub(work / "sub.epub").headings]
+    assert heads == ["Capítulo primero El origen", "La sección dos", "Otra sección"], heads
     print("selftest passed")
 
 
