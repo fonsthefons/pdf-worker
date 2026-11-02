@@ -1,5 +1,18 @@
 # Progress
 
+## Marks in `process` (2026-11-02, branch `inbox/marks`)
+- A book's marks live in its work folder beside the PDF it is built from
+  (`file_work/<book>/<stem>.marks.json`): for a scan that is the OCR'd copy, which the
+  marks must match (sha256).
+- `process --mark` (kept in the book's `settings.json`): a new book stops after its text is
+  ready (state `mark`, `BookResult.mark_pdf`); on a terminal `process` offers the marking
+  page, then the rebuild. Without a terminal it prints the `pdf-worker mark` command.
+- Marks newer than a draft also trigger the rebuild (like saved review decisions).
+- `<stem>.marks.json` beside a book in `file_inbox` (a text PDF's, made on the original) is
+  copied to the work folder when newer, never listed as a book, and moved with the book to
+  `file_work/converted`.
+- Tests: `tests/test_inbox.py` (two new). Not run end to end on a real scan.
+
 ## Scorer headings and marking-page boxes (2026-11-02, branch `tools/headings-score-boxes`)
 - `tools/book_score.py` headings: a leading section number ("1.", "IV", "a") is left out
   of both sides before matching, so "1. TALES" in the reference finds our "TALES".

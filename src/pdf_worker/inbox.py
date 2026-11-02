@@ -45,6 +45,7 @@ from pdf_worker import (
 from pdf_worker.document import open_pdf
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.fixes import default_fixes_path, read_fixes
+from pdf_worker.marks import default_marks_path, prev_path
 from pdf_worker.ocr_check import assess_text_layer
 
 INBOX, WORK, OUTBOX = "file_inbox", "file_work", "file_outbox"
@@ -65,9 +66,10 @@ _LAYOUT_SAID: set[str] = set()  # why the layout model is missing, once said
 @dataclass
 class BookResult:
     name: str
-    state: str  # finished, draft, waiting, skipped, failed
+    state: str  # finished, draft, waiting, mark, skipped, failed
     detail: str = ""
     review_pdf: Path | None = None  # draft/waiting: the PDF to give `pdf-worker review`
+    mark_pdf: Path | None = None  # mark: the PDF to give `pdf-worker mark`
 
 
 def process(
@@ -89,8 +91,8 @@ def process(
         shutil.copy2(book, root / INBOX / Path(book).name)
     results = []
     for path in sorted((root / INBOX).iterdir()):
-        if path.name.startswith("."):
-            continue
+        if path.name.startswith(".") or _is_marks(path):
+            continue  # a book's marks file goes with its book (``_process_book``)
         if book and path.name != Path(book).name:
             continue
         say(f"{path.name}:")
@@ -131,6 +133,10 @@ def _listed(folder: Path) -> list[Path]:
     return sorted(folder.iterdir()) if folder.is_dir() else []
 
 
+def _is_marks(path: Path) -> bool:
+    return path.name.endswith((".marks.json", ".marks.prev.json"))
+
+
 def _stem(entry: Path) -> str:
     """The name of a book's outputs: a file's stem, or a folder's whole name."""
     return entry.name if entry.is_dir() else entry.stem
@@ -163,10 +169,21 @@ def _process_book(root, entry, engine, say, on_step, given) -> BookResult:
     draft_mark = work / DRAFT_MARK
     reviewed = draft_mark.exists()
     chosen = f"{chosen}; " if chosen else ""
-    if reviewed and not (fixes.exists() and fixes.stat().st_mtime > draft_mark.stat().st_mtime):
+    # The marks are made on the PDF the book is built from (OCR'd for a scan), so they
+    # live beside it; marks given beside the original (a text PDF's) are copied there.
+    marked, given_marks = default_marks_path(pdf), default_marks_path(original)
+    if given_marks.exists() and (
+        not marked.exists() or given_marks.stat().st_mtime > marked.stat().st_mtime
+    ):
+        shutil.copy2(given_marks, marked)
+    if reviewed and not any(
+        f.exists() and f.stat().st_mtime > draft_mark.stat().st_mtime for f in (fixes, marked)
+    ):
         return BookResult(name, "waiting", f"{chosen}to review", pdf)
     if not pdf.exists():
         _prepare(original, pdf, engine, say)
+    if settings.get("mark") and not marked.exists():
+        return BookResult(name, "mark", f"{chosen}to mark", mark_pdf=pdf)
     layout = None if (work / PADDLE_MARK).exists() else _layout_rows(pdf, say, on_step)
 
     target = outbox if reviewed else outbox / DRAFTS
@@ -419,5 +436,9 @@ def _finish(root: Path, entry: Path, detail: str) -> BookResult:
     filed = root / WORK / CONVERTED / entry.name
     if filed.is_dir():  # an earlier run's folder of copies
         shutil.rmtree(filed)
+    if entry.is_file():  # its marks, given beside it, go with it
+        for given in (default_marks_path(entry), prev_path(default_marks_path(entry))):
+            if given.exists():
+                os.replace(given, filed.parent / given.name)
     os.replace(entry, filed)
     return BookResult(entry.name, "finished", detail)

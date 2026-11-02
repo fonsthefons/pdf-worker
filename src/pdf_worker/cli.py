@@ -898,6 +898,14 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
         "('searchable': the OCR'd copy of the original PDF). Default: epub,pdf.",
     )
     parser.add_argument(
+        "--mark",
+        action="store_true",
+        help="Stop each new book once its text is ready (after OCR) to mark it "
+        "(`pdf-worker mark`), then build it following the marks. The marks are kept in "
+        "file_work/<book>/ beside the PDF the book is built from; a <stem>.marks.json "
+        "beside a text PDF in file_inbox is used too.",
+    )
+    parser.add_argument(
         "--clean",
         action="store_true",
         help="Only delete what belongs to no book left in file_inbox: work folders, the "
@@ -949,11 +957,22 @@ def _run_process(args: argparse.Namespace) -> int:
         if unknown := set(args.to) - set(inbox.FORMATS):
             raise PdfWorkerError(f"unknown format(s) for --to: {', '.join(sorted(unknown))}")
         args.settings["formats"] = args.to
+    if args.mark:
+        args.settings["mark"] = True
     results = _process_folder(args)
     rebuild = "pdf-worker process" + (
         "" if args.folder == PROCESS_FOLDER else f" {shlex.quote(str(args.folder))}"
     )
     later, reviewed = [], []
+    for result in (r for r in results if r.mark_pdf):
+        if sys.stdin.isatty() and _ask_yes(f"Mark {result.name} now?"):
+            print("Close the marking page with Ctrl+C here when done.")
+            options = {"pdf": result.mark_pdf, "port": 0, "no_browser": False}
+            _run_mark(argparse.Namespace(**(vars(args) | options)))
+            reviewed.append(result.name)
+        else:
+            print(f"To mark {result.name}: pdf-worker mark {shlex.quote(str(result.mark_pdf))}")
+            later.append(result.name)
     for result in (r for r in results if r.review_pdf):
         if sys.stdin.isatty() and _ask_yes(f"Review {result.name} now?"):
             _run_review(

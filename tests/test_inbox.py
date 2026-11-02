@@ -117,6 +117,42 @@ def test_book_to_review_waits_in_drafts_until_reviewed(make_pdf, tmp_path, monke
     assert not (work / inbox.DRAFT_MARK).exists()
 
 
+def test_a_book_to_mark_waits_for_its_marks_beside_the_pdf_it_is_built_from(
+    make_pdf, tmp_path, monkeypatch
+):
+    from pdf_worker import follow_marks
+
+    looked = []
+    monkeypatch.setattr(follow_marks, "load", lambda pdf: looked.append(pdf))
+    root = tmp_path / "root"
+    (root / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "sample.pdf")
+    work = root / inbox.WORK / "sample.pdf"
+
+    [first] = inbox.process(root, settings={"mark": True})
+    assert (first.state, first.mark_pdf) == ("mark", work / "sample.pdf")
+    assert first.mark_pdf.exists() and not looked  # prepared, not built
+
+    (work / "sample.marks.json").write_text("{}")  # what `pdf-worker mark` saves
+    [second] = inbox.process(root)  # "mark" is kept with the book
+
+    assert second.state == "finished"
+    assert looked and all(p == work / "sample.pdf" for p in looked)
+
+
+def test_marks_given_beside_a_book_in_the_inbox_go_with_it(make_pdf, tmp_path):
+    root = tmp_path / "root"
+    (root / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "sample.pdf")
+    (root / inbox.INBOX / "sample.marks.json").write_text("{}")
+
+    results = inbox.process(root)
+
+    # Copied beside the PDF it is built from (an empty file: the marks can't be read).
+    assert [r.name for r in results] == ["sample.pdf"]
+    assert (root / inbox.WORK / "sample.pdf" / "sample.marks.json").exists()
+
+
 def test_one_book_with_its_formats_kept_for_the_rebuild(make_pdf, tmp_path, monkeypatch):
     monkeypatch.setattr(inbox.review, "open_rows", lambda fixes: ["row"])
     root = tmp_path / "root"
