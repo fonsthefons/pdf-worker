@@ -105,7 +105,8 @@ save is kept as `<book>.marks.prev.json`. Coordinates are PDF points in the spac
 | 3: headings and levels from marks | medium | same |
 | 4: proof-of-concept verdict | low | one whole yardstick run; stops for the user |
 | 5: sections, and the contents as links | medium | two builds of the four books, the regression set |
-| 6: final report and the marks-first workflow | low | one whole yardstick run |
+| 6: margin references from marks | high | margin crops re-read on platon_bad; two builds, the regression set |
+| 7: final report and the marks-first workflow | low | one whole yardstick run |
 
 Run heavy builds one at a time: two Paddle builds at once collide on the shared crop
 cache.
@@ -269,7 +270,34 @@ Goal: sections from the marks, and the printed contents kept as links.
 
 PR: "Marks: sections and linked contents".
 
-## Phase 6: final report and the marks-first workflow (low)
+## Phase 6: margin references from marks (high)
+
+Goal: every margin reference (Stephanus "327b"; later Bekker "1094a" with line numbers
+5, 10, 15) found, read and placed, learnt from a few `margin-ref` and `line-number`
+marks. Today `margin-ref` marks are not followed (left to `margin_refs`' rules);
+platon_bad has 688 labels, with about 35 jumps in their order.
+
+1. **Where:** from the marks, each side's margin strip (left and right pages apart:
+   outer margins swap), its distance from the text and its font size. Margin
+   references are looked for in that strip only; a number in the body is never one.
+2. **What:** the label pattern from the marks' texts (number + `a`-`e`; number + `a`/`b`
+   + line), no setting. `line-number` marks are kept apart from `margin-ref` marks.
+3. **Order:** labels run in order (11b, 11c, ... 11e, 12a; Bekker lines by 5 within a
+   column). Between two found labels the missing ones are expected, at a height between
+   theirs. The unprinted `a` (a page number alone stands for it) is not a gap.
+4. **Re-read the gaps:** crop the strip where an expected label should be and read it
+   again (Tesseract, as `missing_refs`); a label OCR glued into a body line is taken out
+   by its place in the strip. Still not found: `estimate_margin_refs`' estimate only
+   when asked, as today. Each label is attached to the body line beside it.
+5. Tests first (a tiny page with margin labels on both sides, one glued, one missing);
+   build platon_bad with and without marks and `compare`; own measures: labels found,
+   jumps in their order, and labels in the reference EPUB's text found in ours. The
+   regression set unchanged. No Bekker test book exists: Aristotle is left untested and
+   noted.
+
+PR: "Marks: margin references".
+
+## Phase 7: final report and the marks-first workflow (low)
 
 1. One whole yardstick run; the results table per book before marks, after Phase 4,
    now.
@@ -304,4 +332,4 @@ the same series; suggesting marks from the layout model for the person to accept
 
 ## Results
 
-(Filled in by Phase 6.)
+(Filled in by Phase 7.)
