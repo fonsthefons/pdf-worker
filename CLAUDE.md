@@ -47,6 +47,16 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   doubtful pages; reads the marks, never writes them). Reuse these before
   writing scratch scripts; scratch/ is for throwaway files and is emptied from time to time.
 
+## Marks (docs/marks-plan.md)
+- A book with `book.marks.json` beside it is converted the marks way: the user marks
+  examples with `pdf-worker mark BOOK.pdf [--paddle-cache DIR]` (running heads, page
+  numbers, headings per level, footnotes, note numbers, sections, margin references
+  first), checks the review view (`v`, `d` next doubtful page) or `tools/marks_report.py`,
+  then `convert` follows the style sheet built from them (`--no-marks` ignores them).
+- Never write marks files next to the test PDFs; work on copies in `scratch/`.
+- Left to today's rules: unmarked kinds, block quotations, epigraphs, glosses and line
+  numbers (dropped), Bekker labels, bare-number section titles, notes sections on scans.
+
 # Working rules for this repo
 
 These rules exist so that every command runs without needing my approval. I often leave tasks running unattended, and a single approval prompt stops all progress until I come back. Follow them strictly.

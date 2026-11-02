@@ -334,4 +334,29 @@ the same series; suggesting marks from the layout model for the person to accept
 
 ## Results
 
-(Filled in by Phase 7.)
+Whole yardstick, 2026-11-02 (`quality.py build`: `scratch/marks/verdict_base` =
+`--no-marks`, `scratch/marks/verdict` = Phase 4, `scratch/marks/final` = after Phase 6).
+Marked books, before marks -> Phase 4 -> now (per 10,000 reference words for extra):
+
+| | headings found | headings real | levels | extra | breaks real |
+|---|---|---|---|---|---|
+| philosophy | 50.0 -> 52.5 -> 52.5 | 84.1 -> 81.8 -> 81.2 | 87.5 -> 74.5 -> 74.5 | 106.9 -> 106.9 -> 128.1 | 98.7 |
+| copleston | 70.9 -> 71.6 -> 71.3 | 84.7 -> 88.2 -> 89.9 | 100 | 37.0 | 76.0 -> 76.1 |
+| ratzinger | 64.2 -> 58.3 -> 58.3 | 75.2 -> 73.4 -> 73.4 | 100 -> 78.8 -> 78.8 | 0.1 | 100 -> 100 -> 97.4 |
+| platon_bad | 77.8 -> 88.9 -> 88.9 | 25.9 -> 31.0 -> 31.0 | 52.4 -> 75.0 -> 75.0 | 282.1 -> 268.4 -> 187.4 | 98.9 |
+| four books | 59.4 -> 59.6 -> 59.5 | 79.0 -> 78.1 -> 78.4 | 93.7 -> 82.9 -> 83.0 | 89.4 -> 87.4 -> 82.9 | |
+
+Notes in the body (0.32) and leftovers (0.70 -> 0.69) stay below 1 per 10,000 throughout;
+missing 180.1 -> 179.3. Unmarked books and both headings page sets unchanged.
+
+- Marks clearly pay on the scan (platon_bad: all heading measures up, extra words down by a
+  third, 13 more margin labels and 34 -> 21 jumps). On the text-layer books they change
+  what counts as a heading to what the person marked; where that disagrees with the
+  references (Ratzinger and philosophy levels) the user judged the marks right.
+- Worse beyond the tolerance and accepted by the user: philosophy extra and Ratzinger
+  breaks real (the printed contents kept as linked entries, Phase 5), and the heading
+  measures above (Phase 3/4).
+- Marking took about 20 minutes a book. The review view flags many doubtful pages on the
+  scans (philosophy 237 of 462, platon_bad 185 of 293), so checking page by page costs
+  more than marking.
+- Left to today's rules: see README "Convert a book the marks way".
