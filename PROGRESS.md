@@ -1,5 +1,16 @@
 # Progress
 
+## Marks plan, Phase 7: final report and the marks-first workflow (2026-11-02, branch `marks/phase-7`)
+- Whole yardstick run with marks: `quality.py build scratch/marks/final` (1275 s), totals
+  with `scratch/marks/p4_totals.py`, `quality.py compare` against `verdict_base`
+  (`--no-marks`) and `verdict` (Phase 4). The table is in docs/marks-plan.md "Results".
+- `compare verdict final`: 2 changes beyond the tolerance for the worse, both already
+  accepted at Phase 5 (philosophy extra 106.9 -> 128.1, Ratzinger breaks real 100 -> 97.4);
+  platon_bad extra 268.4 -> 187.4 and missing better (Phase 6 and the scorer change).
+  `compare verdict_base final`: 8 worse, the Phase 4 heading list plus those two.
+- README: new section "Convert a book the marks way"; repo `CLAUDE.md`: a "Marks"
+  section. No code changes, so no tests or regression run.
+
 ## Marks plan, Phase 6: margin references from marks (2026-11-02, branch `marks/phase-6`) - merged
 - **The user's decision (2026-11-02)**: `book_score` leaves our margin labels
   (`**\[11b\]**`) out of our words (references print none; selftest covers it).

@@ -242,6 +242,27 @@ out on purpose.
 Forgot a command? `pdf-worker help` (or just `pdf-worker`) lists them all, each with a
 one-line description. `pdf-worker <command> --help` shows every option.
 
+### Convert a book the marks way
+
+For a book the rules get wrong, mark a few examples of each kind of line and `convert`
+follows them (marks are kept in `book.marks.json`, beside the PDF).
+
+1. `pdf-worker mark book.pdf` (scans: add `--paddle-cache DIR`, the layout model's
+   cache) opens the marking page in the browser; every change is saved at once.
+2. Mark first what the rules miss most: a running head on a left and a right page, a page
+   number, one or two headings per level (`h` then `1`-`4`), a footnote and a note number
+   (`f`, `n`); then, on each section's first page, its kind (contents, notes,
+   bibliography...) and "keep"; then margin references (`m`, Stephanus "22b") if the book
+   has them. A few examples per kind are enough; Shift+key makes a one-place correction.
+3. Review: `v` colours each line by the kind it gets (solid marked, outlined matched,
+   hatched conflict); `d` jumps to the next doubtful page. Fix with a "here only" mark.
+   `tools/marks_report.py book.pdf` gives the same counts in the terminal.
+4. `pdf-worker convert book.pdf` uses the marks (`--no-marks` ignores them).
+
+Left to today's rules: kinds not marked, block quotations and epigraphs, glosses and line
+numbers (dropped), Bekker references (no labelling yet), numbered section titles printed
+as a bare number starting a paragraph, and notes sections on scans.
+
 ### Process a folder of books
 
 ```bash
