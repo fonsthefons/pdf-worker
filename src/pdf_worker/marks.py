@@ -41,6 +41,7 @@ KINDS = (
 # How ``convert`` follows the kinds (``pdf_worker.follow_marks``).
 FURNITURE_KINDS = ("running-head", "page-number")
 DROPPED_KINDS = ("ignore", "line-number")  # left out of the book
+NOT_HEADING_KINDS = ("body", "contents", "caption", "footnote", "index")  # never a heading
 SECTION_KINDS = (
     "front",
     "contents",

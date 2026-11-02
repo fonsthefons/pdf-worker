@@ -358,6 +358,9 @@ class DocumentProfile:
     kinds: dict[int, list[str | None]] = field(default_factory=dict)
     note_refs: dict[int, list[tuple]] = field(default_factory=dict)
     notes: str | None = None
+    # A size (to 0.1 pt) -> the marked heading level a heading by today's rules of that
+    # size takes (``follow_marks.text_kinds``).
+    rule_levels: dict[float, int] = field(default_factory=dict)
 
     def heading_level(self, size: float) -> int | None:
         """Level of the nearest heading size, if ``size`` is within its jitter band."""
