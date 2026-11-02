@@ -1,5 +1,19 @@
 # Progress
 
+## Quality plan, Phase 6: final check and report (2026-11-02, branch `quality/phase-6`)
+- No rebuild: `scratch/marks/final` (marks Phase 7) is main's build today; no pipeline
+  code changed since. Re-scored `scratch/quality/base` and `scratch/marks/verdict_base`
+  with today's scorer (`quality.py score`), then `quality.py compare base final` (17 worse
+  beyond the tolerance) and `compare base verdict_base` (9: the quality plan alone).
+- Every "worse" is one already accepted: Phase 2 (lugones, gaviota missing), Phase 4
+  (held-out pages one heading), Phase 5 (copleston scored whole), marks Phase 5
+  (philosophy extra, Ratzinger levels and breaks). Working total: covered 65.7% -> 98.9%,
+  missing 253.9 -> 212.0, extra 174.9 -> 137.9, notes in body 244.0 -> 19.7; levels
+  90.7% -> 82.8% (marks). Held-out: unchanged within ~1%.
+- Tables, phase by phase changes and the ranked error kinds left with examples:
+  docs/quality-plan.md "Results". Example pages for kinds 3, 5, 7 are books only (not
+  traced this phase). No code changes, so no tests run.
+
 ## Marks plan, Phase 7: final report and the marks-first workflow (2026-11-02, branch `marks/phase-7`)
 - Whole yardstick run with marks: `quality.py build scratch/marks/final` (1275 s), totals
   with `scratch/marks/p4_totals.py`, `quality.py compare` against `verdict_base`
