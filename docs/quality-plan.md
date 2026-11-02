@@ -343,4 +343,59 @@ and the held-out headings pages.
 
 ## Results
 
-(Filled in by Phase 6.)
+Phase 6 (2026-11-02). Before: Phase 1's baseline `scratch/quality/base`. After: main
+today, `scratch/marks/final` (built by the marks plan's Phase 7 with every book's marks;
+no pipeline code has changed since). `scratch/marks/verdict_base` (main after quality
+Phase 5, `--no-marks`) splits what this plan changed from what the marks plan changed.
+All three re-scored with today's `book_score` (it changed after Phase 1: a heading's
+subtitle paragraph, margin labels), so Phase 1's printed numbers differ a little.
+
+Rates per 10,000 reference words.
+
+| Working | covered | matched | missing | extra | H found | H real | levels | B found | B real | notes in body | leftovers |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| before | 65.7% | 97.5% | 253.9 | 174.9 | 57.3% | 72.6% | 90.7% | 98.0% | 90.9% | 244.0 | 2.6 |
+| quality plan only | 98.9% | 97.9% | 212.5 | 134.1 | 60.4% | 76.8% | 93.5% | 97.8% | 89.0% | 19.7 | 1.0 |
+| after (main, marks) | 98.9% | 97.9% | 212.0 | 137.9 | 60.5% | 76.0% | 82.8% | 98.0% | 88.9% | 19.7 | 1.0 |
+
+| Held-out | covered | matched | missing | extra | B found | B real | leftovers |
+|---|---|---|---|---|---|---|---|
+| before | 94.4% | 91.6% | 840.4 | 928.3 | 98.0% | 38.2% | 3.7 |
+| after | 94.4% | 91.5% | 847.9 | 915.5 | 98.0% | 38.2% | 3.7 |
+
+| Headings pages (found / real / levels) | before | after |
+|---|---|---|
+| working (189) | 84.7 / 87.1 / 62.8% | 86.2 / 90.9 / 62.4% |
+| held-out (65) | 81.5 / 73.1 / 53.4% | 80.0 / 77.3 / 52.1% |
+
+What each phase changed:
+- Phase 2 (footnotes as notes): notes in the body 244.0 -> 19.7 (lugones 511 -> 15.5,
+  dialogos 1151 -> 157); lugones missing +34 and gaviota missing +26 (accepted: notes
+  scored against references that keep them in the body).
+- Phase 3 (levels from numbering): no variant passed; levels unchanged
+  (`heading_levels.py` ships unused).
+- Phase 4 (lines that aren't headings): headings pages real +3.8 / +4.2; held-out pages
+  lost one heading (accepted).
+- Phase 5 (footnotes beside their references): copleston covered 4.4% -> 98.8%, missing
+  424 -> 114; its headings and breaks scored on the whole book for the first time.
+- Marks plan (after this plan): platon_bad extra 201 -> 187, headings and levels better;
+  philosophy extra 107 -> 128 and Ratzinger levels 100% -> 78.8% from the contents as
+  links (accepted at marks Phase 5); working levels 93.5% -> 82.8%.
+
+Error kinds left, working books, ranked (per 10,000 reference words), one example each:
+1. Missing words 212.0: niebla p. 32 (the scan's text layer is garbled), platon_bad
+   p. 277 (Paddle's read of one big block stops at 1,701 characters).
+2. Extra words 137.9: niebla p. 32 (the same garbled layer counts as extra words).
+3. Reference body not covered 106.1: niebla (94.5% covered; text lost at the ends).
+4. Notes in the body 19.7: dialogos, the endnote pages from p. 177.
+5. Extra paragraph breaks 14.5: copleston (breaks real 76.1%).
+6. Headings missed 3.0: copleston "2. Anaximandro" p. 25; philosophy's run-in
+   "1. Observaciones introductorias".
+7. Breaks missed 2.4: copleston (breaks found 96.1%).
+8. Wrong headings 1.5: platon_bad's introduction section titles ("Estructura del
+   diálogo"), which the reference doesn't tag.
+9. Leftovers 1.0: niebla's running head "miguel de unamuno" (8).
+10. Level disagreement 0.8: ratzinger, the contents' levels (marks Phase 5).
+
+Held-out (numbers only, rule 4): extra 915.5, missing 847.9, not covered 555.8, extra
+breaks 339.8 (breaks real 38.2%).
