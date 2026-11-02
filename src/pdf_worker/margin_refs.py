@@ -22,6 +22,8 @@ import difflib
 import json
 import re
 import statistics
+from collections import Counter, defaultdict
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import pymupdf
@@ -291,20 +293,97 @@ class PageScan:
     marks: list[ScanMark]
 
 
-def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
-    """Find the marks beside the text column of a scanned page, and its printed lines."""
+@dataclass(frozen=True)
+class Strip:
+    """Where a book prints its margin references, learnt from the ``margin-ref`` marks a
+    person made (``learn_strip``): per page parity (page index % 2; facing pages swap
+    their outer margins), the side of the text column and the distance from its edge, in
+    body line heights (near, far)."""
+
+    sides: dict[int, tuple[str, float, float]]
+
+
+# Line heights around the marked distances: the person's shapes are drawn loosely.
+_STRIP_PAD = 0.25
+Column = tuple[float, float, float]  # left, right, line height
+
+
+def learn_strip(
+    marked: Sequence[tuple[pymupdf.Page, Sequence[float]]],
+    column_of: Callable[[pymupdf.Page], Column | None],
+) -> Strip | None:
+    """The strip from the marked references' boxes (``(page, (x0, y0, x1, y1))`` in
+    points) and their pages' text columns (``column_of``, in points). A parity without a
+    mark takes the other's distances on the other side."""
+    found: defaultdict[int, list[tuple[str, float, float]]] = defaultdict(list)
+    for page, (x0, _, x1, _) in marked:
+        column = column_of(page)
+        if column is None:
+            continue
+        left, right, height = column
+        if (x0 + x1) / 2 < (left + right) / 2:
+            found[page.number % 2].append(("left", (left - x1) / height, (left - x0) / height))
+        else:
+            found[page.number % 2].append(("right", (x0 - right) / height, (x1 - right) / height))
+    sides = {}
+    for parity, places in found.items():
+        side = Counter(s for s, _, _ in places).most_common(1)[0][0]
+        near = min(n for s, n, _ in places if s == side) - _STRIP_PAD
+        far = max(f for s, _, f in places if s == side) + _STRIP_PAD
+        sides[parity] = (side, max(near, _GAP), far)  # no closer than ink of the text itself
+    if len(sides) == 1:
+        ((parity, (side, near, far)),) = sides.items()
+        sides[1 - parity] = ("left" if side == "right" else "right", near, far)
+    return Strip(sides) if sides else None
+
+
+def page_column(page: pymupdf.Page, tesseract: str, language: str) -> Column | None:
+    """A scanned page's text column as ``scan_page`` with a strip measures it, in points."""
+    from pdf_worker.consensus import _page_image
+
+    gray = _page_image(page)
+    found = _column(_tesseract_lines(gray, tesseract, language), gray.shape[1], True)
+    return tuple(v * 72 / _DPI for v in found[:3]) if found else None
+
+
+def _column(lines: list[list[tuple]], width: int, quartiles: bool = False):
+    """The text column's left and right edge, the line height and the long lines (pixels),
+    or None. ``quartiles``: the edges most lines reach (the lower quartile of the lines'
+    starts, the upper of their ends) rather than the medians, which a page of short
+    speeches, each starting indented, moves into the column; a mark read as a line's
+    first word doesn't count as its start."""
+    long_lines = [ln for ln in lines if ln[-1][2] - ln[0][0] >= width * LONG_LINE_SHARE]
+    if len(long_lines) < 3:
+        return None
+    if quartiles:
+        starts = [next((w[0] for w in ln if not is_mark(w[4])), ln[0][0]) for ln in long_lines]
+        left = statistics.quantiles(starts, n=4)[0]
+        right = statistics.quantiles([ln[-1][2] for ln in long_lines], n=4)[2]
+    else:
+        left = statistics.median(ln[0][0] for ln in long_lines)
+        right = statistics.median(ln[-1][2] for ln in long_lines)
+    height = statistics.median(max(w[3] for w in ln) - min(w[1] for w in ln) for ln in long_lines)
+    return left, right, height, long_lines
+
+
+def scan_page(
+    page: pymupdf.Page, tesseract: str, language: str, strip: Strip | None = None
+) -> PageScan:
+    """Find the marks beside the text column of a scanned page, and its printed lines.
+    With a ``strip`` (``learn_strip``) only there: on the page's side at the marked
+    distance (the facing pages' side when its own has no readable mark); a mark OCR read
+    into a line's first word ("bde") is still a mark, and one it can't read is read
+    again."""
     import cv2
 
     from pdf_worker.consensus import _page_image
 
     gray = _page_image(page)
     lines = _tesseract_lines(gray, tesseract, language)
-    long_lines = [ln for ln in lines if ln[-1][2] - ln[0][0] >= gray.shape[1] * LONG_LINE_SHARE]
-    if len(long_lines) < 3:
+    column = _column(lines, gray.shape[1], strip is not None)
+    if column is None:
         return PageScan([], [])
-    left = statistics.median(ln[0][0] for ln in long_lines)
-    right = statistics.median(ln[-1][2] for ln in long_lines)
-    height = statistics.median(max(w[3] for w in ln) - min(w[1] for w in ln) for ln in long_lines)
+    left, right, height, long_lines = column
     words = []
     body_boxes = []
     for index, line in enumerate(lines):
@@ -313,27 +392,45 @@ def scan_page(page: pymupdf.Page, tesseract: str, language: str) -> PageScan:
             to_page = 72 / _DPI
             box = (x0 * to_page, y0 * to_page, x1 * to_page, y1 * to_page)
             words.append(ScanWord(text, index, margin, box))
-            # A real word past the column's edge is body text, not a mark to read.
-            if not margin or sum(c.isalpha() for c in text) >= 3:
+            # A real word past the column's edge is body text, not a mark to read; in
+            # the strip, a word reaching across the edge into the column is a mark glued
+            # to the line's first word.
+            glued = strip is not None and (x0 < left < x1 or x0 < right < x1)
+            if not glued and (not margin or sum(c.isalpha() for c in text) >= 3):
                 body_boxes.append((x0, y0, x1, y1))
     top = min(w[1] for ln in long_lines for w in ln) - height
     bottom = max(w[3] for ln in long_lines for w in ln) + height
     _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-    marks = []
-    for side, xs in (
+    strips = [
         ("right", (right + _GAP * height, right + _REACH * height)),
         ("left", (left - _REACH * height, left - _GAP * height)),
-    ):
-        for box in _blobs(ink, xs, (top, bottom), height, body_boxes):
+    ]
+    if strip is not None:
+        # This page's strip, and the facing pages' (its other side), used only when this
+        # one has no readable mark (a page printed with its references inside).
+        strips = []
+        for side, near, far in (strip.sides[page.number % 2], strip.sides[1 - page.number % 2]):
+            edge, sign = (right, 1) if side == "right" else (left, -1)
+            reach = (edge + sign * near * height, edge + sign * far * height)
+            if not strips or strips[0][0] != side:
+                strips.append((side, tuple(sorted(reach))))
+    marks = []
+    for side, xs in strips:
+        for box in _blobs(ink, xs, (top, bottom), height, body_boxes, strip is not None):
             line = _line_of(box, lines, words, height)
             if line is not None:
-                reading = _read(gray, box, height, tesseract)
+                reading = _read(gray, box, height, tesseract, again=strip is not None)
                 if reading == UNREADABLE:  # the page's reading of it, if that was a mark
                     reading = next(
                         (w[4] for w in lines[line] if _overlaps(w[:4], box) and is_mark(w[4])),
                         reading,
                     )
                 marks.append((line, reading, side))
+    if strip is not None:
+        side = strips[0][0]
+        if {s for _, r, s in marks if is_mark(r)} == {strips[-1][0]}:
+            side = strips[-1][0]
+        marks = [m for m in marks if m[2] == side]
     # A mark split into pieces ("1" + "16", "?" + "?") is still one mark: keep the
     # line's best reading. shortcut: two real marks on one line become one; none seen.
     best: dict[int, tuple[str, str]] = {}
@@ -377,8 +474,10 @@ def _tesseract_lines(gray, tesseract: str, language: str) -> list[list[tuple]]:
     return sorted(lines.values(), key=lambda ln: (min(w[1] for w in ln), ln[0][0]))
 
 
-def _blobs(ink, xs, ys, height, body_boxes) -> list[tuple[int, int, int, int]]:
-    """Mark-sized groups of ink in the strip ``xs`` x ``ys``, away from body words."""
+def _blobs(ink, xs, ys, height, body_boxes, apart=False) -> list[tuple[int, int, int, int]]:
+    """Mark-sized groups of ink in the strip ``xs`` x ``ys``, away from body words. Ink
+    joins a group it is beside: with ``apart`` any group, else only the last one made
+    (which splits "22" when another mark, lower down, starts between its two digits)."""
     import cv2
 
     x0, x1 = max(0, int(xs[0])), min(ink.shape[1], int(xs[1]))
@@ -397,8 +496,15 @@ def _blobs(ink, xs, ys, height, body_boxes) -> list[tuple[int, int, int, int]]:
         parts.append(box)
     groups: list[list[int]] = []
     for box in sorted(parts):
-        last = groups[-1] if groups else None
-        if last and box[0] - last[2] < 0.4 * height and box[1] < last[3] and box[3] > last[1]:
+        last = next(
+            (
+                g
+                for g in reversed(groups if apart else groups[-1:])
+                if box[0] - g[2] < 0.4 * height and box[1] < g[3] and box[3] > g[1]
+            ),
+            None,
+        )
+        if last:
             last[:] = [last[0], min(last[1], box[1]), max(last[2], box[2]), max(last[3], box[3])]
         else:
             groups.append(list(box))
@@ -422,23 +528,33 @@ def _line_of(box, lines, words: list[ScanWord], height: float) -> int | None:
     return best[1] if best else None
 
 
-def _read(gray, box, height: float, tesseract: str) -> str:
+# (scale, only digits and a to e): twice the size, read as one line, is best on the
+# sample's small italic letters. Read ``again``: with any letter (the restricted reading
+# often gives nothing for a clear "b"), then three times the size.
+_WHITELIST = ["-c", "tessedit_char_whitelist=0123456789abcde"]
+_READS = ((2, True),)
+_READS_AGAIN = ((2, False), (3, True))
+
+
+def _read(gray, box, height: float, tesseract: str, again: bool = False) -> str:
     """The mark read on its own, as digits and the letters a to e."""
     import cv2
 
     pad = int(0.4 * height)
     y0, x0 = max(0, box[1] - pad), max(0, box[0] - pad)
-    # Twice the size, read as one line: best on the sample's small italic letters.
-    crop = cv2.resize(gray[y0 : box[3] + pad, x0 : box[2] + pad], None, fx=2, fy=2)
-    crop = cv2.copyMakeBorder(crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=255)
-    ok, png = cv2.imencode(".png", crop)
-    stdout = tesseract_cache.run(
-        tesseract,
-        ["stdin", "stdout", "--psm", "7", "-c", "tessedit_char_whitelist=0123456789abcde"],
-        png.tobytes() if ok else b"",
-    )
-    text = "".join(stdout.decode("utf-8", errors="replace").split())
-    return text if is_mark(text) else UNREADABLE
+    for scale, restricted in _READS + _READS_AGAIN * again:
+        crop = cv2.resize(gray[y0 : box[3] + pad, x0 : box[2] + pad], None, fx=scale, fy=scale)
+        crop = cv2.copyMakeBorder(crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=255)
+        ok, png = cv2.imencode(".png", crop)
+        stdout = tesseract_cache.run(
+            tesseract,
+            ["stdin", "stdout", "--psm", "7", *_WHITELIST * restricted],
+            png.tobytes() if ok else b"",
+        )
+        text = "".join(stdout.decode("utf-8", errors="replace").split())
+        if is_mark(text):
+            return text
+    return UNREADABLE
 
 
 # -- Paddle -------------------------------------------------------------------------------

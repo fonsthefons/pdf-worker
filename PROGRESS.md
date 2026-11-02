@@ -1,5 +1,85 @@
 # Progress
 
+## Marks plan, Phase 6: margin references from marks (2026-11-02, branch `marks/phase-6`) - merged
+- **The user's decision (2026-11-02)**: `book_score` leaves our margin labels
+  (`**\[11b\]**`) out of our words (references print none; selftest covers it).
+  Re-scored `p5c` and `p6b`: platon_bad extra words 187.4 in both, missing 548.9 ->
+  544.1. Phase 5 contents drops (philosophy extra words, Ratzinger breaks real) were
+  accepted by the user as the references' way with a contents.
+- **Stopped (draft PR)**: on platon_bad, "extra words" is worse than Phase 5's build by
+  1.6 per 10,000 (268.4 -> 270.0; tolerance 1). The 13 extra words are the 13 margin
+  labels found more: the reference prints no margin labels, so every label found counts
+  as an extra word (extra words that aren't labels: 1585 in both builds,
+  `scratch/marks/p6/extra_words.py`). Rule 5 doesn't cover a phase whose goal (finding
+  labels) makes the yardstick count more extra words. For the user: accept it, or have
+  `book_score` leave margin labels out of our words (then re-score).
+- **What `convert` does now with `margin-ref` marks** (scans built from Paddle's rows):
+  - **Where** (`margin_refs.learn_strip`, `Strip`): each mark's box against its page's
+    text column (`page_column`: Tesseract's lines, as `scan_page` measures them) gives the
+    side and the distance from the column edge in line heights, per page parity (facing
+    pages swap); the marks' nearest and farthest edges, 0.25 line heights out (the shapes
+    are drawn loosely), never nearer the text than `_GAP` (0.15, today's). A parity
+    without marks takes the other's distances on the other side. platon_bad: odd pages
+    right, 0.15-1.55; even pages left, 0.15-1.50.
+  - `scan_page(strip=)`: blobs only in the page's strip, or, when it has no readable mark
+    there, in the facing pages' strip (p. 240 prints its references inside: 78d, 78e, 79a
+    were lost in the first try with one side only). A blob under a Tesseract word that
+    reaches across the column edge is a mark glued to the line's first word ("b de la
+    prudencia", p. 38: 21b, lost before). The column's edges are the lower / upper
+    quartile of the lines' starts / ends (a mark read as a line's first word left out),
+    not the median, which pages of short speeches pull to the indent (p. 80: its "44"
+    fell outside the strip). Ink joins any group it is beside (the digits of "22" were
+    split when another mark started between them). A mark Tesseract can't read
+    restricted to digits and a-e is read again with any letter (it gives nothing for many
+    a clear italic "b") and at three times the size. Without marks all of this is off:
+    the median column, both sides, the old grouping and one reading (same cache keys).
+  - **Order**: the existing labelling of a whole run at once (`assign_labels`) places the
+    labels between found ones; the unprinted "a" (a page number) is no gap, as before.
+  - **Re-reading the gaps**: done per unreadable mark at the first scan (above), not by a
+    second pass over the gaps: the remaining gaps checked by eye have no ink in the strip
+    (p. 163: 23c then 24, no d / e printed; p. 171-172: no 30c) or a misread one (p. 230:
+    italic b and d read as "4", d labelled 71e). Estimates only with
+    `--estimate-margin-refs`, as today. Each label goes to the body line beside it, as today.
+  - A book with `margin-ref` marks has margin references (`convert`: `margin_refs` on, not
+    left to `in_book`), on the text layer too.
+- **Not done** (decided): the label pattern from the marks' texts. platon_bad's marks read
+  "e", "12", "66" (Stephanus); Bekker (number + a/b + line numbers) has no test book, so
+  its labelling isn't written; `line-number` marks don't teach the strip (they stay
+  dropped, Phase 2). Text-layer books: `margin-ref` lines are margin references since
+  Phase 2; no text-layer test book has margin-ref marks.
+- Tests first (`tests/test_margin_refs.py`, failed before: no `learn_strip`): the strip
+  from marks on both parities, mirrored for a parity without marks, never nearer than
+  `_GAP`; a three-page scan in Courier with labels on both sides (Tesseract): only the
+  marked side (the spine's "12" was a mark before), the glued "b" found (lost before), a
+  page with its references inside found on the other side, and the unprinted 22c left
+  missing by the labelling.
+- **Builds** (`scratch/marks/p6b` with marks, `scratch/marks/p6_base` with `--no-marks`,
+  `quality.py build --only platon_bad`; before = Phase 5's `scratch/marks/p5c`). Own
+  measures (`scratch/marks/p6/label_score.py`):
+
+  | platon_bad | labels | jumps in their order | reference's labels found in ours |
+  |---|---|---|---|
+  | `--no-marks` (p6_base) | 688 | 34 | 239 / 249 |
+  | Phase 5, marks (p5c) | 688 | 34 | 239 / 249 |
+  | Phase 6, marks (p6b) | 701 | 21 | 239 / 249 |
+
+  The reference's "labels" are its introductions' outlines ("17a-27b"), not margin
+  labels: that measure can't move. Readings (`scratch/marks/p6/gaps.py`,
+  `reading_stats.py`, over the dry run's readings): unreadable 251 -> 101, letters read as
+  their label 297 -> 408. New labels checked on the page: 21b (p. 38), 64d (p. 116), 44a
+  (p. 80) right; some labels moved one word earlier, to the line's real first word ("y
+  por ello", was "por ello"). Remaining jumps: Stephanus pages printed without their last
+  letters (above), misreads, and Critias' start (106 / 107 misread; 108a given to "106").
+  `quality.py compare p6_base p6b`: missing 548.9 -> 544.1, extra 282.1 -> 270.0, the
+  heading measures better (Phase 3's); nothing worse. `compare p5c p6b`: missing better,
+  extra WORSE by 1.6 (above).
+- Only platon_bad has `margin-ref` marks (Copleston, Ratzinger, philosophy none): the other
+  marked books are unchanged by construction.
+- Regression (`regression.py build scratch/regress/marks6`, 630 s; `compare marks5 marks6`):
+  all eight the same numbers, 0 diff lines (rule 1). Fast tests 437 passed; ruff check and
+  format clean.
+- Slips: a scratch script named `synth_test.py` was collected by pytest (renamed
+  `synth_check.py`); a few `wait_log.py` waits ran in the Bash tool's background mode.
 ## Marks plan, Phase 5: sections, and the contents as links (2026-11-02, branch `marks/phase-5`) - STOPPED
 - **Stopped (draft PR)**: keeping the printed contents (plan item 2) makes two measures worse
   beyond the tolerance (rule 5), and the references disagree on whether a printed contents

@@ -146,6 +146,17 @@ def sections(blocks: Iterable[Block], book: marks.Marks) -> Iterator[Block]:
         yield block
 
 
+def margin_boxes(book: marks.Marks) -> list[tuple[int, tuple[float, float, float, float]]]:
+    """(page index, bounding box) of each ``margin-ref`` mark: where the book prints its
+    margin references (``margin_refs.learn_strip``)."""
+    return [
+        (mark.page - 1, (min(xs), min(ys), max(xs), max(ys)))
+        for mark in book.marks
+        if mark.kind == "margin-ref"
+        for xs, ys in [zip(*mark.shape, strict=True)]
+    ]
+
+
 def _middle(box) -> tuple[float, float]:
     return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
 

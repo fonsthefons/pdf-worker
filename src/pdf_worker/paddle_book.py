@@ -21,7 +21,7 @@ import re
 import statistics
 import unicodedata
 from collections import Counter, defaultdict
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Sequence
 
 import pymupdf
 
@@ -268,6 +268,7 @@ def iter_paddle_blocks(
     numbering: str | None = None,
     sections: dict[int, str] | None = None,
     skip: Collection[int] = (),
+    margin_marks: Collection[tuple[int, Sequence[float]]] = (),
 ) -> Iterator[Block]:
     """The book's blocks from Paddle's ``rows`` (one per page, as ``paddle_pages``
     returns them) for the scanned ``doc``. References put back by
@@ -278,9 +279,11 @@ def iter_paddle_blocks(
     kind) win over Paddle's labels and the furniture rule; ``numbering`` (a marks file's
     setting: where note numbers start again) replaces the guess of a new part.
     ``sections`` (page index -> the kind of its marked section): a bibliography's entries
-    don't run on from page to page; ``skip`` pages are left out (a section not kept)."""
+    don't run on from page to page; ``skip`` pages are left out (a section not kept).
+    ``margin_marks`` (``follow_marks.margin_boxes``: page index, box) say where the margin
+    references are printed: they are looked for there only."""
     language, macrons, latin_default, rivals = text_settings(rows, latin_macrons)
-    scan_of = page_scanner(language)
+    scan_of = page_scanner(language, [(doc.load_page(i), box) for i, box in margin_marks])
     read_mixed = mixed_reader(language)
     clips = missing_refs.PaddleClips()
     tries = [("text layer", missing_refs.text_layer)]

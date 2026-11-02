@@ -29,7 +29,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -45,9 +45,11 @@ from pdf_worker.margin_refs import (
     PageScan,
     ScanWord,
     is_mark,
+    learn_strip,
     mark_paddle_blocks,
     norm,
     outer_marks,
+    page_column,
     scan_page,
 )
 from pdf_worker.note_numbers import (
@@ -464,15 +466,17 @@ def text_settings(
     return language, macrons, latin_default, rivals
 
 
-def page_scanner(language: str):
+def page_scanner(language: str, marked: Sequence[tuple[pymupdf.Page, Sequence[float]]] = ()):
     """``scan(page)``: Tesseract's look at the page for margin references and dropped
-    note numbers, or None without Tesseract."""
+    note numbers, or None without Tesseract. ``marked``: the book's ``margin-ref`` marks
+    (page, box), which say where its margin references are (``margin_refs.learn_strip``)."""
     try:
         tesseract = tesseract_path()
     except OcrEngineMissingError:
         return lambda page: None
     code = TESSERACT_CODES.get(language, DEFAULT_LANGUAGE)
-    return lambda page: scan_page(page, tesseract, code)
+    strip = learn_strip(marked, lambda page: page_column(page, tesseract, code))
+    return lambda page: scan_page(page, tesseract, code, strip)
 
 
 def mixed_reader(language: str):

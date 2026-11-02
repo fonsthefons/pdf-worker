@@ -176,6 +176,9 @@ def convert_pdf(
     greek: list[Paragraph] = []  # Greek paragraphs left out
     marked = follow_marks.load(pdf_path) if marks else None
     settings = marked.settings if marked else Settings()
+    margin_marks = follow_marks.margin_boxes(marked) if marked else []
+    if margin_refs is None and margin_marks:
+        margin_refs = True  # the person marked some: the book has them
 
     steps = ["re-reading garbled words", "reading the layout", "building the book"]
     steps += ["laying out the PDF"] * (fmt == "pdf") + ["sorting the flagged words"]
@@ -204,6 +207,7 @@ def convert_pdf(
                 numbering=settings.numbering,
                 sections=section_kinds,
                 skip=left_out,
+                margin_marks=margin_marks,
             )
         else:
             font_sizes.mark_misreporting(doc)
