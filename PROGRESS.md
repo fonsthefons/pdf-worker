@@ -1,5 +1,132 @@
 # Progress
 
+## Marks plan, Phase 3: headings and levels from marks (2026-11-02, branch `marks/phase-3`) - STOPPED
+- **Stopped (draft PR)**: following the marks makes headings measures worse beyond the
+  tolerance on three of the four books (rule 5), and the plan doesn't say what to do when
+  the marks and the reference EPUBs disagree on what a heading is. The user decides.
+- **What `convert` does now with marks** (text layer, `structure._State._add_line`): a
+  `heading` line (marked or matched) is a heading at its level; a line of `body`,
+  `contents`, `caption`, `footnote` or `index` (`marks.NOT_HEADING_KINDS`) never is; other
+  lines go through today's rules, and a heading by the rules takes its place among the
+  marked levels by size (`follow_marks._placer`: the level whose lines' median size is
+  nearest; of levels about as near, within the style sheet's size tolerance, the one with
+  the most lines). Consecutive marked lines of one level are one heading whatever their
+  type and gaps (Copleston's "CAPÍTULO II" / "LA CUNA ..." in one mark).
+  Scans (`paddle_book._follow`): a block by the marks is labelled "heading N", Paddle's
+  titles without a kind "title N" (their place among the marked levels by estimated
+  size; the furniture rule still drops running heads Paddle boxes as titles), a title
+  block of a never-heading kind is text; consecutive "heading N" blocks of one level are
+  one heading, with their note and margin references (`_body_text`, without the speaker
+  rule: "KANT.—I" stays). On scans, heading matches are followed (Phase 2 followed only
+  place kinds there).
+- **Decisions** (from the builds, no number tuned):
+  - A match the style sheet flags `odd` (placed or sized like none of its examples) is
+    left to today's rules, as a conflict is (`follow_marks._kind`; for every kind, so
+    Phase 2's seams too: no Phase 2 measure moved). First build: Ratzinger's real headings
+    "NOTA: ESTRUCTURAS DE LO CRISTIANO", "6. El primado ..." matched `contents` (odd).
+  - Levels set in one size (Ratzinger's 2, 3 and 4 are all 12 pt): nearest-size alone put
+    every rules heading at the highest; now the level with most lines (3).
+  - "A heading's number and title stay one heading" = lines of **one level**. The first
+    build also joined a number-only heading to a title of another level; philosophy's
+    marks give "Capítulo II" level 2 and its title level 3 apart, so the person meant two
+    headings: kept apart now (a mark wins).
+- Tests first (`tests/test_follow_marks.py`, failed before): a heading in body type found
+  by a mark's style at its level; a line marked body is never a heading; a rules heading's
+  level placed among the marked levels by size; levels in one size place it at the
+  commonest; a number and a title of one level (two sizes) are one heading, on page 2 by
+  matches; a scan's blocks follow the marks (two blocks of level 1 one heading, a level-2
+  block its own, a body block Paddle titled is text); a scan's unmarked title gets
+  "level N".
+- **Builds** (`scratch/marks/p3e`: text books from `p3d`, scans rebuilt after the speaker
+  fix; before = `p2_base`, the `--no-marks` build of Phase 2, whose code path is
+  unchanged: the regression below):
+
+  | | headings found | headings real | levels |
+  |---|---|---|---|
+  | philosophy | 51.6 -> 51.6 | 80.3 -> 76.4 WORSE | 84.7 -> 89.4 better |
+  | copleston | 68.7 -> 67.9 | 58.2 -> 46.2 WORSE | 100 -> 100 |
+  | ratzinger | 64.2 -> 58.3 WORSE | 75.2 -> 71.9 WORSE | 100 -> 78.8 WORSE |
+  | platon_bad | 77.8 -> 88.9 better | 25.9 -> 31.0 better | 52.4 -> 75.0 better |
+  | total | 59.6 -> 58.2 WORSE | 67.5 -> 63.3 WORSE | 91.9 -> 90.6 WORSE |
+
+  Other measures unchanged or better (extra 89.4 -> 87.4, missing 180.1 -> 180.0, notes in
+  body 0.3, leftovers 0.7).
+- **Why worse** (`scratch/marks/p3_counts.py`, `p3_heading_diff.py`: the scorer's heading
+  lists; counts ours / real):
+  - copleston 177 / 103 -> 119 / 55; false headings 74 -> 64 (fewer). Its marks put a
+    chapter's number and title in one mark ("CAPÍTULO II", "LA CUNA DEL PENSAMIENTO
+    OCCIDENTAL: JONIA"); the reference tags the number alone, so each pair was one real +
+    one wrong heading and is now one wrong one. The share falls though no heading is lost.
+  - philosophy 157 / 126 -> 165 / 126: the same real headings, 8 more the reference doesn't
+    tag: headings the person marked (parts "PARTE I" + title in one mark, "PARTE III") and
+    chapter titles matched by them ("KANT.—IV: EL ATAQUE A LA METAFÍSICA" ...).
+  - ratzinger found 77 -> 70: the contents page's lines (the person marked them
+    `contents`) were headings before and their words gave credit for chapter headings
+    missed in the text ("I.- LA UNIDAD DE LAS ÚLTIMAS EXPRESIONES DEL SÍMBOLO"). Levels:
+    the marks' four levels (PRÓLOGO 1, "I. LA FE EN EL MUNDO DE HOY" 2, "1. DUDA Y FE" 3,
+    "a).- ..." 4) against the reference's; before, nearly every heading was level 3.
+    Wrong now: "I. LA FE EN EL MUNDO DE HOY:" (a marked heading) and two style-sheet
+    errors: "40,6-8)." and "1,35)." (a paragraph's last line, no letters, so capitals
+    unknown) matched heading 3.
+  - platon_bad: all three better (marked titles "FILEBO", "TIMEO", "CRITIAS" and Paddle's
+    titles placed among the marked levels).
+- For the user: the marks say one thing and the references another on copleston,
+  philosophy and Ratzinger. Options: accept these drops as the references' conventions
+  (and let Phase 4 judge), or change the plan (e.g. score headings against the marked
+  structure, or keep a heading's number apart when the reference does).
+- Regression (`regression.py build scratch/regress/marks3`, 618 s; `compare marks2 marks3`):
+  all eight the same numbers, 0 diff lines. Fast tests 426 passed; ruff check and format
+  clean.
+
+### After the stop (coordinator's request while the user sleeps; PR #95 stays a draft)
+- **Fixed: a line without letters is never a matched heading** (`style_sheet.classify`:
+  heading examples are not compared with it; a general fact, a heading has words). Test
+  first (`tests/test_style_sheet.py`, failed before: "40,6-8)." after a paragraph matched
+  heading 3 on a text layer with headings in body type). Ratzinger's "40,6-8)." and
+  "1,35)." are no longer headings (false headings 27 -> 25). Marked lines are left alone
+  (a mark wins). Fast tests 427 passed; ruff clean.
+- **Numbers for Phase 4** (whole yardstick, one build at a time: `scratch/marks/verdict`
+  with marks, 1265 s; `scratch/marks/verdict_base` with `--no-marks`, 1245 s; `quality.py
+  compare verdict_base verdict`). Only the four marked books change. 8 changes beyond
+  the tolerance for the worse, all of them headings:
+
+  | | headings found | headings real | levels | other |
+  |---|---|---|---|---|
+  | philosophy | 51.6 -> 51.6 | 80.3 -> 76.4 WORSE | 84.7 -> 89.4 better | same |
+  | copleston | 68.7 -> 67.9 | 58.2 -> 46.2 WORSE | 100 -> 100 | same |
+  | ratzinger | 64.2 -> 58.3 WORSE | 75.2 -> 73.4 WORSE | 100 -> 78.8 WORSE | missing 2.4 -> 1.6 |
+  | platon_bad | 77.8 -> 88.9 better | 25.9 -> 31.0 better | 52.4 -> 75.0 better | extra 282.1 -> 268.4 better |
+
+  The four books' total (from the scorer's counts): headings found 302 / 507 = 59.6% ->
+  295 / 507 = 58.2%; real 312 / 462 = 67.5% -> 259 / 407 = 63.6%; notes in body (0.3) and
+  leftovers (0.7) the same. Phase 4's bar (found and real +5 points each, notes in body and
+  leftovers halved or below 1 per 10,000) is **not met**: headings fall, notes in body and
+  leftovers were already below 1. Whole-set totals: found 60.6 -> 59.2, real 66.1 -> 62.2,
+  levels 91.7 -> 90.4 (WORSE); extra 142.7 -> 141.3 (better). Both headings page sets
+  unchanged (working pages found 86.2%, real 90.9%, levels 62.4%; held-out 80.0 / 77.3 /
+  52.1): those books have no marks.
+- **Where the user's marks and the reference agree** (`scratch/marks/p3_marks_vs_ref.py`:
+  a heading mark agrees when 80% of its words lie in one reference heading; levels as
+  the scorer ranks pairs): **30 of 61 heading marks**.
+
+  | | heading marks | agree with a reference heading | levels agree (pairs) |
+  |---|---|---|---|
+  | philosophy | 11 | 5 | 6 / 10 |
+  | copleston | 25 | 8 | 28 / 28 |
+  | ratzinger | 16 | 12 | 25 / 66 |
+  | platon_bad | 9 | 5 | 10 / 10 |
+
+  Don't agree: copleston every chapter mark taking number + title ("CAPÍTULO II / LA CUNA
+  ...", 14 of them) and the parts and appendices; philosophy the parts ("PARTE I / LA
+  ILUSTRACIÓN FRANCESA") and the chapter titles marked level 3 ("LA ILUSTRACIÓN
+  FRANCESA.—I", "ROUSSEAU.—I"); Ratzinger "INTRODUCCIÓN / YO CREO - AMEN" and the three
+  "a).- ..." level-4 headings (levels: the reference ranks the marked 4 levels otherwise);
+  platon_bad "FILE0" (an OCR misreading of FILEBO) and the three lists of speakers marked
+  level 2. So about half of what the person marked as headings the references don't tag
+  as headings: the yardstick can't reward following the marks there.
+- Blocked / for the user: how to treat the marks-vs-reference disagreement (accept, change
+  the yardstick for marked books, or change the marks). Phase 4 not started (no PR).
+
 ## Marks plan, Phase 2: page furniture and notes from marks (2026-11-02, branch `marks/phase-2`)
 - **`convert` reads the book's marks file** (`<pdf stem>.marks.json`, checked against the
   PDF: made on another file is a `MarksError`); `convert_pdf(marks=False)` / `pdf-worker

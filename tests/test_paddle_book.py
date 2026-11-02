@@ -89,14 +89,14 @@ def test_blocks_follow_paddles_labels(scan_pdf):
     ]
 
 
-def _book(tmp_path, rows):
+def _book(tmp_path, rows, **options):
     path = tmp_path / "book.pdf"
     with pymupdf.open() as doc:
         for _ in rows:
             doc.new_page()
         doc.save(path)
     with pymupdf.open(path) as doc:
-        return list(iter_paddle_blocks(doc, rows, images=False))
+        return list(iter_paddle_blocks(doc, rows, images=False, **options))
 
 
 def test_running_heads_paddle_calls_titles_go_and_the_title_stays(tmp_path):

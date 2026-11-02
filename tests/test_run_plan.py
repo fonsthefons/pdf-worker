@@ -32,7 +32,7 @@ def test_the_quality_plan_goes_on_from_its_own_merged_prs():
 
 def test_the_marks_plan_waits_for_the_users_marks_after_phase_0():
     effort = run_plan.efforts("marks")
-    assert sorted(effort) == list(range(7)) and effort[1] == "high"
+    assert sorted(effort) == list(range(8)) and effort[1] == "high"
 
     first = run_plan.next_step([], None, "marks", effort, ["book.pdf"])
     after = run_plan.next_step([_merged("marks/phase-0")], None, "marks", effort, ["book.pdf"])

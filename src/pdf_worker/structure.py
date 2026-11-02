@@ -46,6 +46,7 @@ from pdf_worker.layout import (
 from pdf_worker.letter_spacing import respace
 from pdf_worker.margin_refs import bracketed, has_letter, next_label
 from pdf_worker.margins import split_columns
+from pdf_worker.marks import NOT_HEADING_KINDS
 
 # Gap between line tops, relative to normal line spacing, that starts a new paragraph.
 _PARAGRAPH_GAP = 1.3
@@ -77,8 +78,9 @@ _MIN_CONTENTS_ENTRIES = 5
 # A note's first line: its number or sign ("3. Ibidem.", "3.", "* See").
 _NOTE_START_RE = re.compile(r"^\s*(?:\d{1,3}|[*†‡])[.)]?(?:\s|$)")
 # Chapter numbers are short headings too: "3", "IV", "II.".
-_NUMBERING_RE = re.compile(r"^\s*(?:\d{1,3}|[IVXLC]{1,6})\.?\s*$")
-# A footnote reference in block text: ``[^label]``.
+_NUMBERING_RE = re.compile(
+    r"^\s*(?:\d{1,3}|[IVXLC]{1,6})\.?\s*$"
+)  # A footnote reference in block text: ``[^label]``.
 REF_RE = re.compile(r"\[\^([^\]\s]+)\]")
 _REF_ONLY_RE = re.compile(r"^(?:\[\^[^\]\s]+\])+$")
 _LEADING_REFS_RE = re.compile(f"^((?:{MARGIN_REF_RE.pattern}\\s*)+)")
@@ -409,6 +411,7 @@ class _State:
         self.has_heading = False  # a heading was yielded (or a running head made one)
         self.title_size = 0.0  # the page's largest line in a layout-model title box
         self.runs_on = False  # the line being added runs on into the next one (_runs_on)
+        self.after_mark = False  # the line added before was a heading by the marks
 
     # -- page handling ----------------------------------------------------------------
     def add_page(
@@ -519,9 +522,14 @@ class _State:
     def _add_line(self, body_line: BodyLine, margins: _Margins, new_page: bool) -> Iterator[Block]:
         line, text = body_line.line, body_line.text
         profile = self.profile
-        level = None
-        if body_line.entry:
-            pass  # a contents entry is never a heading
+        # The marks' kind: a heading at its level; a kind never a heading (body, contents...).
+        kind = body_line.kind or ""
+        marked = int(kind.split()[1]) if kind.startswith("heading ") else None
+        after_mark, self.after_mark = self.after_mark, marked is not None
+        text_only = body_line.entry or kind in NOT_HEADING_KINDS
+        level = marked
+        if marked or text_only:
+            pass  # the marks decide; a contents entry is never a heading
         elif body_line.title:
             # The layout model's title box; its size gives the level.
             sizes = profile.heading_sizes
@@ -530,16 +538,22 @@ class _State:
             # Large type the model boxed as text is a heading only when larger than the
             # page's title boxes (a page without any keeps the size test).
             level = profile.heading_level(line.size)
+        if level and not marked:
+            # A heading by today's rules: placed among the marked levels by its size.
+            level = profile.rule_levels.get(round(line.size, 1), level)
         # A bare "1." / "V." heading runs on into the line after it (Dilexit's "V."), unless
         # that line opens a running paragraph (Niebla's "III", then the chapter's text).
         joins = (
-            not body_line.entry
+            not text_only
             and self.current.kind == "heading"
             and not self.runs_on
             and bool(_NUMBERING_RE.match(plain(self.current.text())))
         )
         if joins:
             level = level or self.current.level
+        # Lines of one level by the marks, one after the other (a number and its title in
+        # one mark): one heading, whatever the type and gaps.
+        marks_join = after_mark and self.current.kind == "heading" and self.current.level == marked
 
         if body_line.endnote_label:
             yield from self._flush()
@@ -586,10 +600,14 @@ class _State:
             self.break_next = False
             return
         elif level:
-            same_heading = joins or (
-                self.current.kind == "heading"
-                and self.current.level == level
-                and not self._starts_paragraph(body_line, margins, new_page)
+            same_heading = (
+                joins
+                or marks_join
+                or (
+                    self.current.kind == "heading"
+                    and self.current.level == level
+                    and not self._starts_paragraph(body_line, margins, new_page)
+                )
             )
             if not same_heading:
                 yield from self._flush()

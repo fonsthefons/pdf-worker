@@ -210,7 +210,9 @@ def convert_pdf(
             )
             profile.layout = layout_rows or {}
             if marked:
-                profile.kinds, profile.note_refs = follow_marks.text_kinds(doc, marked)
+                profile.kinds, profile.note_refs, profile.rule_levels = follow_marks.text_kinds(
+                    doc, marked
+                )
             sample = profile.text_sample
             blocks = iter_blocks(
                 doc,

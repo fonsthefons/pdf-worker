@@ -26,11 +26,12 @@ from collections.abc import Callable, Iterator
 import pymupdf
 
 from pdf_worker import missing_refs, styles
+from pdf_worker.follow_marks import TITLE_LABELS
 from pdf_worker.images import _render
 from pdf_worker.inline import MARGIN_REF_RE, margin_ref, page_mark, plain
 from pdf_worker.layout import _RUNNING_PAGES, HEADING_RATIO, PAGE_NUMBER_RE, _roman, running_key
 from pdf_worker.margin_refs import assign_labels, in_book
-from pdf_worker.marks import DROPPED_KINDS, FURNITURE_KINDS
+from pdf_worker.marks import DROPPED_KINDS, FURNITURE_KINDS, NOT_HEADING_KINDS
 from pdf_worker.note_numbers import SUPERSCRIPT_RE, from_sup, left_open
 from pdf_worker.ocr import DEFAULT_LANGUAGE, TESSERACT_CODES, OcrEngineMissingError, tesseract_path
 from pdf_worker.paddle_ocr import (
@@ -218,20 +219,35 @@ _LEFT_OUT = (*FURNITURE_KINDS, *DROPPED_KINDS)
 
 
 def _follow(row: dict, kinds: dict[int, str], skip: set[int]) -> dict:
-    """``row`` with its blocks relabelled by ``kinds``; ``skip`` (its furniture) updated."""
+    """``row`` with its blocks relabelled by ``kinds``; ``skip`` (its furniture) updated.
+    A heading by the marks is labelled "heading N"; a title of Paddle's the furniture rule
+    keeps "title N" ("level N": its place among the marked levels); a block of a kind
+    that is never a heading which Paddle took for a title is text."""
     blocks = []
     for i, block in enumerate(row["blocks"]):
         kind = kinds.get(i)
         label = None
         if kind in _LEFT_OUT:
             skip.add(i)
+        elif kind and kind.startswith("level "):
+            label = None if i in skip else "title " + kind.split()[1]
         elif kind and kind != "margin-ref":
             skip.discard(i)
-            label = _KIND_LABELS.get(kind)
-            if label is None and block.get("label") in _OUT_OF_TEXT:
+            label = kind if kind.startswith("heading ") else _KIND_LABELS.get(kind)
+            if label is None and (
+                block.get("label") in _OUT_OF_TEXT
+                or (kind in NOT_HEADING_KINDS and block.get("label") in TITLE_LABELS)
+            ):
                 label = "text"
         blocks.append({**block, "label": label} if label else block)
     return {**row, "blocks": blocks}
+
+
+def _level(label: str | None) -> tuple[str, int] | None:
+    """A heading block's source and level by ``_follow``'s label: ("heading", N) by the
+    marks, ("title", N) by Paddle's title placed among the marked levels."""
+    found = re.fullmatch(r"(heading|title) (\d)", label or "")
+    return (found.group(1), int(found.group(2))) if found else None
 
 
 def iter_paddle_blocks(
@@ -399,7 +415,23 @@ class _Book:
             self.part += 1
         self.notes_seen = self.notes_seen or bool(notes)
         first_text = True
+        joined = set()  # heading blocks taken into the heading before them
         for i, (label, _rect, text) in enumerate(blocks):
+            if i in joined:
+                continue
+            if found := _level(label):
+                yield from self.flush()
+                # Its note references and margin references kept, as in the text.
+                text = self._body_text(text, anchors.get(i, []), speakers=False)
+                # Blocks of one level by the marks, one after the other (a number and its
+                # title in one mark): one heading.
+                k = i + 1
+                while found[0] == "heading" and k < len(blocks) and _level(blocks[k][0]) == found:
+                    text += " " + self._body_text(blocks[k][2], anchors.get(k, []), False)
+                    joined.add(k)
+                    k += 1
+                yield Heading(text, found[1])
+                continue
             if label == "header":
                 yield from self.flush()  # "SÓCRATES, PROTARCO, FILEBO" under the title
                 yield Paragraph(" ".join(text.split()), small=True)
@@ -423,7 +455,7 @@ class _Book:
                 for line in text.splitlines():
                     yield Paragraph(line, small=True)
                 continue
-            if label in ("doc_title", "paragraph_title"):
+            if label in TITLE_LABELS:
                 yield from self.flush()
                 yield Heading(" ".join(text.split()), 1 if label == "doc_title" else 2)
                 continue
@@ -455,8 +487,9 @@ class _Book:
         if images:
             self.pending += _pictures(page, row)
 
-    def _body_text(self, text: str, marks: list[tuple[int, str]]) -> str:
-        """Margin references at their words, note references as ``[^label]``."""
+    def _body_text(self, text: str, marks: list[tuple[int, str]], speakers: bool = True) -> str:
+        """Margin references at their words, note references as ``[^label]``; with
+        ``speakers``, a speech's speaker set as "SÓC. — " (not in a heading: "KANT.—I")."""
         words = text.split()
         for k, reading in sorted(marks):
             label = self.label_of(reading)
@@ -473,9 +506,10 @@ class _Book:
         text = _BROKEN_WORD_RE.sub(r"\1", " ".join(w for w in words if w))
         if self.counts is not None:
             text = spanish_letters(restore_question_marks(text, self.counts))
-        text = _SPEAKER_RE.sub(
-            lambda m: m.group(1) + m.group(3).upper().replace("Ố", "Ó") + ". — ", text
-        )
+        if speakers:
+            text = _SPEAKER_RE.sub(
+                lambda m: m.group(1) + m.group(3).upper().replace("Ố", "Ó") + ". — ", text
+            )
         return SUPERSCRIPT_RE.sub(lambda m: f"[^c{self.part}-{from_sup(m.group())}]", text)
 
     def _add_note(self, text: str) -> None:
