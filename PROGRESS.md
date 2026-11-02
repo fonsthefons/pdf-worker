@@ -78,6 +78,55 @@
   all eight the same numbers, 0 diff lines. Fast tests 426 passed; ruff check and format
   clean.
 
+### After the stop (coordinator's request while the user sleeps; PR #95 stays a draft)
+- **Fixed: a line without letters is never a matched heading** (`style_sheet.classify`:
+  heading examples are not compared with it; a general fact, a heading has words). Test
+  first (`tests/test_style_sheet.py`, failed before: "40,6-8)." after a paragraph matched
+  heading 3 on a text layer with headings in body type). Ratzinger's "40,6-8)." and
+  "1,35)." are no longer headings (false headings 27 -> 25). Marked lines are left alone
+  (a mark wins). Fast tests 427 passed; ruff clean.
+- **Numbers for Phase 4** (whole yardstick, one build at a time: `scratch/marks/verdict`
+  with marks, 1265 s; `scratch/marks/verdict_base` with `--no-marks`, 1245 s; `quality.py
+  compare verdict_base verdict`). Only the four marked books change. 8 changes beyond
+  the tolerance for the worse, all of them headings:
+
+  | | headings found | headings real | levels | other |
+  |---|---|---|---|---|
+  | philosophy | 51.6 -> 51.6 | 80.3 -> 76.4 WORSE | 84.7 -> 89.4 better | same |
+  | copleston | 68.7 -> 67.9 | 58.2 -> 46.2 WORSE | 100 -> 100 | same |
+  | ratzinger | 64.2 -> 58.3 WORSE | 75.2 -> 73.4 WORSE | 100 -> 78.8 WORSE | missing 2.4 -> 1.6 |
+  | platon_bad | 77.8 -> 88.9 better | 25.9 -> 31.0 better | 52.4 -> 75.0 better | extra 282.1 -> 268.4 better |
+
+  The four books' total (from the scorer's counts): headings found 302 / 507 = 59.6% ->
+  295 / 507 = 58.2%; real 312 / 462 = 67.5% -> 259 / 407 = 63.6%; notes in body (0.3) and
+  leftovers (0.7) the same. Phase 4's bar (found and real +5 points each, notes in body and
+  leftovers halved or below 1 per 10,000) is **not met**: headings fall, notes in body and
+  leftovers were already below 1. Whole-set totals: found 60.6 -> 59.2, real 66.1 -> 62.2,
+  levels 91.7 -> 90.4 (WORSE); extra 142.7 -> 141.3 (better). Both headings page sets
+  unchanged (working pages found 86.2%, real 90.9%, levels 62.4%; held-out 80.0 / 77.3 /
+  52.1): those books have no marks.
+- **Where the user's marks and the reference agree** (`scratch/marks/p3_marks_vs_ref.py`:
+  a heading mark agrees when 80% of its words lie in one reference heading; levels as
+  the scorer ranks pairs): **30 of 61 heading marks**.
+
+  | | heading marks | agree with a reference heading | levels agree (pairs) |
+  |---|---|---|---|
+  | philosophy | 11 | 5 | 6 / 10 |
+  | copleston | 25 | 8 | 28 / 28 |
+  | ratzinger | 16 | 12 | 25 / 66 |
+  | platon_bad | 9 | 5 | 10 / 10 |
+
+  Don't agree: copleston every chapter mark taking number + title ("CAPÍTULO II / LA CUNA
+  ...", 14 of them) and the parts and appendices; philosophy the parts ("PARTE I / LA
+  ILUSTRACIÓN FRANCESA") and the chapter titles marked level 3 ("LA ILUSTRACIÓN
+  FRANCESA.—I", "ROUSSEAU.—I"); Ratzinger "INTRODUCCIÓN / YO CREO - AMEN" and the three
+  "a).- ..." level-4 headings (levels: the reference ranks the marked 4 levels otherwise);
+  platon_bad "FILE0" (an OCR misreading of FILEBO) and the three lists of speakers marked
+  level 2. So about half of what the person marked as headings the references don't tag
+  as headings: the yardstick can't reward following the marks there.
+- Blocked / for the user: how to treat the marks-vs-reference disagreement (accept, change
+  the yardstick for marked books, or change the marks). Phase 4 not started (no PR).
+
 ## Marks plan, Phase 2: page furniture and notes from marks (2026-11-02, branch `marks/phase-2`)
 - **`convert` reads the book's marks file** (`<pdf stem>.marks.json`, checked against the
   PDF: made on another file is a `MarksError`); `convert_pdf(marks=False)` / `pdf-worker

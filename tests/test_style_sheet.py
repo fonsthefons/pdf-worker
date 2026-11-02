@@ -6,6 +6,7 @@ import pymupdf
 import pytest
 
 from pdf_worker import marking, marks, style_sheet
+from pdf_worker.layout import page_lines
 from pdf_worker.marking import ViewLine
 from pdf_worker.marks import Mark
 from pdf_worker.style_sheet import PageLines
@@ -193,6 +194,26 @@ def test_of_two_kinds_that_agree_the_nearer_takes_the_line():
     assert [label.kind for label in labels[:10]] == ["body"] * 10
     assert (labels[10].kind, labels[10].sure) == ("contents", "matched")
     assert labels[11].sure == "rules"  # dot leaders: like neither example
+
+
+def test_a_line_without_letters_is_never_a_matched_heading(make_layout_pdf):
+    # Headings in body type (as Ratzinger's): a paragraph's last line "40,6-8)." agrees
+    # with them in font, size and numbering, its capitals unknown.
+    body = [(72, 130 + 15 * k, BODY, 12) for k in range(12)]
+    pdf = make_layout_pdf(
+        [
+            [(72, 100, "1. DUDA Y FE", 12), *body],
+            [(72, 100, "2. EL DILEMA", 12), *body, (72, 315, "40,6-8).", 12)],
+        ]
+    )
+    with pymupdf.open(pdf) as doc:
+        pages = [PageLines(p.rect.width, p.rect.height, page_lines(p)) for p in doc]
+    found = marks.Marks(marks.PdfInfo("layout.pdf", 2, "0"))
+    found.marks = [Mark("m1", 1, "heading", _rect(pages[0].lines[0].bbox), level=3)]
+    labels = style_sheet.classify(pages, found).labels[1]
+
+    assert (labels[0].kind, labels[0].level) == ("heading", 3)
+    assert pages[1].lines[-1].text.startswith("40,6") and labels[-1].kind != "heading"
 
 
 def test_a_scan_place_mark_taking_no_line_finds_lines_in_the_margin():

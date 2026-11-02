@@ -455,10 +455,14 @@ def classify(
             if not line.text.strip():
                 page_labels.append(Label())
                 continue
+            # A heading has words: a line without letters ("40,6-8).", a paragraph's last
+            # line) is no heading, whatever its type.
+            worded = any(c.isalpha() for c in line.text)
             agreeing = {
                 k: found
                 for k, examples in sheet.examples.items()
-                if (found := [e for e in examples if _agrees(e, features, kinds[k], measures)])
+                if (worded or kinds[k] != "heading")
+                and (found := [e for e in examples if _agrees(e, features, kinds[k], measures)])
             }
             nearest = sorted(
                 (min(_distance(e, features, measures) for e in found), k)
