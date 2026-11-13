@@ -20,6 +20,7 @@ from pdf_worker import (
     epub_reader,
     find_book,
     groq,
+    highlights,
     inbox,
     kindle,
     ocr,
@@ -699,6 +700,44 @@ def _run_ebook_to_pdf(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_highlights_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "highlights",
+        help="Write a PDF with a Kindle's highlights of the book.",
+        description="Write BOOK.highlighted.pdf: the book (an EPUB, or a PDF laid out from "
+        "it) with the highlights read on the Kindle. Copy the Kindle's "
+        "ksdk_annotation_v1.db and the book's .azw3 over MTP first (README).",
+    )
+    parser.add_argument("book", type=Path, help="The EPUB or PDF to highlight.")
+    parser.add_argument(
+        "--kindle-db", type=Path, required=True, help="The Kindle's ksdk_annotation_v1.db."
+    )
+    parser.add_argument(
+        "--azw3", type=Path, required=True, help="The book's AZW3 copied from the Kindle."
+    )
+    parser.add_argument("-o", "--output", type=Path, help="Output PDF (default: next to BOOK).")
+    parser.set_defaults(handler=_run_highlights)
+
+
+def _run_highlights(args: argparse.Namespace) -> int:
+    for path, what in ((args.kindle_db, "Kindle database"), (args.azw3, "AZW3 file")):
+        if not path.is_file():
+            raise PdfWorkerError(
+                f"{what} not found: {path}. Copy ksdk_annotation_v1.db and the book's .azw3 "
+                "off the Kindle over MTP (see the README, 'Highlights from a Kindle')."
+            )
+    report = highlights.highlight_book(args.book, args.kindle_db, args.azw3, args.output)
+    print(
+        f"Wrote {report.output_path}: {report.highlighted} highlight(s), "
+        f'{report.notes_attached} note(s) on "{report.title}"'
+    )
+    for text in report.unmatched:
+        print(f"  not found: {text[:70]}")
+    if report.notes_unattached:
+        print(f"  notes not attached: {report.notes_unattached}")
+    return 0
+
+
 def _add_rebuild_epub_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "rebuild-epub",
@@ -1059,6 +1098,10 @@ CHEAT_SHEET = [
             ('pdf-worker find-book --title "Confesiones" --language es', "Same, no questions"),
             ("pdf-worker find-book --file book.pdf", "Check a book you have; next steps"),
             ("pdf-worker ebook-to-pdf book.epub", "Lay out an EPUB as an A5 PDF"),
+            (
+                "pdf-worker highlights book.epub --kindle-db D --azw3 B",
+                "Kindle highlights in a PDF",
+            ),
             ("pdf-worker rebuild-epub book.epub", "Pop-up notes, headings, no front matter"),
             ("pdf-worker virus-check", "Check a download for malware (VirusTotal)"),
             ("pdf-worker virus-check https://...", "Same, for a link before downloading"),
@@ -1240,6 +1283,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_kindle_command(subparsers)
     _add_find_book_command(subparsers)
     _add_ebook_to_pdf_command(subparsers)
+    _add_highlights_command(subparsers)
     _add_rebuild_epub_command(subparsers)
     _add_review_command(subparsers)
     _add_mark_command(subparsers)

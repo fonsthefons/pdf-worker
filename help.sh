@@ -24,6 +24,9 @@ pdf-worker: convert, OCR and clean up PDFs and ebooks (EPUB, Markdown, Kindle).
   .venv/bin/pdf-worker ocr scan.pdf --lang eng
       Add a searchable text layer to a scanned PDF (scan.ocr.pdf)
 
+  .venv/bin/pdf-worker highlights book.epub --kindle-db ksdk_annotation_v1.db --azw3 book.azw3
+      Write book.highlighted.pdf with the highlights made on the Kindle
+
   .venv/bin/pdf-worker help
       List every command with examples
 X

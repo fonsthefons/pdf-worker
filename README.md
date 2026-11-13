@@ -339,6 +339,20 @@ Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_conversion/file_inbox/`. Eac
   The grade only reports: a low grade doesn't hold a book in drafts. EPUB inputs get no
   report.
 
+### Highlights from a Kindle
+
+```bash
+pdf-worker highlights book.epub --kindle-db ksdk_annotation_v1.db --azw3 book.azw3
+```
+
+Writes `book.highlighted.pdf` (an EPUB is laid out fresh; a PDF laid out from it is used as
+is). The Kindle (Paperwhite Signature) keeps the highlights of sideloaded books in
+`ksdk_annotation_v1.db`, as byte positions in the book's AZW3, so both files must be copied
+off the Kindle over MTP: replug it, quit Calibre/OpenMTP, then
+`.venv/bin/python -I scratch/highlights/fetch.py ksdk_annotation_v1.db "<book>.azw3"`.
+Deleted highlights may still show. The database holds no typed notes, so none are added;
+highlights that can't be found in the book are listed.
+
 ### Find a free book online
 
 ```bash
