@@ -27,11 +27,11 @@ def test_trailing_entries_and_multibyte_bytes():
 
 
 def test_span_text_rounds_out_to_words_and_drops_markup():
-    stream = b'<p id="b1" class="c">Hola mun&amp;do</p>\n<p aid="3Q28F">Voy a dar</p>'
+    stream = b'<p id="b1" class="c">Hola mun&amp;do</p>\n<p aid="3Q28F">Voy a dar. Y \xc2\xabfin\xc2\xbb.</p>'
     assert span_text(stream, stream.index(b"la"), stream.index(b"do<")) == "Hola mun&do"
-    assert span_text(stream, stream.index(b'F">'), stream.index(b"Voy") + 3) == "Voy"
-    # a start inside a word moves on to the next word
-    assert span_text(stream, stream.index(b"un&"), stream.index(b" a ")) == "Voy"
+    assert span_text(stream, stream.index(b"Voy"), stream.index(b"Voy") + 3) == "Voy a dar."
+    # touching two sentences takes both
+    assert span_text(stream, stream.index(b"dar"), stream.index(b"fin")) == "Voy a dar. Y «fin»."
 
 
 def test_read_azw3_rejects_other_files(tmp_path):
@@ -77,7 +77,10 @@ def test_book_chosen_by_title(tmp_path):
 
     found = highlights_from_db(db, "Lecciones preliminares de filosofía", STREAM)
 
-    assert found == [Highlight("Uno dos", 19, 25), Highlight("cinco seis", 38, 47)]
+    assert found == [
+        Highlight("Uno dos tres cuatro cinco seis", 19, 25),
+        Highlight("Uno dos tres cuatro cinco seis", 38, 47),
+    ]
 
 
 def test_short_title_must_match_whole(tmp_path):

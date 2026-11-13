@@ -23,6 +23,11 @@ _ID_TITLE_LEN = 31
 # The database's positions fall 16 bytes before the text they mark (measured on one book's
 # four highlights; the cause is unknown). shortcut: constant, revisit if another book differs.
 _OFFSET = 16
+_REACH = 2000  # most bytes a highlight is widened by on each side
+_CLOSERS = rb"(?:\xc2\xbb|\xe2\x80[\x99\x9d]|[\"')\]])*"
+_STOP = rb"(?:[.?!]|\xe2\x80\xa6)" + _CLOSERS + rb"(?=[\s<]|$)|</(?:p|h\d|div|li)>"
+_SENTENCE_END = re.compile(_STOP + rb"\s*")
+_SENTENCE_END_NOSPACE = re.compile(_STOP)
 _CUT_TAG =re.compile(r"^[^<]*>|<[^>]*$")
 _TAG = re.compile(r"<[^>]*>")
 _BREAKS = b" \t\r\n<>"  # what ends a word, as the PDF's words go
@@ -123,15 +128,14 @@ def read_azw3(path: str | Path) -> tuple[str, bytes]:
 
 
 def span_text(stream: bytes, start: int, end: int) -> str:
-    """The text between two positions, rounded to whole words, without markup."""
-    end = min(end, len(stream))
-    if 0 < start < len(stream) and stream[start - 1] not in _BREAKS:
-        # Inside a word: the highlight starts at the next one (the positions run a little off).
-        while start < end and stream[start] not in _BREAKS:
-            start += 1
-    if end > 0 and stream[end - 1] not in _BREAKS:
-        while end < len(stream) and stream[end] not in _BREAKS:
-            end += 1
+    """The whole sentences the two positions touch, without markup (the positions run a
+    little off, so the highlight is widened to sentence ends rather than trusted)."""
+    start = max(0, min(start, len(stream)))
+    end = max(start, min(end, len(stream)))
+    before = [m.end() for m in _SENTENCE_END.finditer(stream, max(0, start - _REACH), start)]
+    start = before[-1] if before else max(0, start - _REACH)
+    after = _SENTENCE_END_NOSPACE.search(stream, max(start, end - 1), end + _REACH)
+    end = after.end() if after else min(len(stream), end + _REACH)
     text = stream[start:end].decode("utf-8", "replace")
     text = _TAG.sub("", _CUT_TAG.sub("", text))
     return " ".join(html.unescape(text).split())
