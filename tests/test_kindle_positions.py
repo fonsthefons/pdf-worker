@@ -30,7 +30,8 @@ def test_span_text_rounds_out_to_words_and_drops_markup():
     stream = b'<p id="b1" class="c">Hola mun&amp;do</p>\n<p aid="3Q28F">Voy a dar</p>'
     assert span_text(stream, stream.index(b"la"), stream.index(b"do<")) == "Hola mun&do"
     assert span_text(stream, stream.index(b'F">'), stream.index(b"Voy") + 3) == "Voy"
-    assert span_text(stream, stream.index(b"do<"), stream.index(b" a ")) == "mun&do Voy"
+    # a start inside a word moves on to the next word
+    assert span_text(stream, stream.index(b"un&"), stream.index(b" a ")) == "Voy"
 
 
 def test_read_azw3_rejects_other_files(tmp_path):
@@ -64,7 +65,8 @@ def make_db(path, rows):
 
 LECCIONES = "d601-EBOK-Lecciones_preliminares_de_filos:36B66A99-0"
 DUNE = "9ac3-EBOK-Dune:B3AAE4AA-0"
-STREAM = b"<p>Uno dos tres cuatro cinco seis</p>"
+# The database's positions run 16 bytes before the text (see _OFFSET).
+STREAM = b" " * 16 + b"<p>Uno dos tres cuatro cinco seis</p>"
 
 
 def test_book_chosen_by_title(tmp_path):
@@ -75,7 +77,7 @@ def test_book_chosen_by_title(tmp_path):
 
     found = highlights_from_db(db, "Lecciones preliminares de filosofía", STREAM)
 
-    assert found == [Highlight("Uno dos", 3, 9), Highlight("cinco seis", 22, 31)]
+    assert found == [Highlight("Uno dos", 19, 25), Highlight("cinco seis", 38, 47)]
 
 
 def test_short_title_must_match_whole(tmp_path):
