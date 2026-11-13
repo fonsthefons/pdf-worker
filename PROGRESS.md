@@ -1,5 +1,140 @@
 # Progress
 
+## Plan: kindle-highlights (2026-11-13)
+Goal: `pdf-worker highlights BOOK.epub|BOOK.pdf` reads the Kindle's highlights and writes
+`BOOK.highlighted.pdf` with them (and typed notes as comments on them).
+Out of scope: Amazon notebook exports, highlighting the original source/scan PDF, wiring into
+`process`, copying files off the Kindle (a scratch helper does it, see Findings).
+Branch: feature/kindle-highlights
+
+Findings (2026-11-13, this user's Kindle Paperwhite Signature, reports itself as Scribe over MTP):
+- It has NO `My Clippings.txt` (only its sidecar). Highlights of USB-sideloaded books live in
+  the SQLite file `ksdk_annotation_v1.db` (MTP only; table `nonsyncable_annotations`: `book_id`,
+  `dataset` 1 = highlight, `start_position`/`end_position` JSON `{"longPosition":"87343",...}`,
+  `serialized_payload` JSON with `created_time`; NO highlight text). `book_id` looks like
+  `<uuid>-EBOK-<title with _>:<guid>-0`. Notes are probably another `dataset` (not yet seen).
+- Position = BYTE offset into the AZW3's decompressed text stream (PalmDOC, trailing-entry flags 0x3;
+  spike in `scratch/highlights/azw3_text.py`, works on the Kindle's own AZW3 copy, 1,140,299 bytes).
+  Slices land in the right passage but are off by a few bytes (mid-word starts/ends, sometimes inside
+  a tag): round each span out to whole words after stripping tags (and drop page-break `<span>`s).
+- The AZW3 must be the exact file on the Kindle (copy it from there; Calibre's EPUB is not enough).
+- Copying off an MTP Kindle: `mtp-getfile` fails (IDs change per session, device drops after
+  `mtp-files`); `scratch/highlights/fetch.py NAME...` (ctypes on libmtp, one session) works:
+  `.venv/bin/python -I scratch/highlights/fetch.py ksdk_annotation_v1.db "<book>.azw3"`.
+  Replug the Kindle first; quit Calibre/OpenMTP.
+
+Decisions (user, 2026-11-13): input = an EPUB (laid out fresh with `ebook_to_pdf`) or a PDF already
+laid out from it (the `process` outbox PDF, used as is); Kindle notes become the highlight's comment;
+a highlight contained in a longer one of the same book is dropped (extended highlights).
+Only this user's Kindle matters (user, 2026-11-13): the single source is
+`--kindle-db ksdk_annotation_v1.db --azw3 BOOK.azw3`. No `My Clippings.txt` reader, no plain text
+reader, no `--book` option (the db's book is chosen by the azw3's own title).
+
+- [x] S1 Library module + tests
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: src/pdf_worker/ebook_to_pdf.py (all, 78 lines); src/pdf_worker/document.py (open_pdf);
+    src/pdf_worker/errors.py; tests/conftest.py:32-50 (make_pdf); tests/test_find_book.py:63-75
+    (make_epub) and :635-645 (ebook_to_pdf use); scratch/highlights/azw3_text.py and
+    inspect_book.py (spikes to port; the real data: scratch/highlights/ksdk_annotation_v1.db and the
+    Morente .azw3 beside it)
+  do: New `src/pdf_worker/highlights.py` (no printing/argparse), `tests/test_highlights.py`. Pieces:
+    1. `read_kindle_db(db_path, azw3_path) -> list[Highlight]` (`Highlight`: text, start, end,
+       note: str | None) in a second module
+       `src/pdf_worker/kindle_positions.py` (+ `tests/test_kindle_positions.py`): port
+       `scratch/highlights/azw3_text.py` (PalmDOC text stream of an AZW3, trailing entries; raise
+       PdfWorkerError for other compression) and `scratch/highlights/inspect_book.py` (open the db
+       read-only, `nonsyncable_annotations`, `dataset = 1` = highlights; pick the book by the
+       azw3's title (EXTH/MOBI full name) against `book_id`'s `-EBOK-<title>` part, same
+       normalisation as step 2; several -> error naming them). Each span: slice the stream at
+       start:end BYTES, drop tags and `<span ... pagebreak ...></span>`, decode, then round out to
+       whole words (the positions are a few bytes off). `kind=highlight`, loc = the positions.
+       Notes: look for the dataset holding typed notes (inspect rows of a book with a note; if none
+       is available, skip notes and say so in the docstring). Tests: build a tiny AZW3 by hand?
+       No: test the stream/trailing/PalmDOC functions with hand-compressed bytes, and the db part
+       with a sqlite file built in the test and a fake text stream passed in (make the stream
+       reading a separate function so the slicing is testable).
+    2. The db holds every book's highlights, so the book is chosen by the azw3's own title against
+       `book_id` (no match or several -> PdfWorkerError naming the candidates). The input
+       EPUB/PDF's title is NOT compared: the user passes the right file.
+    3. Tokens: one shared function builds a page's tokens from `page.get_text("words")`
+       (NFKC, casefold, keep only \w chars, drop empty); a word ending in `-`/U+00AD that is
+       last on its line is joined with the next word (token keeps both rects). Highlight text is
+       tokenised the same way.
+    4. Matching streams pages (never the whole book's words in memory; carry over only the last
+       max-highlight-length tokens): record every exact occurrence (global token start,end) of
+       each highlight. Highlights with none and >= 8 tokens: fuzzy pass, a span starting where
+       its first 4 tokens match and ending where its last 4 match, length within 0.8-1.2x (+3)
+       (covers a note number or quote mark differing). Then choose in Kindle-location order:
+       the earliest candidate starting at/after the previous chosen end, else the earliest.
+       Drop first any highlight whose token string is contained in another's of the same book.
+    5. `highlight_book(input_path, kindle_db, azw3, output_path=None) -> HighlightReport`
+       (output_path, title, highlighted, notes_attached, unmatched: list[str], notes_unattached).
+       .epub/.fb2/.mobi input: lay out with `ebook_to_pdf.ebook_to_pdf` into a temp file beside
+       the output; .pdf: used as is (open via `open_pdf`). Second page pass: per chosen span,
+       union word rects per (block, line) -> `page.add_highlight_annot(quads)`, one annot per
+       span per page. A highlight's note (if the db has one, see 1) is the first annot's content
+       (`annot.set_info(content=...)`).
+       Default output `<stem>.highlighted.pdf` beside the input; write atomically (temp in the
+       output's folder + os.replace). Never touch the input.
+    Tests (tests/test_highlights.py, with `Highlight`s built directly): book chosen by title and
+    errors; exact match; match across a page break; hyphen-split word; duplicate phrase picked by
+    position order; fuzzy fallback (extra "17" mid-highlight); extended-highlight dedupe;
+    unmatched reported; output annots are Highlight type with the note as content; EPUB input
+    via make_epub (import it from tests.test_find_book or copy the few lines).
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest /Users/fons/Documents/programs/pdf-worker/tests/test_highlights.py` all pass; ruff check clean
+  return: <= 10 lines: files changed, done result, anything surprising
+
+- [x] S2 CLI command, docs
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: low
+  after: S1
+  context: src/pdf_worker/cli.py:17-30 (imports), :681-700 (ebook-to-pdf command: copy its
+    pattern), :1054-1065 (CHEAT_SHEET), :1237-1248 (registration); README.md:342-360
+    (ebook-to-pdf section); help.sh
+  do: `_add_highlights_command`: `pdf-worker highlights BOOK --kindle-db DB --azw3 BOOK.azw3
+    [-o OUT.pdf]` (both options required); a missing file -> PdfWorkerError saying how to get it
+    (README section: the Kindle's `ksdk_annotation_v1.db` and the book's `.azw3` over MTP with the
+    fetch.py recipe from Findings; replug first; deleted highlights may still show).
+    Print `Wrote OUT: N highlight(s), M note(s) on "Title"`, then each unmatched highlight (first
+    70 chars) and the unattached notes count. Add a CHEAT_SHEET row, a README subsection, a help.sh
+    entry. One CLI test in tests/test_highlights.py (main([...]) returns 0, output exists), using a
+    sqlite file and a tiny fake azw3 stream if kindle_positions allows it, else mock the reader.
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes; `.venv/bin/pdf-worker highlights --help` shows the options
+  return: <= 10 lines: files changed, done result, anything surprising
+
+- [x] S3 Smoke run on a real book, finish
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: low
+  after: S2
+  context: none beyond the above
+  do: FIRST the real case: `highlights` on the outbox PDF/EPUB of "Lecciones Preliminares de
+    Filosofía 2000" with `--kindle-db scratch/highlights/ksdk_annotation_v1.db --azw3
+    "scratch/highlights/Lecciones preliminares de filosofia - Manuel Garcia Morente.azw3"`: the
+    user has 4 real highlights (Nov 11); expect 4 found (the book on the Kindle is Morente's
+    "Lecciones preliminares", possibly a different edition from the outbox book: report which
+    matched). Run it on the PDF and on the sibling .epub with
+    `-o scratch/highlights/{pdf,epub}.highlighted.pdf`; render the highlighted pages with
+    tools/render_clip.py and look. Never write into file_outbox. If a highlight is not found,
+    print its text and the nearest PDF text to judge edition difference vs matching bug.
+    Then ruff format/check, full tests, PROGRESS entry, commit, PR, merge per CLAUDE.md.
+  done: both runs report the 4 highlights found (or the unmatched ones explained); `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest /Users/fons/Documents/programs/pdf-worker` passes; PR merged
+  return: <= 10 lines: matched counts, PR number, anything surprising
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- Started with untracked `timeo/` present (not part of this plan; never committed).
+- S1 2026-11-13: pass (tests/test_highlights.py 10 passed, ruff clean). Kindle db has no typed notes in any dataset; Highlight.note always None.
+- S2 2026-11-13: pass (461 fast tests passed; `highlights --help` shows options). Files: cli.py, README.md, help.sh, tests/test_highlights.py.
+- S3 2026-11-13: pass. Morente outbox PDF and sibling EPUB each: 4 highlights found, 0 unmatched, 0 notes (outputs in scratch/highlights/{pdf,epub}.highlighted.pdf). Pages not rendered/looked at. Full tests: 476 passed, 3 skipped.
+
 ## Marks in `process` (2026-11-02, branch `inbox/marks`)
 - A book's marks live in its work folder beside the PDF it is built from
   (`file_work/<book>/<stem>.marks.json`): for a scan that is the OCR'd copy, which the
