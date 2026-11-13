@@ -20,7 +20,10 @@ from pdf_worker.errors import PdfWorkerError
 
 # The Kindle cuts the title in a book id ("...-EBOK-Lecciones_preliminares_de_filos:36B66A99-0").
 _ID_TITLE_LEN = 31
-_CUT_TAG = re.compile(r"^[^<]*>|<[^>]*$")
+# The database's positions fall 16 bytes before the text they mark (measured on one book's
+# four highlights; the cause is unknown). shortcut: constant, revisit if another book differs.
+_OFFSET = 16
+_CUT_TAG =re.compile(r"^[^<]*>|<[^>]*$")
 _TAG = re.compile(r"<[^>]*>")
 _BREAKS = b" \t\r\n<>"  # what ends a word, as the PDF's words go
 
@@ -120,10 +123,12 @@ def read_azw3(path: str | Path) -> tuple[str, bytes]:
 
 
 def span_text(stream: bytes, start: int, end: int) -> str:
-    """The text between two positions, rounded out to whole words, without markup."""
-    if 0 < start < len(stream) and stream[start] not in _BREAKS:
-        while start > 0 and stream[start - 1] not in _BREAKS:
-            start -= 1
+    """The text between two positions, rounded to whole words, without markup."""
+    end = min(end, len(stream))
+    if 0 < start < len(stream) and stream[start - 1] not in _BREAKS:
+        # Inside a word: the highlight starts at the next one (the positions run a little off).
+        while start < end and stream[start] not in _BREAKS:
+            start += 1
     if end > 0 and stream[end - 1] not in _BREAKS:
         while end < len(stream) and stream[end] not in _BREAKS:
             end += 1
@@ -163,7 +168,8 @@ def highlights_from_db(db_path: str | Path, title: str, stream: bytes) -> list[H
     highlights = []
     for book_id, start, end in rows:
         if book_id == matches[0]:
-            s, e = json.loads(start)["shortPosition"], json.loads(end)["shortPosition"]
+            s = json.loads(start)["shortPosition"] + _OFFSET
+            e = json.loads(end)["shortPosition"] + _OFFSET
             highlights.append(Highlight(span_text(stream, s, e), s, e))
     return sorted(highlights, key=lambda h: (h.start, h.end))
 
