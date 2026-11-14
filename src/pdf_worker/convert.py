@@ -37,10 +37,10 @@ from pdf_worker.markdown_export import write_markdown
 from pdf_worker.marks import Settings
 from pdf_worker.ocr_check import assess_text_layer
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph, iter_blocks
 from pdf_worker.text_export import write_text
 from pdf_worker.tidy import tidy
+from pdf_worker.typst_export import write_pdf
 
 FORMATS = {
     "epub": ".epub",

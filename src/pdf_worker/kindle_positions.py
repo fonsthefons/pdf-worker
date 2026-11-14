@@ -28,7 +28,7 @@ _CLOSERS = rb"(?:\xc2\xbb|\xe2\x80[\x99\x9d]|[\"')\]])*"
 _STOP = rb"(?:[.?!]|\xe2\x80\xa6)" + _CLOSERS + rb"(?=[\s<]|$)|</(?:p|h\d|div|li)>"
 _SENTENCE_END = re.compile(_STOP + rb"\s*")
 _SENTENCE_END_NOSPACE = re.compile(_STOP)
-_CUT_TAG =re.compile(r"^[^<]*>|<[^>]*$")
+_CUT_TAG = re.compile(r"^[^<]*>|<[^>]*$")
 _TAG = re.compile(r"<[^>]*>")
 _BREAKS = b" \t\r\n<>"  # what ends a word, as the PDF's words go
 

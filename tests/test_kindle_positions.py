@@ -27,7 +27,10 @@ def test_trailing_entries_and_multibyte_bytes():
 
 
 def test_span_text_rounds_out_to_words_and_drops_markup():
-    stream = b'<p id="b1" class="c">Hola mun&amp;do</p>\n<p aid="3Q28F">Voy a dar. Y \xc2\xabfin\xc2\xbb.</p>'
+    stream = (
+        b'<p id="b1" class="c">Hola mun&amp;do</p>\n'
+        b'<p aid="3Q28F">Voy a dar. Y \xc2\xabfin\xc2\xbb.</p>'
+    )
     assert span_text(stream, stream.index(b"la"), stream.index(b"do<")) == "Hola mun&do"
     assert span_text(stream, stream.index(b"Voy"), stream.index(b"Voy") + 3) == "Voy a dar."
     # touching two sentences takes both
