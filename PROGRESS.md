@@ -1,5 +1,120 @@
 # Progress
 
+## Plan: split-words-and-typst experiments (2026-11-13)
+Goal: measure (A) joining spaced-hyphen and three-part split words in ai-client's word check
+and (B) a Typst-made reflowed PDF, per docs/research/split-words-and-typst.md.
+Out of scope: changing pdf-worker's PDF writer or defaults; margin references in the margin
+(the spike keeps them inline as bold "[34b]", user's choice 2026-11-13); quality.py books.
+Branch: feature/split-words-typst (pdf-worker and ai-client, same name).
+Expected cost: no cloud calls; ~2×15 min regression builds + ~1 h Typst spike; ~2 opus agent runs.
+Decisions (user, 2026-11-13): A is changed on an ai-client branch (merged only if it passes);
+data = the 8 regression books; A passes if split words left drop ≥80%, ≤1 false join in 100
+sampled, and `regression.py compare` loses no headings. Results go in the research report's
+new "Results" section (the repo has no docs/results.md).
+
+- [x] S1 Baseline build (A and B share it)
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: -
+  context: -
+  do: with ai-client on main, run `.venv/bin/python tools/run_logged.py reg-before
+    .venv/bin/python tools/regression.py build scratch/reg-before` (absolute paths) and wait with
+    `tools/wait_log.py scratch/logs/reg-before.log`. Return its summary numbers only.
+  done: last line of scratch/logs/reg-before.log is `exit 0 after N s`
+  return: <= 10 lines: per-book numbers, exit line
+
+- [x] S2 A: split-word joins in ai-client + unit tests
+  repo: /Users/fons/Documents/programs/ai-client
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: ai_client/check.py:40-50 (gap regexes, MIN_SPLIT_TAIL) and :379-420 (the split loop);
+    tests/test_check.py (how split cases are tested)
+  do: on branch feature/split-words-typst in ai-client: (1) a gap of " - " or "- " (hyphen with a
+    space after or both sides; OCR's line break) joins when the joined word is a dictionary word
+    (`words.in_dictionary`) even if both parts are real words, unless `compound`. (2) Before pairs,
+    try three consecutive tokens whose gaps are space/" - "/"- " with at least one hyphen gap or
+    one fragment part, joining when the triple is a dictionary word ("vi - ven cia" -> vivencia);
+    mark all three used. Plain-space pairs keep today's fragment rule. Tests (Spanish): "haber - la
+    vivido" -> haberla; "vi - ven cia real" -> vivencia; "sino que", "per la", "confies en" stay.
+    Run ai-client's own pytest (its .venv if present, else pdf-worker's .venv/bin/pytest).
+  done: ai-client test suite passes; `git -C /Users/fons/Documents/programs/ai-client branch
+    --show-current` is feature/split-words-typst
+  return: <= 10 lines: files changed, test result, any case that could not be made to pass
+
+- [x] S3 After build + scoring for A
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: S1,S2
+  context: -
+  do: ai-client is installed editable, so its branch is live. Run `tools/run_logged.py reg-after
+    .venv/bin/python tools/regression.py build scratch/reg-after`, wait, then
+    `tools/regression.py compare scratch/reg-before scratch/reg-after`. Then run
+    `scratch/split_score.py scratch/reg-before scratch/reg-after` (write it first: count matches of
+    `\b\w+ ?- \w+\b` (lowercase second part) per book in each build's .md, and list every
+    word that is joined in after but split in before, with 60 chars of context, to
+    scratch/split_joins.txt). Return counts and the compare summary.
+  done: scratch/split_joins.txt exists; compare printed
+  return: <= 10 lines: split words before/after per book and total, headings lost/added, joins count
+
+- [x] S4 A: hand check of 100 joins and verdict
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  after: S3
+  context: scratch/split_joins.txt (sample 100 lines with a scratch script, not the whole file)
+  do: judge each sampled join right/wrong; apply the bar (≥80% drop, ≤1 wrong, no headings lost).
+    Pass: open the ai-client PR (against main) and merge per git rules. Fail: leave the branch
+    unmerged, note why.
+  done: verdict written in docs/research/split-words-and-typst.md "Results"
+  return: -
+
+- [x] S5 B: Typst spike
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: medium
+  after: S4
+  context: src/pdf_worker/markdown_export.py:70-80 (margin refs written as `**\[34b\]**`)
+  do: work only in scratch/typst/. `.venv/bin/pip install typst` (not in pyproject yet). For the
+    Timeo and one Spanish prose book from the regression set (books in tools/regression.py):
+    `pdf-worker convert BOOK --to md -o scratch/typst/X.md` and `--to pdf -o scratch/typst/X.story.pdf`,
+    then `pandoc X.md -t typst -s -o X.typ` (pandoc path: `pdf_worker.pandoc_path`), prepend
+    `#set page(paper: "a5", margin: 42pt)`, `#set text(lang: "es", font: <a serif with polytonic
+    Greek, e.g. "New Computer Modern" or a system font that has it>)`, `#set par(justify: true)`,
+    compile with `typst.compile(...)` from a scratch script. Measure for each: build time, size,
+    page count, StructTreeRoot in the catalog (pymupdf `doc.pdf_catalog()` / xref_get_key), whether
+    footnotes sit on their page (sample 3), whether "[34b]" appears bold, missing glyphs (Greek).
+    Render pages 10, 50, 100, and two with footnotes from both PDFs to scratch/typst/png/.
+  done: scratch/typst/report.txt with the table; PNGs exist
+  return: <= 10 lines: the table, surprises, paths for the user to check paste-as-one-line in Preview
+
+- [x] S6 Record results
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  after: S4,S5
+  context: scratch/typst/report.txt
+  do: add "Results (2026-11-13)" to docs/research/split-words-and-typst.md: A's numbers and
+    verdict, B's table and what the user still has to check (paste in Preview, PNGs by eye);
+    suggest /plan-feature for adoption if B looks good. Update PROGRESS.md; commit, PR, merge
+    (pdf-worker). Do not add typst to pyproject.
+  done: PR merged, main pulled
+  return: -
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- S1 2026-11-13: pass, exit 0 after 628 s (first try failed: no_intro PDF missing, user restored it). S2 run after S1 so the baseline uses unchanged ai-client.
+- S2 2026-11-13: pass, ai-client 96 tests pass on feature/split-words-typst (uncommitted; check.py, test_check.py).
+- S3 2026-11-13: pass; after build 654 s, compare: no headings lost/added. Runner had no Write tool, conductor wrote scratch/split_score.py: 165 -> 162 splits, 2 joins.
+- S4 2026-11-13: A fails (−2% not −80%; 1 of 2 joins wrong: "parteo"). ai-client branch left unmerged; verdict in research report Results.
+- S5 2026-11-13: Blocked: permission system denied `.venv/bin/pip install typst` (and `pip show typst`). Needs the user to install or allow it. S6 waits on S5.
+- 2026-11-14: user installed typst 0.15.2; S5 unblocked and re-run at the same level.
+- S5 2026-11-14: pass; report.txt + PNGs in scratch/typst/. Typst PDFs tagged, smaller, notes on their page.
+- S6 2026-11-14: Results written in docs/research/split-words-and-typst.md; PR below.
+
 ## Plan: kindle-highlights (2026-11-13)
 Goal: `pdf-worker highlights BOOK.epub|BOOK.pdf` reads the Kindle's highlights and writes
 `BOOK.highlighted.pdf` with them (and typed notes as comments on them).

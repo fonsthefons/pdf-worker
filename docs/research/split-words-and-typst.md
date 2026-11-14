@@ -104,3 +104,42 @@ B. Typst spike: two books (the Timeo and one Spanish prose book). Run `convert -
    the venv). Score: StructTreeRoot present; paragraphs pasting as one line in Preview;
    footnotes on their page; build time and size against `--to pdf`; five pages looked at
    side by side. Cost: about 1 h, no `src/` changes.
+
+## Results (2026-11-13)
+
+### A. Split words: fail, ai-client branch left unmerged
+
+- Builds: `scratch/reg-before` (628 s) and `scratch/reg-after` (654 s), both exit 0.
+  `regression.py compare`: the numbers are the same for all 8 books, and no headings were lost
+  or added. Some heading texts changed because space-split words got joined, e.g.
+  "Cap ítu lo III" → "Capítulo III" (metafisica, lugones, timeo_greek, niebla, kant).
+- Hyphen splits counted with `scratch/split_score.py`: 165 before, 162 after (−2%; the bar was
+  −80%). Only 2 new joins: "con - sigo" → consigo (right) and "parte - o" → "parteo" (wrong:
+  Kant's "en parte - o quizá", a dash). That is 1 wrong out of 2, far over the bar of 1 in 100.
+- The regex mostly finds dashes that set off a phrase ("-no sólo especulativo-"), not split
+  words. The few real split words left ("man - tiene", "16- gicos", "so- j lución") were not
+  joined. A better test needs a count that tells dashes from splits and a look at why
+  "man - tiene" stays split.
+- Verdict: fails the ≥80% drop and the ≤1-wrong bar. The ai-client branch
+  `feature/split-words-typst` is kept unmerged (committed there, 28df88b) for a later attempt.
+
+### B. Typst spike: promising
+
+Two books, `convert --to md` + pandoc `-t typst` + `typst.compile` (typst 0.15.2), against
+today's `--to pdf` ("story"). Times are the whole run; compile itself took 0.8 s and 2.5 s.
+
+| book | pdf | time | size | pages | tagged | `[34b]` bold | missing glyphs | notes on their page (3 sampled) |
+|---|---|---|---|---|---|---|---|---|
+| lugones | story | 186 s | 2.58 MB | 215 | no | no refs | 0 | 0/3 (`--notes end`) |
+| lugones | typst | 184 s | 2.17 MB | 190 | yes | no refs | 0 | 3/3 |
+| timeo | story | 56 s | 2.34 MB | 192 | no | not bold | 0 | 0/3 (at the back) |
+| timeo | typst | 52 s | 2.15 MB | 148 | yes | 354/354 | 0 | 2/3 (third unclear) |
+
+- Pandoc's Typst template sets letter paper, 1.25in margins and its own font inside `conf()`.
+  So the `#set` rules have to come after `#show: doc => conf(...)`, not at the top of the file.
+- The Greek check is weak: only 14 Greek characters are left in the Timeo (its facing Greek
+  pages are dropped).
+- Still to check by the user: whether a paragraph pastes as one line in Preview, and the PNGs by
+  eye (`scratch/typst/png/`, PDFs in `scratch/typst/`).
+- Next: if those look good, use `/plan-feature` to plan a Typst PDF writer. typst is installed
+  in the venv but not added to `pyproject.toml`.
