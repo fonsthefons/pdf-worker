@@ -46,6 +46,11 @@ def test_flags_suspicious_items():
     assert next(f for f in review.fixes if f.find == "Būtzow").context.startswith("×2 ")
 
 
+def test_transliterated_greeks_long_e_and_o_are_no_odd_letters():
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + "Su daímōn, diakosmḗseōs y Būtzow.")])
+    assert {f.find for f in review.fixes if f.kind == "chars"} == {"Būtzow"}
+
+
 def test_applies_actions():
     fixes = [
         Fix("1", "27", "spelling", "ipodrias", action="replace", value="¿podrías"),
@@ -208,6 +213,33 @@ def test_no_rows_for_words_in_italics_unless_scanned():
         list(review.apply(blocks))
         review.finish()
         assert sorted(f.find for f in review.fixes) == rows
+
+
+def test_a_transliteration_after_its_greek_word_is_no_spelling_row():
+    text = "Del griego σῶμα, sôma, y ἀλήθεια (alétheia, zqxwrt) y Pudieramos."
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
+    assert sorted(f.find for f in review.fixes) == ["Pudieramos", "zqxwrt"]  # one word only
+    # Only spelling flags: a name after the comma keeps its row, a split word is joined.
+    text = "Su λόγος, Pudieramos, y ἀθανασία (inmor-talidad)."
+    blocks, _, review = _run([], [Paragraph(page_mark(0, "1") + text)])
+    assert [f.find for f in review.fixes] == ["Pudieramos", "inmor-talidad"]
+    assert "ἀθανασία (inmortalidad)" in blocks[0].text
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + "Dijo sôma y zqxwrt.")])
+    assert sorted(f.find for f in review.fixes) == ["sôma", "zqxwrt"]
+
+
+def test_unsure_greek_gets_a_row_with_the_other_reading():
+    review = Review([], "es", spelling=False)
+    review.flag("greek-unsure", "12", "καλός", "kalos")
+    review.finish()
+    (row,) = review.fixes
+    assert (row.page, row.kind, row.find, row.value, row.action) == (
+        "12",
+        "greek-unsure",
+        "καλός",
+        "kalos",
+        "",
+    )
 
 
 def test_split_and_learned_words_are_fixed_without_review(tmp_path):

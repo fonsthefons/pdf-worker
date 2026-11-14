@@ -1,5 +1,179 @@
 # Progress
 
+## Plan: greek-terms (2026-11-14)
+Goal: Ancient Greek terms quoted inside Spanish (or other) text come out right: Greek
+letters as Greek, transliterations with their accents and macrons. Out of scope: Greek
+facing pages of bilingual editions (still left out), turning transliterations into Greek
+letters, new OCR engines beyond ai-client's.
+Decisions (user, 2026-11-14): fix both kinds; transliterated long vowels as macrons (ē ō);
+an unsure word keeps its likeliest reading and gets a row in the book's `.fixes.tsv`.
+Test books (user): `test_pdfs/Timeo_by_Platón_no_intro.pdf` (scan; italic transliterations
+with long e/o printed underlined: *tḕn heautoû phthísin* p.224, *diakosmḗseōs* p.218,
+*daímōn* p.260; OCR gives "diakosmtseºs", "daímQn", "tąn ōauloii"), `test_pdfs/philosophy.pdf`
+(scan with marks; Greek not checked yet), `test_pdfs/Introducción a la Filosofía 1.pdf`
+(born digital, copied from the user's sandamaso/subjects/IF; real Greek in the text layer,
+841 letters on 35 pages, e.g. ἀλήθεια (alétheia), ζῷον λογικόν; today's PDF keeps 832, one
+paragraph goes to `greek-dropped`, and transliterations like "sôma" are flagged as spelling).
+Found (2026-11-14): Typst/EPUB render polytonic Greek fine (New Computer Modern, no glyph 0).
+The loss is in reading: `bilingual.suspect` (bilingual.py:165) only flags tokens with odd
+signs, digits or case flips, so look-alike readings with clean letters ("ōauloii",
+"plithísin") are never re-read; Tesseract's `grc` reading can't give macrons for Latin
+transliterations.
+Branch: feature/greek-terms
+
+- [x] S1 Greek truth set and scorer
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: src/pdf_worker/bilingual.py:1-60,165-210; tools/book_score.py (pattern of a scorer
+    with selftest); tools/render_clip.py
+  do: Build `test_pdfs/greek_truth.json` (test_pdfs is gitignored: also keep a copy at
+    `tests/data/greek_truth.json`, small): for each test book, up to 40 Greek terms as printed,
+    each {book, page (1-based), kind: "greek"|"translit", text}. Find them by sampling pages
+    with scratch scripts (suspect-looking tokens, italic spans, Greek letters) and READ the
+    rendered clips (tools/render_clip.py → Read the PNG) to write the true text; translit
+    long vowels as macrons (ē ō). For IF the text layer is the truth. For philosophy.pdf first
+    find out whether it prints Greek at all; none → note it and skip it. Then
+    `tools/greek_score.py OUT.md...`: per book and kind, terms found / missing (NFC compare),
+    printing the misses; `selftest` subcommand. Baseline: convert the three books `--to md`
+    (philosophy with its marks as is; use tools/run_logged.py) and record the scores.
+  done: `.venv/bin/python tools/greek_score.py selftest` passes and `test_pdfs/greek_truth.json` has ≥ 60 terms
+  return: <= 10 lines: terms per book/kind, baseline scores, whether philosophy has Greek, surprises
+
+- [x] S2 Re-read Greek-script terms that OCR read as Latin
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S1
+  context: src/pdf_worker/bilingual.py:165-290; src/pdf_worker/convert.py:205-240,315-340;
+    tests for bilingual (find with query_graph tests_for mark_words / suspect); tools/greek_score.py
+  do: Widen what gets re-read: a token is suspect also when it has letters outside the book
+    language's alphabet ("ōauloii", "Ćmías", "ǽ") or, on a line that already has a suspect
+    token, when it is a neighbour that isn't a dictionary word of the book's language (reuse
+    the spelling check's word list; find it in fixes/review). Keep `_choose`'s confidence rules;
+    an accepted change whose readings disagree (Greek and native both confident) gets a
+    `.fixes.tsv` row (kind e.g. `greek-unsure`, through review/fixes like the other kinds).
+    Don't flag as spelling a word in parentheses/brackets right after a Greek word
+    ("σῶμα, sôma", "ἀλήθεια (alétheia)"). Unit tests for each new rule. Measure with
+    greek_score on the S1 books; the greek-kind score must rise and no book may lose terms.
+  done: `.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes and greek_score's greek kind beats S1's baseline (numbers in return)
+  return: <= 10 lines: rules added, scores before/after per book, new fixes rows, surprises
+
+- [x] S3 Transliterations with accents and macrons
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S2
+  context: src/pdf_worker/bilingual.py (as changed by S2); the ai-client repo's vision
+    functions (/Users/fons/Documents/programs/ai-client: Apple Vision, MLX-VLM PaddleOCR-VL,
+    Groq; find their entry points); tools/greek_score.py
+  do: Italic transliterated terms the OCR garbles ("diakosmtseºs" → "diakosmḗseōs", "daímQn"
+    → "daímōn"): first a small experiment on the S1 translit terms' clips: Tesseract (lat,
+    spa), Apple Vision, PaddleOCR-VL, a Groq vision model with a prompt asking for Greek
+    transliteration with macrons; pick the best by greek_score's translit kind and cost; record
+    the numbers in PROGRESS.md. Wire the winner into the re-read of suspect italic tokens
+    (only when the book has such tokens; cache results like tesseract_cache). Underlined e/o
+    → ē/ō. Unsure → keep likeliest + fixes row. AI calls only through ai-client; missing
+    features go there.
+  done: `.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes and greek_score's translit kind beats S1's baseline (numbers in return)
+  return: <= 10 lines: experiment table, chosen reader, scores before/after, surprises
+
+- [x] S4 Greek quotations kept in books that aren't bilingual
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S3
+  context: src/pdf_worker/bilingual.py:105-162; src/pdf_worker/convert.py:170-240,285-300; tests of drop_greek
+  do: `drop_greek` drops Greek paragraphs "in any book". Drop them only when the book has
+    facing pages (bilingual edition); otherwise keep them (a quoted Greek passage in a
+    philosophy book). Check the IF book's one `greek-dropped` paragraph is now kept and the
+    Timeo still drops its facing-page Greek. Unit tests both ways.
+  done: `.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes
+  return: <= 10 lines: change, IF/Timeo check, tests
+
+- [x] S5 Full suite and quality check
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: S4
+  context: -
+  do: Run `.venv/bin/python tools/run_logged.py greek-tests .venv/bin/pytest /Users/fons/Documents/programs/pdf-worker`,
+    then `.venv/bin/python tools/wait_log.py scratch/logs/greek-tests.log`. Then
+    `tools/regression.py build scratch/greek-after` and `tools/regression.py compare` against a
+    build of main (made from a `git worktree` of main in scratch/main-wt) and report headings/numbers changes.
+  done: last line of scratch/logs/greek-tests.log is `exit 0 after N s`
+  return: <= 10 lines: pass/fail counts, regression differences
+
+- [x] S6 Review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S5
+  context: `git diff main...feature/greek-terms`
+  do: Review for: Spanish words wrongly turned into Greek (false positives of the wider
+    suspect rule), slowdowns on books without Greek (re-reading must stay off when nothing is
+    suspect), AI calls outside ai-client, cache keys, fixes rows lost or duplicated, Unicode
+    normalisation (NFC) of Greek and macrons.
+  done: reviewer's report lists no finding rated bug or worse (fix inline otherwise and rerun S4's done)
+  return: <= 10 lines: ranked findings with file:line
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then
+sonnet → opus) with the failure in its brief; failing again, or no longer fitting the code, it
+goes under "Blocked" with the reason; continue with steps that don't depend on it.
+
+### Run log
+- S1 2026-11-14 pass: 80 terms (timeo 40 translit; IF 20 greek + 20 translit; philosophy has no Greek, skipped). Baseline: timeo translit 12/40, IF greek 20/20, IF translit 19/20 (miss "thaumázein" p.33 is a line lost at the p.33/34 break, not OCR). Scores in scratch/greek_base/.
+- S2 2026-11-14 pass (retry; done-check revised by conductor since greek kind was already 20/20: tests pass, no score drops): 471 tests pass; timeo translit 12/40, IF greek 20/20, IF translit 19/20 (unchanged). Added odd-letter + neighbour suspect rules, italic guard (inert on Timeo: no italic flags in its text layer), accent-only readings rejected, `greek-unsure` fixes rows (Timeo 2), no spelling rows for translits after Greek. Known false Greek readings in Timeo: "tópro" → "ἰὰ ῥγὸ", "lroi" → "Καὶ" (S6 to review).
+- S3 2026-11-14: experiment on the 40 Timeo translit terms, each a whole printed line at 300 dpi
+  (`scratch/s3/locate.py` makes the clips, `experiment.py` / `chosen.py` / `vlm_sample.py` read
+  them; found = the true term occurs in the line's reading):
+  | reader | found | cost |
+  |---|---|---|
+  | Tesseract lat (psm 7) | 12/40 | ~2 s, local |
+  | Tesseract spa (psm 7) | 16/40 | ~2 s, local |
+  | Apple Vision (es-ES) | 10/40 | ~3 s, local |
+  | PaddleOCR-VL (MLX server, "OCR:"; its `\underline{o}` turned into ō) | 17/40 | 52 s + server start |
+  | Groq vision | - | account "organization_restricted" (400) |
+  | Gemini 3.8 Flash / Gemma 4 31B free (OpenRouter), prompt asking for ē ō | no answers | Gemini timed out (180 s); Gemma 429 on all 10 tried |
+  | **Tesseract spa (psm 6, as `bilingual.mark_words` reads) + underlined e/o → ē ō** | **30/40** | ~2 s, already read by S2 |
+  Chosen: the last one, no new engine. `bilingual._long_vowels` finds a line of ink just under a
+  word's baseline (nothing below it: not a g's loop) and puts a macron on the e/o above it.
+  Wired in: `_read` adds them to the book-language reading; a reading that only adds macrons is
+  taken; "º" after two letters is suspect ("daímºn"); a garbled word's reading keeps to its
+  printed line (a tall box no longer pulls in the lines around it: "como Las partes (thymós),");
+  a garbled word takes a clean less sure reading (conf 70-85, words only, not a glued note
+  number) with a `reread-unsure` fixes row (Timeo 26); `chars` rows no longer flag ē ō.
+  Scores: timeo translit 12/40 → 26/40; IF greek 20/20, IF translit 19/20 (output unchanged);
+  Timeo notes 786 as before. Outputs in scratch/s3/out/. Left: Tesseract misreads (heautoú,
+  dysthymia), clean-looking misreads never re-read (prakhthen, autárlreia, dokoumen), notes lost
+  by the structure (p.222 n.134), Greek chosen over italics (eik!ls → εἰκὸς: no italic flags).
+  Conductor verified: 475 tests pass; greek_score on scratch/s3/out matches.
+- S4 2026-11-14 pass: `drop_greek(is_bilingual)`, convert passes `bool(facing)`; 475 tests pass. Real-book IF/Timeo check not run by the agent (by construction only).
+- S5 2026-11-14 done-check pass: 491 passed, 3 skipped, `exit 0 after 547 s`. Main worktree build failed (test_pdfs untracked; editable install points at branch src), so conductor compared scratch/reg-after (typst-plan build, same OCR code as main) vs scratch/greek-after: REGRESSIONS on books without Greek: metafisica headings split ("Capítulo" → "Cap ítu lo", "Bibliografía" → "Biblio gra f BIBLIOGRAFÍA"), niebla gets false macrons ("rēligión", "hōmbre", "agachṓ", "sē"). Added fix step S5b before S6.
+- S5b 2026-11-14 pass (conductor verified): new rules only run when `bilingual.quotes_greek` (facing pages or Greek on ≥5% pages); macrons dropped from Hunspell words. 477 tests pass. vs scratch/reg-before: kant, timeo_web, lugones, dilexit, niebla identical; dialogos +1 para (Greek title kept, S4); timeo_greek Greek gains; metafisica 11 "form a"/"com puesto" paras, also in reg-after: from ai-client's split-words branch state, not this branch. Greek: timeo translit 26/40, IF greek 20/20, IF translit 20/20. Metafisica heading damage in S5's compare was the stale baseline (ai-client split-words), not this branch.
+- S6 2026-11-14 pass: no bug-rated finding. Fixed inline anyway: (1) plain-Latin foreign names need Greek ≥85 and +15 over spa, else kept, and a `greek-unsure` row when Greek wins; (2) Greek reading kept to one line (`_over_line`); (3) the after-Greek skip applies only to `spelling`, one word. 478 tests pass; greek_score (scratch/greekfix/out3) timeo translit 26/40, IF 20/20 + 20/20. Left (low): `quotes_greek` reads every page's text once more; `_ORDINAL_IN_WORD_RE` ("Ilmº") re-reads in all books; "αβ" on 5% pages enables the rules; ē/ō words without Greek now go to the spelling check; a `reread-unsure` row stores the garbled text, and only the first page's row is kept per word.
+- S5b 2026-11-14: causes, found by dumping each book's re-read words old vs new
+  (`scratch/greekfix/dump.py`, `wdiff.py`): (1) the metafisica "Cap ítu lo"/"T o m á s" headings
+  are no Greek regression: scratch/reg-after was built with ai-client's unmerged
+  split-words branch live (three-part joins); against scratch/reg-before (ai-client main) they
+  match. (2) "Biblio gra f BIBLIOGRAFÍA", "causalità" -> "causalita,", "l'étre", "Mišna" ->
+  Greek, "ʹlo" -> "Ἴο": the letters rule (È, î, à, š, ʹ aren't Spanish) on foreign words.
+  (3) niebla/lugones macrons: `_long_vowels` reads scan specks as underlines. (4) niebla lost
+  words ("no nos importa, el pecado"): `_over_line` keeps one line of a slanted scan; plus
+  wrong low-confidence guesses ("T>ero" -> "mero"). Fix: `bilingual.quotes_greek(doc, facing)`
+  (bilingual edition, or Greek words on >= 5% of pages: IF 30%, Diálogos 0.5%) and
+  `mark_words(greek=...)`: the letters and neighbour rules, the italic rule, `_over_line`,
+  guesses and macrons only in such books; there, macrons are dropped from words the
+  dictionary knows without them (Hunspell, not Wikipedia counts, which have "hos", "tón").
+  Regression (`scratch/greek-after2` vs `scratch/reg-before`): kant, timeo_web, lugones,
+  dilexit, niebla identical; dialogos +1 paragraph (S4's kept Greek title); metafisica 11
+  paragraphs of "form a"/"m ateria" joins that reg-after lacks too (not this branch);
+  timeo_greek the Greek gains. No macrons in any non-Greek book. greek_score
+  (`scratch/greekfix/out2/`): timeo translit 26/40, IF greek 20/20, IF translit 20/20.
+  477 fast tests pass (`pytest .../tests`; the repo-root form trips on the leftover
+  `scratch/main-wt` worktree's tests).
+
 ## Plan: typst-pdf-writer (2026-11-14)
 Goal: `--to pdf` (and EPUB → PDF) is written by Typst via Pandoc: tagged PDF, native footnotes,
 margin refs in the margin; MuPDF Story's `pdf_export.py` is deleted.

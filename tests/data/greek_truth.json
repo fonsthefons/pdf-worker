@@ -1,0 +1,482 @@
+[
+ {
+  "book": "timeo",
+  "page": 216,
+  "kind": "translit",
+  "text": "legómenon"
+ },
+ {
+  "book": "timeo",
+  "page": 216,
+  "kind": "translit",
+  "text": "prakhthèn"
+ },
+ {
+  "book": "timeo",
+  "page": 216,
+  "kind": "translit",
+  "text": "óntōs"
+ },
+ {
+  "book": "timeo",
+  "page": 218,
+  "kind": "translit",
+  "text": "paralláttein"
+ },
+ {
+  "book": "timeo",
+  "page": 218,
+  "kind": "translit",
+  "text": "diakosmḗseōs"
+ },
+ {
+  "book": "timeo",
+  "page": 221,
+  "kind": "translit",
+  "text": "dýnamis"
+ },
+ {
+  "book": "timeo",
+  "page": 221,
+  "kind": "translit",
+  "text": "toútōn"
+ },
+ {
+  "book": "timeo",
+  "page": 221,
+  "kind": "translit",
+  "text": "hyparkhóntōn"
+ },
+ {
+  "book": "timeo",
+  "page": 221,
+  "kind": "translit",
+  "text": "hypárkhontos"
+ },
+ {
+  "book": "timeo",
+  "page": 221,
+  "kind": "translit",
+  "text": "eikṑs mŷthos"
+ },
+ {
+  "book": "timeo",
+  "page": 221,
+  "kind": "translit",
+  "text": "eikótōs"
+ },
+ {
+  "book": "timeo",
+  "page": 222,
+  "kind": "translit",
+  "text": "periékhein"
+ },
+ {
+  "book": "timeo",
+  "page": 222,
+  "kind": "translit",
+  "text": "perilambánein"
+ },
+ {
+  "book": "timeo",
+  "page": 222,
+  "kind": "translit",
+  "text": "ógkōn"
+ },
+ {
+  "book": "timeo",
+  "page": 222,
+  "kind": "translit",
+  "text": "dynámeōn"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "Páskhōn"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "drôn"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "logismós"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "logistheís"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "gnṓrimon"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "eudaímōn"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "autárkeia"
+ },
+ {
+  "book": "timeo",
+  "page": 224,
+  "kind": "translit",
+  "text": "tḕn heautoû phthísin"
+ },
+ {
+  "book": "timeo",
+  "page": 227,
+  "kind": "translit",
+  "text": "phronimōtátēs"
+ },
+ {
+  "book": "timeo",
+  "page": 230,
+  "kind": "translit",
+  "text": "thymós"
+ },
+ {
+  "book": "timeo",
+  "page": 230,
+  "kind": "translit",
+  "text": "epithymía"
+ },
+ {
+  "book": "timeo",
+  "page": 231,
+  "kind": "translit",
+  "text": "atáktōs"
+ },
+ {
+  "book": "timeo",
+  "page": 231,
+  "kind": "translit",
+  "text": "alógōs"
+ },
+ {
+  "book": "timeo",
+  "page": 231,
+  "kind": "translit",
+  "text": "okhetós"
+ },
+ {
+  "book": "timeo",
+  "page": 236,
+  "kind": "translit",
+  "text": "khṓra"
+ },
+ {
+  "book": "timeo",
+  "page": 236,
+  "kind": "translit",
+  "text": "dokoûmen"
+ },
+ {
+  "book": "timeo",
+  "page": 236,
+  "kind": "translit",
+  "text": "phaínetai"
+ },
+ {
+  "book": "timeo",
+  "page": 239,
+  "kind": "translit",
+  "text": "eikóta lógon"
+ },
+ {
+  "book": "timeo",
+  "page": 245,
+  "kind": "translit",
+  "text": "diakhytikón"
+ },
+ {
+  "book": "timeo",
+  "page": 251,
+  "kind": "translit",
+  "text": "thṓrax"
+ },
+ {
+  "book": "timeo",
+  "page": 253,
+  "kind": "translit",
+  "text": "xanthós"
+ },
+ {
+  "book": "timeo",
+  "page": 253,
+  "kind": "translit",
+  "text": "kateskíasen"
+ },
+ {
+  "book": "timeo",
+  "page": 259,
+  "kind": "translit",
+  "text": "dyskolía"
+ },
+ {
+  "book": "timeo",
+  "page": 259,
+  "kind": "translit",
+  "text": "dysthymía"
+ },
+ {
+  "book": "timeo",
+  "page": 260,
+  "kind": "translit",
+  "text": "daímōn"
+ },
+ {
+  "book": "if",
+  "page": 5,
+  "kind": "greek",
+  "text": "διαλεκτική"
+ },
+ {
+  "book": "if",
+  "page": 5,
+  "kind": "greek",
+  "text": "διαλέγεσθαι"
+ },
+ {
+  "book": "if",
+  "page": 13,
+  "kind": "greek",
+  "text": "ἀλήθεια"
+ },
+ {
+  "book": "if",
+  "page": 15,
+  "kind": "greek",
+  "text": "ζῷον λογικόν"
+ },
+ {
+  "book": "if",
+  "page": 16,
+  "kind": "greek",
+  "text": "δεινόν"
+ },
+ {
+  "book": "if",
+  "page": 22,
+  "kind": "greek",
+  "text": "φρόνησις"
+ },
+ {
+  "book": "if",
+  "page": 25,
+  "kind": "greek",
+  "text": "ἄριστος"
+ },
+ {
+  "book": "if",
+  "page": 29,
+  "kind": "greek",
+  "text": "χρυσὸν"
+ },
+ {
+  "book": "if",
+  "page": 30,
+  "kind": "greek",
+  "text": "ἰλιγγιᾶν"
+ },
+ {
+  "book": "if",
+  "page": 30,
+  "kind": "greek",
+  "text": "ἀνιάτως"
+ },
+ {
+  "book": "if",
+  "page": 31,
+  "kind": "greek",
+  "text": "ἀληθινὸν"
+ },
+ {
+  "book": "if",
+  "page": 34,
+  "kind": "greek",
+  "text": "παίγνιον"
+ },
+ {
+  "book": "if",
+  "page": 39,
+  "kind": "greek",
+  "text": "ἐπιούσιον"
+ },
+ {
+  "book": "if",
+  "page": 43,
+  "kind": "greek",
+  "text": "πρόσωπον"
+ },
+ {
+  "book": "if",
+  "page": 44,
+  "kind": "greek",
+  "text": "πλήρωμα"
+ },
+ {
+  "book": "if",
+  "page": 46,
+  "kind": "greek",
+  "text": "ὁμοούσιον τῷ πατρί"
+ },
+ {
+  "book": "if",
+  "page": 47,
+  "kind": "greek",
+  "text": "ὑποκείμενον"
+ },
+ {
+  "book": "if",
+  "page": 53,
+  "kind": "greek",
+  "text": "Ἐν ἀρχῇ ἦν ὁ Λόγος"
+ },
+ {
+  "book": "if",
+  "page": 55,
+  "kind": "greek",
+  "text": "Θεοτόκος"
+ },
+ {
+  "book": "if",
+  "page": 63,
+  "kind": "greek",
+  "text": "θεοῦ γεώργιον"
+ },
+ {
+  "book": "if",
+  "page": 5,
+  "kind": "translit",
+  "text": "paideía"
+ },
+ {
+  "book": "if",
+  "page": 5,
+  "kind": "translit",
+  "text": "dialégesthai"
+ },
+ {
+  "book": "if",
+  "page": 13,
+  "kind": "translit",
+  "text": "alétheia"
+ },
+ {
+  "book": "if",
+  "page": 15,
+  "kind": "translit",
+  "text": "zôon logikón"
+ },
+ {
+  "book": "if",
+  "page": 16,
+  "kind": "translit",
+  "text": "deinós"
+ },
+ {
+  "book": "if",
+  "page": 22,
+  "kind": "translit",
+  "text": "phrónesis"
+ },
+ {
+  "book": "if",
+  "page": 25,
+  "kind": "translit",
+  "text": "areté"
+ },
+ {
+  "book": "if",
+  "page": 30,
+  "kind": "translit",
+  "text": "teleytônta"
+ },
+ {
+  "book": "if",
+  "page": 30,
+  "kind": "translit",
+  "text": "iliggiân"
+ },
+ {
+  "book": "if",
+  "page": 30,
+  "kind": "translit",
+  "text": "aniátos"
+ },
+ {
+  "book": "if",
+  "page": 31,
+  "kind": "translit",
+  "text": "alethinòn"
+ },
+ {
+  "book": "if",
+  "page": 33,
+  "kind": "translit",
+  "text": "thaumázein"
+ },
+ {
+  "book": "if",
+  "page": 34,
+  "kind": "translit",
+  "text": "paígnion"
+ },
+ {
+  "book": "if",
+  "page": 39,
+  "kind": "translit",
+  "text": "epioúsion"
+ },
+ {
+  "book": "if",
+  "page": 44,
+  "kind": "translit",
+  "text": "pléroma"
+ },
+ {
+  "book": "if",
+  "page": 46,
+  "kind": "translit",
+  "text": "homooúsion tô Patrí"
+ },
+ {
+  "book": "if",
+  "page": 47,
+  "kind": "translit",
+  "text": "hypokeímenon"
+ },
+ {
+  "book": "if",
+  "page": 47,
+  "kind": "translit",
+  "text": "apátheia"
+ },
+ {
+  "book": "if",
+  "page": 54,
+  "kind": "translit",
+  "text": "oikouméne"
+ },
+ {
+  "book": "if",
+  "page": 64,
+  "kind": "translit",
+  "text": "kalokagathía"
+ }
+]
