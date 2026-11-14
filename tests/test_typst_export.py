@@ -8,7 +8,7 @@ from pdf_worker import convert, typst_export
 from pdf_worker.docx_export import PandocMissingError, pandoc_path
 from pdf_worker.inline import margin_ref
 from pdf_worker.output import Metadata
-from pdf_worker.structure import Note, Paragraph
+from pdf_worker.structure import Heading, Note, Paragraph
 
 
 def _has_pandoc() -> bool:
@@ -49,9 +49,29 @@ def test_footnotes_at_the_foot_of_their_page(tmp_path):
 
 def test_notes_at_the_end_in_a_notes_section(tmp_path):
     with _write(tmp_path, _note_blocks(), notes_at="end") as doc:
-        first, last = doc[0].get_text(), doc[-1].get_text()
+        # page 0 is the contents (the notes heading is a heading), page 1 the text
+        first, last = doc[1].get_text(), doc[-1].get_text()
+        there = [link.get("page") for link in doc[1].get_links()]
+        back = [link.get("page") for link in doc[-1].get_links()]
+        notes_page = len(doc) - 1
     assert "Texto con nota" in first and "Única nota" not in first
-    assert "Notas" in last and "Única nota del libro." in last
+    assert "Notas" in last and "Única nota del libro." in last and "↑" in last
+    # The number links to its note, and the note's ↑ back to the text.
+    assert notes_page in there and 1 in back
+
+
+def test_a_note_nothing_refers_to_is_kept(tmp_path):
+    blocks = [Paragraph("Texto sin llamada."), Note("7", "Nota huérfana.")]
+    with _write(tmp_path, blocks) as doc:
+        assert "Nota huérfana." in "".join(page.get_text() for page in doc)
+
+
+def test_a_contents_page_with_links_when_there_are_headings(tmp_path):
+    blocks = [Heading("Capítulo uno", 1), Paragraph("Hola."), Heading("Capítulo dos", 1)]
+    with _write(tmp_path, blocks) as doc:
+        contents = doc[0]
+        assert "Capítulo dos" in contents.get_text()
+        assert len(contents.get_links()) == 2  # named destinations, one per heading
 
 
 def test_margin_references_sit_in_the_right_margin(tmp_path):

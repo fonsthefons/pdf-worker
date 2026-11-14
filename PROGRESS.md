@@ -74,7 +74,7 @@ Branch: feature/typst-pdf-writer
   done: last line of scratch/logs/typst-tests.log is `exit 0 after N s`
   return: <= 10 lines: pass/fail counts, names + one-line reasons of failures
 
-- [ ] S4 Review
+- [x] S4 Review
   repo: /Users/fons/Documents/programs/pdf-worker
   run: agent:reviewer
   model: opus    effort: high
@@ -94,6 +94,8 @@ goes under "Blocked" with the reason; continue with steps that don't depend on i
 - S1 2026-11-14: pass, test_typst_export 6 passed (integration passes separately, 77s); mref ends with `;`, end notes via footnote show rule in book.typ.
 - S2 2026-11-14: pass, 465 fast tests, ruff clean; pdf_export.py deleted. Lost vs Story: end-notes links/↑ arrow, contents page (tests dropped/loosened).
 - S3 2026-11-14: pass, full suite 481 passed, 3 skipped (540 s). Committed on branch so S4 can review `main...`.
+- User asked 2026-11-14: contents page (`outline()`, only when there are headings) and end-note links with ↑ back, in book.typ; tests added.
+- S4 2026-11-14: 2 bugs fixed inline: unreferenced notes were dropped by Pandoc (now kept as a paragraph, `_keep_unreferenced`); a missing conf() block raised ValueError (now PdfWorkerError). 467 fast tests pass, ruff clean. Left (minor): a note referenced twice prints twice; in-book links, original note marks and cover text not carried over; PDF output and its tests need Pandoc.
 
 ## Plan: split-words-and-typst experiments (2026-11-13)
 Goal: measure (A) joining spaced-hyphen and three-part split words in ai-client's word check

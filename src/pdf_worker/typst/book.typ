@@ -22,7 +22,10 @@
 #let endnotes = state("endnotes", ())
 #show footnote: it => if inputs.notes == "end" {
   endnotes.update(notes => notes + (it.body,))
-  context super(str(endnotes.get().len()))
+  context {
+    let n = str(endnotes.get().len())
+    [#link(label("note-" + n), super(n))#label("ref-" + n)]
+  }
 } else { it }
 // Typst still gathers the footnotes for the page's foot: leave them out there.
 #show footnote.entry: it => if inputs.notes != "end" { it }
@@ -36,7 +39,8 @@
       heading(level: 1, inputs.notes-title)
       set text(size: 0.9em)
       for (i, note) in notes.enumerate() {
-        block[#super(str(i + 1))~#note]
+        let n = str(i + 1)
+        [#block[#link(label("ref-" + n))[#super(n)~↑]~#note]#label("note-" + n)]
       }
     }
   }
@@ -44,4 +48,9 @@
 
 #if inputs.cover != "" {
   page(margin: 0pt, numbering: none, image(inputs.cover, width: 100%, height: 100%))
+}
+// The contents, on its own page, when the book has headings.
+#context if query(heading).len() > 0 {
+  outline()
+  pagebreak(weak: true)
 }

@@ -6,10 +6,11 @@ as raw Typst), turned into Typst source by Pandoc, given the rules of ``typst/bo
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 import pymupdf
@@ -21,10 +22,11 @@ from pdf_worker.epub import _notes_title
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.markdown_export import write_markdown
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import Block
+from pdf_worker.structure import Block, Note, Paragraph
 
 TEMPLATE = Path(__file__).parent / "typst" / "book.typ"
 _CONF = "#show: doc => conf("
+_REF = re.compile(r"\[\^([^\]]+)\]")
 
 
 def write_pdf(
@@ -45,7 +47,7 @@ def write_pdf(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.w."))
     try:
-        stats = write_markdown(blocks, work / "book.md", meta, typst=True)
+        stats = write_markdown(_keep_unreferenced(blocks), work / "book.md", meta, typst=True)
         # No title block: the cover shows the title; the template sets the PDF's own.
         blank = ["-V", "title=", "-V", "author=", "-V", "date="]
         result = subprocess.run(
@@ -61,7 +63,12 @@ def write_pdf(
         source_path = work / "book.typ"
         source = source_path.read_text(encoding="utf-8")
         # Pandoc's conf() sets letter paper and its own margins: our rules go after its call.
-        at = source.index("\n)\n", source.index(_CONF)) + 3
+        try:
+            at = source.index("\n)\n", source.index(_CONF)) + 3
+        except ValueError:
+            raise PdfWorkerError(
+                "Pandoc's Typst template has no conf() call (a custom default.typst?)"
+            ) from None
         rules = TEMPLATE.read_text(encoding="utf-8")
         source_path.write_text(source[:at] + rules + source[at:], encoding="utf-8")
         if cover:
@@ -87,3 +94,23 @@ def write_pdf(
     if on_pass:
         on_pass(1, 1)
     return stats
+
+
+def _keep_unreferenced(blocks: Iterable[Block]) -> Iterator[Block]:
+    """Pandoc drops a footnote nothing refers to (OCR lost its number): keep such a note
+    as a small paragraph where it stands. Notes follow their page's text, so a reference
+    is always seen before its note."""
+    seen: set[str] = set()
+    for block in blocks:
+        if isinstance(block, Note) and block.label not in seen:
+            yield Paragraph(f"{block.label}. {block.text}")
+            continue
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and not isinstance(block, Note):
+            seen.update(_REF.findall(text))
+        for line in getattr(block, "lines", None) or []:
+            seen.update(_REF.findall(line))
+        for row in getattr(block, "rows", None) or []:
+            for cell in row:
+                seen.update(_REF.findall(cell))
+        yield block
