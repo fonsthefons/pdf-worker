@@ -23,9 +23,14 @@ capitalised one only once, unless a more frequent name is one or two edits away:
 it is flagged with that name as a guess, ``name: Bohatec?``). The words themselves are
 checked by ai-client's ``check.text``, on the body text without page marks, margin and
 note references or styles: see its README), ``chars`` (odd letters: macrons outside
-Latin, Cyrillic look-alikes, stray ``$``; not in bibliographies, indexes or ALL CAPS
-words), ``note-no-ref``, ``ref-no-note``, ``margin-est`` (estimated margin references)
-and ``margin-missing`` (labels missing between two found ones). Text the build left out
+Latin but for transliterated Greek's ē ō, Cyrillic look-alikes, stray ``$``; not in
+bibliographies, indexes or ALL CAPS words), ``note-no-ref``, ``ref-no-note``,
+``margin-est`` (estimated margin references), ``margin-missing`` (labels missing between
+two found ones), ``greek-unsure`` (a garbled word re-read as Greek though the book's
+language read it confidently too: that reading is the ``value``; ``bilingual.mark_words``)
+and ``reread-unsure`` (a garbled word replaced by a less confident reading in the book's
+language; the ``value`` is the old text); a word right after a Greek one ("σῶμα, sôma") is
+its transliteration, not a spelling row. Text the build left out
 is listed too, set to ``ignore`` with status ``dropped``: ``greek-dropped`` (a Greek
 paragraph in a bilingual edition, ``bilingual.drop_greek``).
 
@@ -82,7 +87,7 @@ _MARKS_RE = re.compile(f"{PAGE_MARK_RE.pattern}|{MARGIN_REF_RE.pattern}|{STYLE_R
 _HIDDEN_RE = re.compile(f"{_MARKS_RE.pattern}|{REF_RE.pattern}")
 _COUNT_RE = re.compile(r"^×\d+ ")  # a row's context starts with its count in the book
 _WORD_RE = re.compile(r"[^\W\d_]+")
-_MACRON_RE = re.compile("[āēīōūȳĀĒĪŌŪȲ]")
+_MACRON_RE = re.compile("[āīūȳĀĪŪȲ]")  # ē ō are transliterated Greek (η ω): "daímōn"
 _CYRILLIC_RE = re.compile("[Ѐ-ӿ]")
 _DOLLAR_RE = re.compile(r"\S*\$\S*")
 _BACK_MATTER_RE = re.compile(r"bibliograf|[íi]ndice|\bindex\b|referencias|references", re.I)
@@ -95,6 +100,9 @@ _CHAPTER_RE = re.compile(r"(?:cap[íi]tulo|chapter|parte|part|libro|book)\b", re
 _MAX_REFERENCE = 300  # characters
 _LOOK_AHEAD = 6  # blocks after a heading searched for an entry (philosophy: "1. BAYLE", "Textos")
 _ADD_RE = re.compile(r"(\S+)\s+before\s+(.+)")
+# A word after a Greek one, past a comma or inside a bracket opened after it, is its
+# transliteration: "σῶμα, sôma", "ἀλήθεια (alétheia)", "ζῷον λογικόν (zôon logikón)".
+_AFTER_GREEK_RE = re.compile(r"[Ͱ-Ͽἀ-῿][^\sͰ-Ͽἀ-῿]*(?:,\s*|\s*[(\[])$")
 
 
 @dataclass
@@ -248,6 +256,10 @@ class Review:
                 continue
             if self.check_chars and (_MACRON_RE.search(find) or _CYRILLIC_RE.search(find)):
                 continue  # a "chars" row
+            if flag.kind == "spelling" and _AFTER_GREEK_RE.search(
+                clean, max(0, flag.start - _CONTEXT), flag.start
+            ):
+                continue  # a transliteration: the one word right after its Greek word
             page = _page_at(text, at[flag.start], self.page)
             context = " ".join(flag.context.split())
             if flag.kind in AUTO and flag.value:
@@ -384,6 +396,11 @@ class Review:
             return
         context = text[max(0, match.start() - _CONTEXT) : match.end() + _CONTEXT]
         self.words[(kind, find)] = [1, self.page, find, " ".join(context.split()), "", ""]
+
+    def flag(self, kind: str, page: str, find: str, value: str) -> None:
+        """A row found outside the text (``greek-unsure``), with ``value`` as the likely
+        fix; call before ``finish``."""
+        self.words.setdefault((kind, find), [0, page, find, f"or: {value}", "", value])[0] += 1
 
     def finish(self, on_word: Callable[[int, int], None] | None = None) -> dict[str, int]:
         """Set each row's status and append what was found; returns new rows per kind.

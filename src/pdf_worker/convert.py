@@ -172,7 +172,7 @@ def convert_pdf(
     source_pdf = source_pdf or pdf_path
     with open_pdf(source_pdf) as source:
         info = source.metadata or {}
-    facing, reread = set(), 0
+    facing, reread, unsure = set(), 0, []
     greek: list[Paragraph] = []  # Greek paragraphs left out
     marked = follow_marks.load(pdf_path) if marks else None
     settings = marked.settings if marked else Settings()
@@ -212,7 +212,9 @@ def convert_pdf(
         else:
             font_sizes.mark_misreporting(doc)
             language, facing = bilingual.facing_pages(doc)
-            reread = _reread_words(doc, language, facing, step("re-reading garbled words", "lines"))
+            reread, unsure = _reread_words(
+                doc, language, facing, step("re-reading garbled words", "lines")
+            )
             glued_refs.mark_glued_refs(doc, skip=facing)
             profile = analyze_document(
                 doc,
@@ -234,7 +236,7 @@ def convert_pdf(
                 skip=facing | left_out,
                 on_page=step("building the book"),
             )
-            blocks = bilingual.drop_greek(blocks, greek, language)
+            blocks = bilingual.drop_greek(blocks, greek, language, bool(facing))
             if margin_refs is None:
                 with_refs = sum(bool(page_marks(p)) for p in doc)
                 margin_refs = profile.bracketed_refs or in_book(with_refs, doc.page_count)
@@ -285,6 +287,10 @@ def convert_pdf(
                 "txt": write_text,
             }[fmt]
             stats = writer(blocks, output_path, meta)
+    for index, kind, taken, other in unsure:  # re-read words to check (bilingual.mark_words)
+        labels = profile.page_labels
+        page = labels[index] if index < len(labels) else str(index + 1)
+        review.flag(kind, page, taken, other)
     new_fixes = review.finish(on_word=step("sorting the flagged words", "words"))
     if greek:
         labels = profile.page_labels
@@ -315,17 +321,20 @@ def _reread_words(
     language: str,
     facing: set[int],
     on_line: Callable[[int, int], None] | None,
-) -> int:
+) -> tuple[int, list[tuple[int, str, str, str]]]:
     """Garbled words read again (``bilingual.mark_words``), when Tesseract has the models."""
     from pdf_worker.ocr import GREEK_LANGUAGE, TESSERACT_CODES, available_languages, tesseract_path
 
     code = TESSERACT_CODES.get(language)
     try:
         if not code or not {code, GREEK_LANGUAGE} <= available_languages():
-            return 0
-        return bilingual.mark_words(doc, tesseract_path(), code, facing, on_line=on_line)
+            return 0, []
+        greek = bilingual.quotes_greek(doc, facing)
+        return bilingual.mark_words(
+            doc, tesseract_path(), language, facing, on_line=on_line, greek=greek
+        )
     except PdfWorkerError:  # no Tesseract
-        return 0
+        return 0, []
 
 
 def _title_page_texts(doc, paddle_rows: list[dict] | None) -> Iterator[str]:
