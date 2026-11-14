@@ -41,8 +41,8 @@ from pdf_worker.inline import (
     uri_target,
 )
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.pdf_export import write_pdf
 from pdf_worker.structure import Block, Heading, Image, Note, Paragraph, Table
+from pdf_worker.typst_export import write_pdf
 
 _BLOCKS = {
     "p", "div", "li", "ul", "ol", "dl", "dd", "dt", "blockquote", "pre", "table", "tr",

@@ -59,7 +59,7 @@ described in detail under [Features](#features).
    │      2. CONVERT (below): --to epub and/or --to pdf
    ▼
  ebook-to-pdf book.epub [-o out.pdf]
-   whole book via MuPDF, A5 + margins, TOC → bookmarks, metadata kept,
+   whole book via Typst/Pandoc, A5 + margins, TOC → bookmarks, metadata kept,
    U+FEFF/U+2060 removed          → book.pdf   (the EPUB is kept too)
    ★ shortest path: no OCR, no review
 
@@ -505,8 +505,9 @@ rebuilt book (headings, paragraphs, notes, pictures, tables, links):
   `extract-text`, it has no page breaks, running heads or line numbers.
 - **Word:** made with Pandoc (`brew install pandoc`). Notes become Word footnotes and the
   title becomes a document property.
-- **PDF:** reflowed onto A5 pages with working contents and footnote links. Good for
-  reading a scanned or awkwardly laid-out book on a tablet.
+- **PDF:** made with Typst via Pandoc (`brew install pandoc`; Pandoc is needed). Reflowed
+  onto A5 pages with working contents and footnote links; the PDF is tagged (accessible).
+  Good for reading a scanned or awkwardly laid-out book on a tablet.
 
 - **EPUB 3:** passes `epubcheck` with no warnings, and is made for Send to Kindle.
   Footnotes and endnotes become pop-up notes, with links from the reference to the note

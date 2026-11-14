@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pymupdf>=1.24",
+    # The Typst PDF writer (pdf_worker.typst_export; its rules: src/pdf_worker/typst/book.typ,
+    # shipped by hatchling as package data).
+    "typst>=0.15",
     # ai-client (AI calls and the word check) is not on PyPI: install it first with
     # `pip install -e /Users/fons/Documents/programs/ai-client`
 ]

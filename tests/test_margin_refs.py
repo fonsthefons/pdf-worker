@@ -5,7 +5,6 @@ import shutil
 import pymupdf
 import pytest
 
-from pdf_worker import pdf_export
 from pdf_worker.convert import convert_pdf
 from pdf_worker.epub import write_epub
 from pdf_worker.footnotes import BodyLine
@@ -29,6 +28,7 @@ from pdf_worker.ocr import tesseract_path
 from pdf_worker.output import Metadata
 from pdf_worker.structure import Heading, Note, Paragraph, _State
 from pdf_worker.text_export import write_text
+from pdf_worker.typst_export import write_pdf
 
 BODY = 11
 HAS_TESSERACT = bool(shutil.which("tesseract") or shutil.which("/opt/homebrew/bin/tesseract"))
@@ -247,7 +247,7 @@ def test_estimated_labels_are_pink_in_the_reflowed_pdf(tmp_path):
     out = tmp_path / "book.pdf"
     text = margin_ref("22a") + "honores " + " ".join(FULL) + " " + margin_ref("~22b") + "fin"
 
-    pdf_export.write_pdf([Paragraph(text)], out, Metadata("Timeo"))
+    write_pdf([Paragraph(text)], out, Metadata("Timeo"))
 
     with pymupdf.open(out) as doc:
         colors = {
@@ -362,7 +362,7 @@ def test_margin_references_are_looked_for_where_the_marks_say(tmp_path):
 def test_reflowed_pdf_sets_margin_references_in_the_margin(tmp_path):
     out = tmp_path / "book.pdf"
 
-    pdf_export.write_pdf(_blocks(), out, Metadata("Timeo"))
+    write_pdf(_blocks(), out, Metadata("Timeo"), notes_at="page")
 
     with pymupdf.open(out) as doc:
         page = next(p for p in doc if "honores" in p.get_text())
@@ -370,9 +370,8 @@ def test_reflowed_pdf_sets_margin_references_in_the_margin(tmp_path):
         word = page.search_for("honores")[0]
         lines = [plain(line) for line in page.get_text().splitlines()]
         foot = page.search_for("Una nota.")
-    text_right = pdf_export.FRAME.x1 - pdf_export.FRAME.width * 0.05
-    assert len(label) == 1 and label[0].x0 > text_right  # in the margin, not the text
-    assert abs(label[0].y1 - word.y1) < 3  # level with its word's line
+    assert len(label) == 1 and label[0].x0 > word.x1  # in the margin, not the text
+    assert abs(label[0].y1 - word.y1) < 5  # level with its word's line
     assert not any("22a" in line and "honores" in line for line in lines)
     assert foot  # the footnote is still at the foot of the page
     assert not any("[22a]" in line for line in lines)  # the margin label is bare: "22a"

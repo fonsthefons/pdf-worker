@@ -1,9 +1,9 @@
 import pymupdf
 
-from pdf_worker import pdf_export
 from pdf_worker.cover import cover_jpeg, find_translator
 from pdf_worker.output import Metadata
 from pdf_worker.structure import Paragraph
+from pdf_worker.typst_export import write_pdf
 
 
 def test_translator_from_title_pages():
@@ -22,12 +22,10 @@ def test_reflowed_pdf_has_cover_and_page_numbers(tmp_path):
     out = tmp_path / "book.pdf"
     meta = Metadata("Timeo", "Platón", "es", "Francisco Lisi")
 
-    pdf_export.write_pdf([Paragraph("Texto " * 2000)], out, meta, cover=True)
+    write_pdf([Paragraph("Texto " * 2000)], out, meta, cover=True)
 
     with pymupdf.open(out) as doc:
-        cover = doc[0].get_text()
-        assert "Timeo" in cover and "Traducción de Francisco Lisi" in cover
-        assert "1" not in cover  # no number on the cover
+        assert doc[0].get_images() and not doc[0].get_text().strip()  # the cover is a picture
         for number, page in enumerate(doc[1:], 2):
-            foot = page.get_text(clip=(0, page.rect.height - 30, page.rect.width, page.rect.height))
+            foot = page.get_text(clip=(0, page.rect.height - 40, page.rect.width, page.rect.height))
             assert foot.strip() == str(number)

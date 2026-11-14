@@ -1,5 +1,102 @@
 # Progress
 
+## Plan: typst-pdf-writer (2026-11-14)
+Goal: `--to pdf` (and EPUB → PDF) is written by Typst via Pandoc: tagged PDF, native footnotes,
+margin refs in the margin; MuPDF Story's `pdf_export.py` is deleted.
+Out of scope: Word/EPUB/HTML writers, `marginalia` package, PDF/UA, a native (non-Pandoc) Typst writer.
+Decisions (user, 2026-11-14): replace Story outright; margin refs in the right margin via
+`place()`; support both `--notes page` and `--notes end`; requiring Pandoc for PDF is fine.
+Defaults chosen: A5, 42pt margins, 11pt "New Computer Modern" (bundled with typst; spike had no
+missing glyphs), `lang` from meta; cover from `cover.cover_jpeg(meta)` as a full first page.
+Rule (user): only the book's content carries over. Page size, margins, fonts, text and heading
+sizes are one fixed house style in `typst/book.typ`, the same for every book; nothing is
+derived from the source PDF's look.
+Branch: feature/typst-pdf-writer
+
+- [x] S1 Typst writer module with tests
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: scratch/typst/build.py (the working spike); src/pdf_worker/docx_export.py (pandoc
+    pattern); src/pdf_worker/markdown_export.py:43-147; src/pdf_worker/pdf_export.py:73-125
+    (features to keep); src/pdf_worker/cover.py:56-80; src/pdf_worker/inline.py (MarginRef, ESTIMATED)
+  do: New `src/pdf_worker/typst_export.py` with `write_pdf(blocks, output_path, meta,
+    notes_at="end", cover=False, on_pass=None) -> WriteStats` (same signature as pdf_export's;
+    on_pass may just report (0,1) then (1,1)). Steps: write_markdown into a temp work dir in
+    output_path.parent → `pandoc book.md -f markdown -t typst -s -o book.typ` (pandoc_path from
+    docx_export; same error handling) → insert our rules from a template file
+    `src/pdf_worker/typst/book.typ` (package data; add to pyproject) right AFTER pandoc's
+    `#show: doc => conf(...)` call (its conf sets letter paper/1.25in; prepending is overridden;
+    spike: `src.index("\n)\n", src.index("#show: doc => conf(")) + 3`) → `typst.compile(path,
+    output=tmp)` → os.replace. Template: A5, margin 42pt, justify, `text(lang: meta.language)`,
+    page numbers at the foot (none on the cover), PDF title/author. Margin refs: render
+    MarginRef as raw Typst `` `#mref("34b")`{=typst} `` (pink variant for estimated refs, green
+    #2e7d32 / pink #d81b60 as Story) via a new keyword on write_markdown/render_markdown
+    (default keeps today's `**\[34b\]**` for md/docx); `mref` uses `place(right, dx: ..)` so the
+    label sits in the right margin level with its line, 7.5pt. notes_at="page": Pandoc footnotes
+    as is. notes_at="end": no footnotes; notes as a "Notas"/"Notes" section at the end with
+    linked or superscript numbers (your choice; keep it simple). Images: pass `--resource-path`
+    so `book_images/` resolves. Add `typst>=0.15` to pyproject dependencies.
+    Tests in `tests/test_typst_export.py` (skip if pandoc missing): output has StructTreeRoot;
+    a paragraph with a footnote has its note text on the same page (notes page) and in the end
+    section (notes end); a margin ref's x is right of the text column; cover → page 1 has an
+    image and no folio; a Greek word renders with no glyph 0 (`page.get_texttrace()`).
+    One `@pytest.mark.integration` test converting test_pdfs/Timeo_by_Platón_no_intro.pdf
+    `--to pdf --notes page` and checking tagged + ≥1 margin ref in the margin.
+  done: `.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker/tests/test_typst_export.py` passes
+  return: <= 10 lines: files changed, done result, how end-notes and mref were done, anything surprising
+
+- [x] S2 Switch callers to Typst, delete Story
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: src/pdf_worker/convert.py:26-45,262-287; src/pdf_worker/epub_reader.py:40-50,140-155;
+    tests/test_margin_refs.py:240-380; tests/test_formats.py:150-170; tests/test_cover.py; README.md (PDF output section)
+  do: Import write_pdf from typst_export in convert.py and epub_reader.py. Delete
+    src/pdf_worker/pdf_export.py. Tests using pdf_export (test_margin_refs.py:8,250,365-373,
+    test_formats.py:8,158-167, test_cover.py:3,25): drop those testing Story internals
+    (FRAME, _room_needed); port the rest to typst_export where the behaviour still applies.
+    `rtk grep -rn pdf_export src tests tools` must end empty (fix tools/ too). README: PDF is
+    made with Typst via Pandoc (Pandoc needed); note tagged PDF. Lint + format.
+  done: `.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes and `.venv/bin/ruff check /Users/fons/Documents/programs/pdf-worker` is clean
+  return: <= 10 lines: files changed/deleted, tests dropped vs ported, done result
+
+- [x] S3 Full test suite incl. integration
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: S2
+  context: -
+  do: Run `/Users/fons/Documents/programs/pdf-worker/.venv/bin/python /Users/fons/Documents/programs/pdf-worker/tools/run_logged.py typst-tests /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest /Users/fons/Documents/programs/pdf-worker`
+    then `.venv/bin/python tools/wait_log.py scratch/logs/typst-tests.log`.
+  done: last line of scratch/logs/typst-tests.log is `exit 0 after N s`
+  return: <= 10 lines: pass/fail counts, names + one-line reasons of failures
+
+- [x] S4 Review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S3
+  context: `git diff main...feature/typst-pdf-writer`
+  do: Review for: pandoc-output splicing that breaks on other books (titles with quotes,
+    no author, missing conf block), Typst escaping in mref labels/meta, temp files left on
+    failure, non-atomic writes, lost features vs Story (outline, metadata, cover, folios, images).
+  done: reviewer's report lists no finding rated bug or worse (fix inline otherwise and rerun S2's done)
+  return: <= 10 lines: ranked findings with file:line
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then
+sonnet → opus) with the failure in its brief; failing again, or no longer fitting the code, it
+goes under "Blocked" with the reason; continue with steps that don't depend on it.
+
+### Run log
+- S1 2026-11-14: pass, test_typst_export 6 passed (integration passes separately, 77s); mref ends with `;`, end notes via footnote show rule in book.typ.
+- S2 2026-11-14: pass, 465 fast tests, ruff clean; pdf_export.py deleted. Lost vs Story: end-notes links/↑ arrow, contents page (tests dropped/loosened).
+- S3 2026-11-14: pass, full suite 481 passed, 3 skipped (540 s). Committed on branch so S4 can review `main...`.
+- User asked 2026-11-14: contents page (`outline()`, only when there are headings) and end-note links with ↑ back, in book.typ; tests added.
+- S4 2026-11-14: 2 bugs fixed inline: unreferenced notes were dropped by Pandoc (now kept as a paragraph, `_keep_unreferenced`); a missing conf() block raised ValueError (now PdfWorkerError). 467 fast tests pass, ruff clean. Left (minor): a note referenced twice prints twice; in-book links, original note marks and cover text not carried over; PDF output and its tests need Pandoc.
+
 ## Plan: split-words-and-typst experiments (2026-11-13)
 Goal: measure (A) joining spaced-hyphen and three-part split words in ai-client's word check
 and (B) a Typst-made reflowed PDF, per docs/research/split-words-and-typst.md.

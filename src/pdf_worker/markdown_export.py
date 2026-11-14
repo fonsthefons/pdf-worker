@@ -4,10 +4,12 @@ The body is streamed to the output file; notes are streamed to a temporary file 
 appended at the end, so memory use stays flat.
 """
 
+import json
 import os
 import re
 import tempfile
 from collections.abc import Iterable
+from functools import partial
 from pathlib import Path
 
 from pdf_worker.inline import LinkClose, LinkOpen, MarginRef, Style, pieces, plain
@@ -40,10 +42,11 @@ def escape_markdown(text: str, line_start: bool = True) -> str:
     return _LIST_NUMBER_RE.sub(r"\1\\\2\3", _LINE_START_RE.sub(r"\\\1", escaped))
 
 
-def render_markdown(text: str, line_start: bool = True) -> str:
+def render_markdown(text: str, line_start: bool = True, typst: bool = False) -> str:
     """Escape block text for Markdown and render its inline markers: web links become
     ``[text](url)``, italic and bold ``*text*`` and ``**text**``; links within the book
-    and page starts are dropped."""
+    and page starts are dropped. Margin references are bold ``[34b]``, or with ``typst``
+    raw Typst calls ``#mref("34b")`` (``pdf_worker.typst_export``'s template)."""
     out: list[str] = []
     targets: list[str | None] = []
     first = True
@@ -72,7 +75,12 @@ def render_markdown(text: str, line_start: bool = True) -> str:
             if uri:
                 out.append(f"](<{uri}>)")
         elif isinstance(piece, MarginRef):
-            out.append(f"**\\[{piece.label}\\]** ")  # bold in Word too (via Pandoc)
+            if typst:
+                # ";" ends the call, so a following "(" or "." isn't read as part of it.
+                # shortcut: a label with a backtick would end the code span; OCR labels have none.
+                out.append(f"`#mref({json.dumps(piece.label, ensure_ascii=False)});`{{=typst}}")
+            else:
+                out.append(f"**\\[{piece.label}\\]** ")  # bold in Word too (via Pandoc)
             first = False
     return "".join(out)
 
@@ -81,7 +89,11 @@ def _yaml(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> WriteStats:
+def write_markdown(
+    blocks: Iterable[Block], output_path: Path, meta: Metadata, typst: bool = False
+) -> WriteStats:
+    """``typst``: margin references as raw Typst (see ``render_markdown``)."""
+    render = partial(render_markdown, typst=typst)
     stats = WriteStats(chapters=1)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, body_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{output_path.name}.")
@@ -104,14 +116,14 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
                 if isinstance(block, Heading):
                     stats.headings += 1
                     level = min(block.level, 6)
-                    text = render_markdown(block.text, line_start=False)
+                    text = render(block.text, line_start=False)
                     body.write("#" * level + " " + text + "\n\n")
                 elif isinstance(block, Paragraph):
                     stats.paragraphs += 1
-                    body.write(render_markdown(block.text) + "\n\n")
+                    body.write(render(block.text) + "\n\n")
                 elif isinstance(block, Table):
                     stats.tables += 1
-                    body.write(_table(block) + "\n")
+                    body.write(_table(block, render) + "\n")
                 elif isinstance(block, Image):
                     # Pictures go to a folder next to the .md file: book_images/img1.jpg.
                     stats.images += 1
@@ -123,18 +135,18 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
                 elif isinstance(block, Gloss):
                     stats.glosses += 1
                     # A blockquote, one margin line per line (backslash = hard break).
-                    lines = [render_markdown(line) for line in block.lines]
+                    lines = [render(line) for line in block.lines]
                     body.write("> " + "\\\n> ".join(lines) + "\n\n")
                 elif isinstance(block, Note):
                     if block.continued and open_note and open_note.label == block.label:
                         open_note = Note(block.label, f"{open_note.text} {block.text}")
                         continue
                     if open_note:
-                        _write_note(notes, open_note)
+                        _write_note(notes, open_note, render)
                     open_note = block
                     stats.notes += 1
             if open_note:
-                _write_note(notes, open_note)
+                _write_note(notes, open_note, render)
             notes.seek(0)
             for chunk in iter(lambda: notes.read(1 << 16), ""):
                 body.write(chunk)
@@ -147,18 +159,18 @@ def write_markdown(blocks: Iterable[Block], output_path: Path, meta: Metadata) -
     return stats
 
 
-def _table(table: Table) -> str:
+def _table(table: Table, render=render_markdown) -> str:
     """A pipe table; its first row is the header row (Markdown tables need one)."""
 
     def cell(text: str) -> str:
-        return render_markdown(text, line_start=False).replace("|", "\\|") or " "
+        return render(text, line_start=False).replace("|", "\\|") or " "
 
     rows = ["| " + " | ".join(cell(c) for c in row) + " |" for row in table.rows]
     rule = "|" + "|".join(" --- " for _ in table.rows[0]) + "|"
     return "\n".join([rows[0], rule, *rows[1:]]) + "\n"
 
 
-def _write_note(out, note: Note) -> None:
+def _write_note(out, note: Note, render=render_markdown) -> None:
     # Later paragraphs of a note are indented by four spaces (Pandoc footnote syntax).
-    paragraphs = [render_markdown(p) for p in note.text.split("\n\n") if plain(p).strip()]
+    paragraphs = [render(p) for p in note.text.split("\n\n") if plain(p).strip()]
     out.write(f"[^{note.label}]: " + "\n\n    ".join(paragraphs) + "\n\n")
