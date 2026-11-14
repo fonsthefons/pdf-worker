@@ -863,7 +863,7 @@ def _add_mark_command(subparsers: argparse._SubParsersAction) -> None:
         description="Open a local web page to mark examples of each kind of line (headings, "
         "footnotes, running heads...), where sections start, and where notes are printed. "
         "Every change is saved at once into <pdf stem>.marks.json next to the PDF "
-        "(docs/marks-plan.md); convert doesn't read it yet.",
+        "(docs/marks-plan.md); convert follows it (--no-marks ignores it).",
     )
     parser.add_argument("pdf", type=Path, help="The PDF to mark.")
     parser.add_argument("--port", type=int, default=0, help="Local port (default: a free one).")
