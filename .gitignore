@@ -16,6 +16,7 @@ file_conversion/
 scratch/
 # Sample PDFs are large and copyrighted; keep them local only.
 test_pdfs/
+timeo/
 # Per-machine Claude Code settings (absolute paths).
 .claude/settings.local.json
 # Added by code-review-graph
