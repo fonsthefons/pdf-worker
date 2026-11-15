@@ -1,5 +1,431 @@
 # Progress
 
+## Plan: drop-in-experiment (2026-11-14)
+Goal: find out, with numbers, what stops "drop a file in the inbox, get a good PDF, EPUB and
+Typst file in the outbox" from working every time, and measure four candidate answers
+(automatic marks, sentence-level AI checks, more-language word lists, another conversion
+engine) against today's pipeline. Out of scope: any change to `src/` or to the product's
+defaults (experiment rule), paid model calls, bibliography and footnote *content* (user:
+keep work on them to a minimum; notes only have to stay out of the body), Greek facing
+pages of bilingual editions.
+Expected cost: no money (local models and OpenRouter free models only); about 8-10 h of
+unattended builds, one heavy build at a time (two Paddle builds collide on the crop cache).
+Decisions (user, 2026-11-14): audit first, then auto-marking, sentence checks, structure and
+garbled text / foreign terms (Greek, Latin, German, French, English inside Spanish).
+Success: born-digital PDFs and EPUBs need no human step, lose no text, have a contents table
+whose links work and notes kept as notes; scans need at most a short look at doubtful pages,
+never full marking. Local first; sentences and page images of the test books may go to
+OpenRouter free models; every AI step can be turned off and never blocks a conversion.
+Priorities (user, 2026-11-14, second message), used to weigh every result:
+1. Body text right and complete, never garbled; notes never in the body and body never in
+   the notes. A lost note or note text is the lesser error: when unsure, drop the note
+   rather than risk it in the body.
+2. Margin references (Stephanus and Bekker numbers) kept and in their place: much more
+   important than notes.
+3. Contents with the original titles, subtitles and sections: wanted, not the main focus.
+4. Notes split across pages, missing note numbers, note position and content: handled if
+   cheap, not a focus. Bibliography: minimum work.
+Experiment code: `docs/experiments/drop-in/` (scripts) and `scratch/drop-in/` (outputs).
+Results: `docs/results.md` (new file: date, what changed, run labels, numbers, cost,
+conclusion; a failed idea is a result too).
+Books:
+- Quality set: the pairs of `tools/quality.py` (philosophy, copleston, ratzinger, lugones,
+  platon_bad, dialogos, niebla, pepita, marianela, gaviota), each with a reference no model
+  wrote. Hand-made marks exist for four: `test_pdfs/philosophy.marks.json`,
+  `test_pdfs/platon_dialogos_vi_bad.marks.json`,
+  `test_pdfs/new_test_books/Introduction to Christianity by Ratzinger.marks.json`,
+  `test_pdfs/new_test_books/copleston/Historia de la Filosofía Tomo 1 - Copleston.marks.json`.
+- Twelve from `test_pdfs/books_sd/` (no reference; audited, pages sampled only):
+  `Antropología Filosófica.pdf`, `De Anima - Aristóteles (traduccion_tomas_calvo_martinez).pdf`
+  (compare with `De Anima - Aristóteles - clean_txt.pdf`), `Filosofia del Hombre - Roger
+  Verneaux bad 1.pdf`, `Metafisica - Tomas Alvira bad 1.pdf`, `Epistemología General
+  Verneaux.pdf`, `La Biblia en su entorno.pdf`, `reale_y_antiseri/Historia de Filosofía
+  Antigua Tomo 1.pdf`, `reale_y_antiseri/Historia De La Filosofía Tomo V.pdf`,
+  `Introduction to Christianity by Ratzinger.epub`, `copleston/4 - De Descartes a Leibniz
+  Frederick Copleston.epub`, `AF/Prometeo Encadenado Bilingüe.epub`, `AF/The Four Loves by
+  C.S. Lewis.epub`.
+Rules for every step: never Read a whole PDF or converted book, sample pages with scripts;
+never write marks or outputs next to the test PDFs, work on copies under `scratch/drop-in/`;
+long commands through `tools/run_logged.py NAME COMMAND...` and `tools/wait_log.py LOG`;
+every AI call through ai-client (`/Users/fons/Documents/programs/ai-client`), which already
+has an `OpenRouter` provider (free models only, `get_client("openrouter").requests_left()`),
+`mlx_vlm.py`, `apple_vision.py` and the word check `ai_client/check.py`.
+Conductor (runs on opus at low effort, unattended overnight: never stop, never ask): it
+only starts agents, runs each `done` command and ticks the box. It judges nothing and reads
+no book output, score table or page. There is no inline step. /run-plan reads this plan once
+and gives an agent only its own step's lines, so: the plan is fixed (no step is added or
+changed during the run; S10 is already here), and the shared facts (priorities, rules,
+books, how to wait for long jobs) are in `docs/experiments/drop-in/README.md`, first in
+every step's `context`. That file and `docs/experiments/drop-in/` are named by this plan:
+uncommitted, they are expected at the start, not a reason to stop. Agents hand results to
+later agents through files in `scratch/drop-in/results/` (S<n>.md), never through the
+conductor. The variant steps (S5, S6, S7, S10) pass when their result file exists, even if
+it says the variant failed: a failed variant is a result, and S8 must still run. Heavy
+builds never overlap: the `after` lines keep S3, S5, S7 and S10 apart; don't start two of
+them together for any reason. `model: fable` is accepted by the Agent tool (checked
+2026-11-14: an implementer started as Fable 5.2); if it is ever refused, use opus at the
+same effort and say so in the Run log. A fable/high step that fails is retried once as it
+is. Finish (run-plan's step 5): tests are the fast tests
+(`.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker`); commit
+only `PROGRESS.md`, `docs/results.md`, `docs/research/drop-in-pipeline.md` and
+`docs/experiments/drop-in`.
+Branch: feature/drop-in-experiment
+
+- [x] S1 Audit tool: one score sheet per book that came out of the outbox
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: docs/experiments/drop-in/README.md (read first: priorities, rules, the books);
+    src/pdf_worker/inbox.py:1-130 (process(), BookResult states: finished, draft,
+    waiting, mark, skipped, failed; report.md and settings.json per work folder);
+    src/pdf_worker/book_report.py; tools/book_score.py (reuse its measures and `selftest`
+    pattern); tools/regression.py (how it passes cached layout rows from scratch/paddle-home);
+    src/pdf_worker/fixes.py:109-160 (Fix rows of `.fixes.tsv`)
+  do: Write `docs/experiments/drop-in/audit.py` with `run OUT_DIR MANIFEST.json`, `score OUT_DIR`
+    and `selftest`. `run` copies each book of the manifest into `OUT_DIR/file_inbox` and calls
+    `inbox.process(OUT_DIR, settings={"formats": [...]})` for epub, pdf and the Typst file (find
+    the format's name in `convert.FORMATS`), with no AI and no marks, one book at a time,
+    recording the state and seconds. `score` writes `OUT_DIR/audit.tsv` and `audit.md`, one row
+    per book: state and whether a human step was asked (draft/waiting/mark); outputs present;
+    words out against words in the source (text layer or EPUB spine, counted page by page);
+    EPUB contents entries, how many of their links resolve, heading count per level; the
+    source's own outline (`doc.get_toc()` or the EPUB nav) against our headings (matched %);
+    garble per 10,000 words: words not in the book language's dictionary
+    (`ai_client.check.Words`), spaced-hyphen splits, tokens mixing scripts, single-letter
+    runs; note text in the body and body text in the notes (the two errors that count for
+    notes; notes lost are only counted); margin references (Stephanus "17a", Bekker "402a5"):
+    how many came out, and the gaps and out-of-order steps in their sequence (they run in
+    order, so no truth is needed; reuse the repo's `sequences` helper, find it with the
+    graph), with `--margin-refs` set as the inbox would set it; `.fixes.tsv` rows per kind;
+    report.md's grade. A third subcommand, `pages OUT_DIR [--per-book 5]`, prepares the
+    model's audit (S9): per book it picks pages by code (the one with most garble, one with
+    notes, one with margin references if the book has them, one chapter start, one at
+    random with a fixed seed) and writes for each, under `OUT_DIR/pages/<book>/`, the
+    source page as a PNG at 100 dpi (`tools/render_clip.py`'s rendering; for an EPUB source
+    the chapter's text slice instead) and `pNNN.txt`: what the output holds for that page,
+    at most 60 lines (use the page numbers the Markdown output carries if it does, else
+    find the page's first and last eight words in the output), plus the notes and margin
+    references attached to it. `pages` must also work on a `tools/quality.py build` folder
+    (the quality set's books). Write the manifest `docs/experiments/drop-in/books_sd.json`:
+    the README's audit set (twelve books_sd books and the two Stephanus books), each with a
+    kind found by code (scan or born digital via `ocr_check.assess_text_layer`, language,
+    pages). `run` must never stop on one book: a book that raises or runs over 90 minutes is
+    recorded as failed with the reason and the next one starts. Try `run` and `score` on one
+    small book (`AF/The Four Loves by C.S. Lewis.epub`) before reporting.
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/python /Users/fons/Documents/programs/pdf-worker/docs/experiments/drop-in/audit.py selftest` prints `ok` and exits 0
+  return: <= 10 lines: files written, the measures and how each is counted, the kinds of the twelve books, surprises
+
+- [x] S2 Web research: how the best open tools do this
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:general-purpose    (needs the web and must write the report; scout can't write)
+  model: sonnet    effort: medium
+  after: -
+  context: docs/experiments/drop-in/README.md (read first); docs/research/split-words-and-typst.md
+    (format of a research report); docs/quality-plan.md:1-30
+  do: Find, with URLs and dates, what is current (2026) for: (1) PDF/scan to structured
+    Markdown locally on an Apple Silicon Mac (Docling, Marker, MinerU, olmOCR, Surya,
+    PaddleOCR-VL, others): licence, speed per page, what they give for headings, footnotes,
+    running heads, reading order, polytonic Greek; (2) OCR post-correction with LLMs:
+    measured gains and the known harm (models rewriting correct text), batch and JSON
+    patterns, guards that keep a correction near the flagged word; (3) telling languages
+    apart word by word inside Spanish text (Latin, German, French, English, transliterated
+    Greek) with word lists or small local models; (4) getting chapters from a printed
+    contents page or a PDF outline; (5) free OpenRouter models with vision that are offered
+    today. Web searches: generic queries only, never the user's or the books' names. Write
+    the report yourself, with the Write tool, to `docs/research/drop-in-pipeline.md`
+    (title `# Drop-in pipeline: what the best open tools do`, date, one section per topic
+    saying what is measured and what is assumed, a last section `## Engines to try` naming
+    exactly two engines for a local run on this Mac with their pip install commands). Edit
+    no other file and run no installs. If the web tools are refused, write the report from
+    what you know, say so in its first line, and still name two engines.
+  done: `grep -c "^## Engines to try" /Users/fons/Documents/programs/pdf-worker/docs/research/drop-in-pipeline.md` prints 1
+  return: <= 12 lines: per topic the best option with URL, and the two engines
+
+- [x] S3 Baseline: today's pipeline on the quality set and the twelve books
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: sonnet    effort: low    (hours of waiting in 10-minute calls; haiku may give up)
+  after: S1
+  context: docs/experiments/drop-in/README.md, section "Rules" (how to start and wait for long jobs)
+  do: Never use the Bash tool's background mode. One at a time, each started with
+    `.venv/bin/python tools/run_logged.py NAME COMMAND...` and waited for with
+    `.venv/bin/python tools/wait_log.py scratch/logs/NAME.log` (Bash timeout 600000 ms; the
+    wait times out every 10 minutes while the job runs: run the same wait again, for hours
+    if needed, until it prints `exit CODE after N s`; all paths absolute):
+    (a) `.venv/bin/python tools/quality.py build scratch/drop-in/q-base` (marks used where they
+    exist); (b) `.venv/bin/python tools/quality.py build scratch/drop-in/q-nomarks --no-marks`;
+    (c) `.venv/bin/python docs/experiments/drop-in/audit.py run scratch/drop-in/audit-base
+    docs/experiments/drop-in/books_sd.json`, then `audit.py score scratch/drop-in/audit-base`.
+    A job that exits with an error is not retried: note its last log lines and start the
+    next one (the audit tool skips a failing book by itself). The score tables stay in the
+    files those tools write; later steps read them there.
+  done: `ls /Users/fons/Documents/programs/pdf-worker/scratch/drop-in/audit-base/audit.md` lists the file
+  return: <= 25 lines: quality.py's summary table for q-base and q-nomarks, audit.md's table, seconds per run, failures
+
+- [x] S9 Audit by reading: the model is the auditor, not the user
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer    (it must run a command and write the result file; it edits no code)
+  model: fable    effort: high    (user, 2026-11-14: the model audits, no human; if the
+    conductor can't start an agent on fable, use opus)
+  after: S3
+  context: docs/experiments/drop-in/README.md (read first); scratch/drop-in/audit-base/pages/
+    (made here by `audit.py pages`; nothing else)
+  do: Run `.venv/bin/python docs/experiments/drop-in/audit.py pages scratch/drop-in/audit-base`
+    and the same on `scratch/drop-in/q-base` (if that one fails, go on without it and say
+    so). Then, book by book, Read each page's PNG and its `pNNN.txt` side by side,
+    only those files, and judge as a careful reader would, by the README's priorities:
+    (1) body: words wrong or garbled (quote up to three, printed → ours), text missing,
+    lines out of order, a running head or page number left in; foreign terms (Greek, Latin,
+    German, French, English) wrong; (2) note text in the body or body text in a note;
+    (3) margin references: printed on the page → present and at the right sentence in ours;
+    (4) headings: printed titles and levels → ours; (5) notes lost (count only). One line
+    per page in `scratch/drop-in/audit-base/read.tsv` (book, page, a 0-2 mark per item:
+    0 fine, 1 small, 2 a reader would be stopped, and the quoted examples), written by this
+    agent, with a summary in `scratch/drop-in/results/S9.md`. Read the pages in batches of
+    one book; write that book's lines before opening the next.
+  done: `ls /Users/fons/Documents/programs/pdf-worker/scratch/drop-in/audit-base/read.tsv` lists the file
+  return: <= 40 lines: per book the five marks summed, the three worst pages with their quoted examples, and where the reading disagrees with audit.tsv's counts
+
+- [x] S4 Rank what fails
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer    (judgement and writing; not for the conductor)
+  model: fable    effort: high
+  after: S2,S3,S9
+  context: docs/experiments/drop-in/README.md (read first);
+    scratch/drop-in/audit-base/audit.md and read.tsv; scratch/drop-in/results/S9.md;
+    quality.py's score files in scratch/drop-in/q-base and q-nomarks (summaries only);
+    docs/research/drop-in-pipeline.md
+  do: Start `docs/results.md` (date, what was run, run labels) with a `## Baseline` section
+    holding the baseline tables. Rank the failures by the README's priorities first, then by how
+    many books and words they touch (human step asked, text lost, garble, foreign terms
+    flagged, notes in the body or body in the notes, margin references lost or out of order,
+    then contents links and headings; lost notes and bibliography last). Use S9's reading (`read.tsv`) beside the counts: where they disagree, the reading
+    wins and the count's weakness is recorded. For the three worst failures, name the cause
+    with `tools/page_parts.py` on pages S9 already read; no new pages. Record the ranking in
+    `docs/results.md` and a copy of the ranking in `scratch/drop-in/results/S4.md` (S5-S7
+    read it). End `S4.md` with a section `## Extra variant`: if a failure outranks what the
+    other variants test (marks made without the user; flagged words sent as sentences or
+    settled by word lists; another conversion engine), write there a complete brief for one
+    more variant that tests an answer to it without touching `src/`: what to build under
+    `docs/experiments/drop-in/`, which books, how to score it against
+    `scratch/drop-in/q-base`, at most 2 hours of jobs. Otherwise write `none` and why. Don't
+    edit PROGRESS.md.
+  done: `grep -c "^## Extra variant" /Users/fons/Documents/programs/pdf-worker/scratch/drop-in/results/S4.md` prints 1
+  return: <= 12 lines: the ranking, one line per failure with its numbers, and the extra variant or `none`
+
+- [x] S5 Variant A: marks made without the user
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S4
+  context: docs/experiments/drop-in/README.md (read first); scratch/drop-in/results/S4.md;
+    docs/marks-plan.md (the marks file's format and kinds); src/pdf_worker/marks.py;
+    src/pdf_worker/follow_marks.py; tools/marks_report.py; tools/parts_report.py (today's
+    rules against the layout model, line by line); the ai-client entry points for vision
+    (`ai_client/mlx_vlm.py`, `ai_client/apple_vision.py`, `providers.py:91-200` OpenRouter)
+  do: Write `docs/experiments/drop-in/automarks.py`: `make BOOK.pdf OUT.marks.json --mode
+    rules|local|cloud` and `score AUTO.marks.json HAND.marks.json`. `rules`: examples taken
+    where today's rules and the cached layout rows (`--paddle-cache scratch/paddle-home`)
+    agree, a few per kind per the marks plan (running heads, page numbers, headings per level,
+    footnotes, note numbers, sections, margin references), no model call. `local`: as rules,
+    and the doubtful pages (`marks_report.py`'s list, at most 20 a book) are asked of the
+    local vision model. `cloud`: the same pages asked of a free OpenRouter vision model
+    (page image at 100 dpi, JSON answer, one page per request, stop when `requests_left()`
+    is 0); a failed or late call leaves the rules' answer. `score`: per kind, the lines
+    marked the same as by hand; a line the mode is unsure is a footnote is marked so that it
+    is dropped, not put in the body (priority 1), and margin references count before
+    headings (priority 2). Then build, on copies in `scratch/drop-in/marks-<mode>/`,
+    the four hand-marked books with each mode's marks through `tools/quality.py build
+    --only` (find how it picks up a marks file; copy the PDF and marks into scratch and point
+    the build there by a manifest or environment the tool already has; if it has none, convert
+    with `pdf-worker convert` and score with `tools/book_score.py`). Long builds via
+    `tools/run_logged.py`, one at a time (README: how to wait). A mode whose model can't be
+    reached is recorded as "not run" with the reason; go on with the others. Write the full
+    tables to `scratch/drop-in/results/S5.md`; if a part can't be done, write what was done
+    and why the rest wasn't there, and finish. `automarks.py selftest` must print `ok`.
+  done: `ls /Users/fons/Documents/programs/pdf-worker/scratch/drop-in/results/S5.md` lists the file
+  return: <= 15 lines: per mode and book: agreement with the hand marks per kind, the book scores against hand marks and against no marks, requests used, minutes
+
+- [x] S6 Variant B: flagged words: sentences to a free model, and more word lists
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S4
+  context: docs/experiments/drop-in/README.md (read first); scratch/drop-in/results/S4.md;
+    /Users/fons/Documents/programs/ai-client/ai_client/check.py:77-200,271-420 (Flag,
+    Words, Decisions; how a flagged word is sent to a model today);
+    /Users/fons/Documents/programs/ai-client/ai_client/__init__.py:1-60 (routes);
+    src/pdf_worker/fixes.py:154-300,405-535 (Review, what becomes a `.fixes.tsv` row);
+    tools/greek_score.py and tests/data/greek_truth.json
+  do: Write `docs/experiments/drop-in/sentence_check.py` (`run BOOK.md FIXES.tsv OUT.json
+    --mode today|sentences|lists`, `score`, `selftest`). Truth: on the quality set's books
+    with a reference, a flagged word is settled by the reference text at the same place
+    (align by the five words on each side; unaligned flags are left out and counted).
+    `today`: what the pipeline does now with each flag. `sentences`: only when the book has
+    at most 300 open flags; each flag's whole sentence, numbered, packed into as few requests
+    as the model's context allows (count them), JSON back `{number: corrected sentence}`;
+    a correction is kept only if it changes nothing farther than two words from the flagged
+    word and at most three words in all; anything else, a timeout (60 s) or a bad JSON keeps
+    the original. Try the two best free text models ai-client offers. `lists`: no model;
+    a flagged word found in a Latin, German, French or English word list (hunspell
+    dictionaries under `ai_client/dictionaries/`; fetch missing ones into
+    `scratch/drop-in/dictionaries/`, not into ai-client) or matching a Greek transliteration
+    pattern is un-flagged. Score per mode: flags right, wrong, harmed (a correct word
+    changed), left; requests and seconds; and `tools/greek_score.py` on the three Greek
+    books. Run it on philosophy, copleston, ratzinger, lugones and niebla from
+    `scratch/drop-in/q-base`. It starts no conversion builds (S5 may be building at the same
+    time) and edits nothing in ai-client. No free requests left or no key: record `sentences`
+    as "not run" with the reason and go on with the other modes. Write the full tables to
+    `scratch/drop-in/results/S6.md`; if a part can't be done, write what was done and why
+    the rest wasn't there, and finish. `sentence_check.py selftest` must print `ok`.
+  done: `ls /Users/fons/Documents/programs/pdf-worker/scratch/drop-in/results/S6.md` lists the file
+  return: <= 15 lines: per mode and book: flags, right, wrong, harmed, left, requests, seconds; the share of flags that were foreign terms; surprises
+
+- [x] S7 Variant C: another engine on the same books
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S5    (heavy; never beside S5's builds)
+  context: docs/experiments/drop-in/README.md (read first); docs/research/drop-in-pipeline.md,
+    section "Engines to try"; tools/book_score.py:1-60 (its input: REFERENCE OURS.md)
+  do: Take the two engines named under "Engines to try". Install them into their
+    own venv `scratch/drop-in/venv-engines` (made with the repo's `.venv/bin/python -m venv`;
+    run it by its absolute path `.../venv-engines/bin/python -m pip install ...`, which the
+    repo's Python hook allows; it blocks only bare `python`/`pip`), never into `.venv` or
+    `pyproject.toml`. An engine that won't install or run within 30 minutes of trying is
+    recorded as "not run" with the error; go on with the other. Write `docs/experiments/drop-in/engines.py` that converts a PDF to
+    Markdown with an engine, page ranges allowed. Run each engine on three books of the
+    quality set: philosophy (scan, Spanish), copleston (Spanish history manual) and
+    ratzinger (English), through `tools/run_logged.py`, one at a time, with a 2 h limit per
+    book (over it: first 150 pages only, said in the result). Score each with
+    `tools/book_score.py REFERENCE OURS.md` beside q-base's and q-nomarks's rows, in
+    `scratch/drop-in/engines/scores.md`, with a copy in `scratch/drop-in/results/S7.md`. If
+    neither engine ran, `S7.md` says so and why, and the step is finished.
+  done: `ls /Users/fons/Documents/programs/pdf-worker/scratch/drop-in/results/S7.md` lists the file
+  return: <= 15 lines: per engine and book: book_score's line (words, headings, paragraph breaks, notes in the body, leftovers), minutes, install size, failures
+
+- [x] S10 Variant D: the top failure the other variants don't test
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: fable    effort: high
+  after: S7    (it may build; never beside S5's or S7's jobs)
+  context: docs/experiments/drop-in/README.md (read first); scratch/drop-in/results/S4.md,
+    section "Extra variant"
+  do: If that section says `none`, write `scratch/drop-in/results/S10.md` with the one line
+    "no extra variant: " and the reason given, and finish. Otherwise carry out the brief
+    written there: scripts under `docs/experiments/drop-in/` (each with a `selftest`),
+    nothing in `src/`, long jobs through `tools/run_logged.py` (README: how to wait), at
+    most 2 hours of jobs, scored against `scratch/drop-in/q-base` the way the brief says.
+    Write the full tables to `scratch/drop-in/results/S10.md`; if a part can't be done,
+    write what was done and why the rest wasn't there, and finish.
+  done: `ls /Users/fons/Documents/programs/pdf-worker/scratch/drop-in/results/S10.md` lists the file
+  return: <= 12 lines: what was tested, its numbers beside the baseline's, minutes, surprises; or "no extra variant"
+
+- [x] S8 Comparison table and conclusion
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer    (judgement and writing; not for the conductor)
+  model: fable    effort: high
+  after: S5,S6,S7,S10
+  context: docs/experiments/drop-in/README.md (read first); docs/results.md;
+    scratch/drop-in/results/S4.md, S5.md, S6.md, S7.md, S9.md, S10.md
+  do: Write into `docs/results.md`: one comparison table (baseline with marks, baseline
+    without, auto-marks per mode, sentence checks per mode, each engine, the extra variant
+    if there was one; a variant that did not run gets its row with "not run" and the
+    reason), cost and time of each, and a `## Conclusion` section weighed by the README's
+    priorities: what to adopt, in which order, what stays manual, and which
+    patches (glossary, dictionary, encyclopaedia, Wikipedia checks) the numbers show could be
+    removed. For each thing worth adopting, name the `/plan-feature <adopt X>` to run; adopt
+    nothing here. Run `.venv/bin/ruff format` and `.venv/bin/ruff check` on
+    `docs/experiments/drop-in` and fix what they report. Don't commit.
+  done: `grep -c "^## Conclusion" /Users/fons/Documents/programs/pdf-worker/docs/results.md` prints 1
+  return: <= 12 lines: the conclusion: what to adopt in order, with each `/plan-feature` line
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- 2026-11-14 start: branch feature/drop-in-experiment created from up-to-date main; S1 and S2 started together.
+- S2 2026-11-14 pass (done check prints 1): `docs/research/drop-in-pipeline.md` written; engines named: Docling
+  and MinerU. Agent's own caveats: one search per topic, mostly secondary sources, nothing on polytonic Greek,
+  the free OpenRouter vision list not confirmed live, the guards for LLM correction are its own design; its
+  install lines say `.venv/bin/pip` (S7's brief puts the engines in `scratch/drop-in/venv-engines` instead).
+- S1 2026-11-14 pass (`audit.py selftest` prints `ok`, exit 0): `docs/experiments/drop-in/audit.py` and
+  `books_sd.json` written. Agent's own notes: `run`/`score` tried only on the Four Loves EPUB, not on a PDF
+  through the inbox; `convert.FORMATS` has no separate Typst format ("pdf" is the Typst output), so `run` uses
+  epub and pdf; Apple Vision second readings still run inside the inbox's OCR (no switch); `sequences` could
+  not be reused for margin references (counted directly); the Bekker pattern can catch in-text citations; on a
+  quality-build folder a scan without a text layer gets "not found in the output" pages. S3 started.
+- S3 2026-11-15 pass (`audit-base/audit.md` exists): q-base 1275 s, q-nomarks 1253 s, audit run 15640 s plus
+  about 10 min of scoring, all exit 0. Agent's report: De Anima failed in the audit ("Typst failed: the
+  document does not contain a bibliography"; draft EPUB only, no grade); every PDF came out as a draft; Timeo
+  kept 63% of its words. Its summary says 13 books but lists 14 rows (not checked by the conductor). The
+  harness moved its `wait_log.py` calls to the background after 180 s, so it repeated the wait. S9 started.
+- S9 2026-11-15 pass (`audit-base/read.tsv` exists, 36.8K): agent reports 120 pages of 24 books read (both
+  folders; `audit.py pages` exit 0 on each), summary in `scratch/drop-in/results/S9.md`. Its report says the
+  reading disagrees with audit.tsv on margin references (invented on De Anima and Filosofia del Hombre),
+  note-in-body counts (small-print body counted as notes) and notes lost in EPUBs, and that pages woven line
+  by line keep every word, so the word count misses them. Not checked by it: dialogos p266/p356; 5 pages a
+  book show kinds of error, not rates. S4 started.
+- S4 2026-11-15: the agent stopped on the account's 5-hour usage limit before writing `S4.md` (not a failure
+  of the step, so no escalation); resumed with SendMessage once the user said to continue.
+- User, 2026-11-15: surprised that headings give so many problems; the main headings matter, extra
+  subheadings that aren't in the contents table are not that bad. Recorded under priority 3 of
+  `docs/experiments/drop-in/README.md` (every step reads it first) and sent to the resumed S4 agent; the
+  plan's steps are unchanged.
+- S4 2026-11-15 pass (done check prints 1): `docs/results.md` started (`## Baseline`), ranking in
+  `scratch/drop-in/results/S4.md`, new `docs/experiments/drop-in/rank_checks.py`. Agent's top three: a human
+  step asked for every PDF (10 of 10), spread scans woven line by line (3 books), a made-up loop in place of
+  printed text in the 2 PaddleOCR-VL-read books. Main headings: 18 missed and 26 wrong of 400 with marks;
+  subheadings are 131 of the 175 heading errors. Extra variant: yes (split spread sheets before the inbox,
+  about 96 minutes of jobs). Agent's caveats: the main/sub split is a rough title rule; the first-word loss on
+  Filosofia p34 is inferred; why De Anima fails in Typst was not looked for. S5 and S6 started together.
+- S6 2026-11-15 pass (`results/S6.md` exists): `docs/experiments/drop-in/sentence_check.py` written. Agent's
+  report: `sentences` ran with one free model only (the other three were refused, down or rate-limited) and
+  on philosophy (55 right, 17 wrong, 1 harmed) and ratzinger (70/0/1); copleston's one request answered after
+  77 s so nothing was kept; lugones and niebla not run (over 300 flags). `lists` un-flagged 21 misreads
+  against 14 right words. Foreign terms are 14 of 920 checked flags. `greek_score` had nothing to score
+  (its truth covers no book of the five). ai-client's 60 s timeout limits each read only; one run hung 6 min.
+- S5 2026-11-15 pass (`results/S5.md` exists): `docs/experiments/drop-in/automarks.py` written, all three
+  modes ran. Agent's report: main headings missed/wrong 24/30 without marks, 18/24 by hand, 22/29 rules,
+  25/31 local, 23/28 cloud; platon_bad margin references 688 / 701 / 700, 688, 705; missing words rise under
+  auto marks (philosophy +30 per 10k, unexplained). Rules were tuned after seeing results (a 5% threshold;
+  model marks on open lines refused and re-applied without asking again). Local mode used qwen3.5-9b in LM
+  Studio, not `mlx_vlm.py` (whether through ai-client: not said, not checked). `tools/parts_report.py` fails
+  today with a TypeError (stale `_Builder.add` wrapper); the tool was left unchanged. S7 started.
+- S7 2026-11-15 pass (`results/S7.md` exists): `docs/experiments/drop-in/engines.py` and `engines_run.py`
+  written; Docling 2.150.1 and MinerU 4.2.2 ran the three whole books. Agent's report: both leave notes in
+  the body at 211-514 per 10k (q-base: 0.0-0.7); matched words 91.4-100%; Docling lost words on the scan
+  (default RapidOCR, no Spanish setting); MinerU tried at tier basic only; headings not split into main and
+  sub; venv 1.9 GB plus 1.4 GB of weights under `scratch/drop-in/`. Conductor: `engines.py` left an idle
+  MinerU server running (pid 76114, orphaned, from `venv-engines`, 0% CPU after 53 min); stopped it with
+  `kill` before S10 so no S7 job runs beside it. S10 started.
+- S10 2026-11-15: the agent stopped on the account's 5-hour usage limit before writing `S10.md` (not a
+  failure of the step, so no escalation); no job was left running; resumed with SendMessage once the user
+  said to continue. The S7 agent, woken when its server was stopped, hit the same limit; its step was already
+  verified, so it was not resumed.
+- S10 2026-11-15 pass (`results/S10.md` exists): `docs/experiments/drop-in/split_spreads.py` written; three
+  spread scans cut in two and run through the audit, 88 minutes of jobs. Agent's report: line order
+  Antropología 91.5 → 92.7%, De Anima 93.1 → 95.0%, Filosofia del Hombre (60 sheets) 70.4 → 96.4%; garble
+  down on all three; De Anima's note text in the body up (6,255 → 8,271), its outline titles found down
+  (6 → 3 of 8, cause not looked into) and it still fails at Typst. The detection rule as briefed gave 40
+  false alarms on two-column pages; the agent added a wider-than-high test and a book vote after seeing them.
+  Not tested: a guard against the model's made-up loops (failure 3). S8 started.
+- S8 2026-11-16 pass (done check prints 1): `docs/results.md` has the comparison table, cost and time, and
+  `## Conclusion`. Agent's conclusion: adopt, in order, cutting spread scans before OCR, finishing
+  born-digital PDFs without the spelling review (inferred from the baseline and S6, not run as a variant),
+  sentence checks for scans' flags (off until re-measured: one model, one scan); not Docling, MinerU,
+  auto-marks or more word lists. Open, tested by no variant: the made-up loop, and margin references by the
+  inbox (platon 29 against 688). Its patch advice is inferred (no run switched a patch off; ai-client not read).
+- Finish 2026-11-16: fast tests 478 passed; ruff check clean on `docs/experiments/drop-in`; the five
+  selftests (audit, rank_checks, automarks, sentence_check, split_spreads) print `ok` after ruff's reformat.
+  Committed only PROGRESS.md, docs/results.md, docs/research/drop-in-pipeline.md and docs/experiments/drop-in.
+  Left for the user: about 3.3 GB of engines and weights under `scratch/drop-in/` (venv-engines, engines/home);
+  `tools/parts_report.py` fails with a TypeError (found by S5, not fixed: outside the experiment's scope).
+  MinerU had left `blobs/` (56 MB) and `.mineru-service.lock` in the repo root during S7; moved, not deleted,
+  to `scratch/drop-in/engines/left-in-repo-root/` so they are not committed.
+
 ## Plan: greek-terms (2026-11-14)
 Goal: Ancient Greek terms quoted inside Spanish (or other) text come out right: Greek
 letters as Greek, transliterations with their accents and macrons. Out of scope: Greek

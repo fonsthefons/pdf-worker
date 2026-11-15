@@ -1,0 +1,96 @@
+[
+ {
+  "path": "test_pdfs/books_sd/Antropología Filosófica.pdf",
+  "kind": "scan",
+  "ocr": "redo",
+  "language": "es",
+  "pages": 123
+ },
+ {
+  "path": "test_pdfs/books_sd/De Anima - Aristóteles (traduccion_tomas_calvo_martinez).pdf",
+  "kind": "scan",
+  "ocr": "none",
+  "language": "es",
+  "pages": 130
+ },
+ {
+  "path": "test_pdfs/books_sd/Filosofia del Hombre - Roger Verneaux bad 1.pdf",
+  "kind": "scan",
+  "ocr": "redo",
+  "language": "es",
+  "pages": 118
+ },
+ {
+  "path": "test_pdfs/books_sd/Metafisica - Tomas Alvira bad 1.pdf",
+  "kind": "scan",
+  "ocr": "skip",
+  "language": "es",
+  "pages": 227
+ },
+ {
+  "path": "test_pdfs/books_sd/Epistemología General Verneaux.pdf",
+  "kind": "scan",
+  "ocr": "redo",
+  "language": "es",
+  "pages": 240
+ },
+ {
+  "path": "test_pdfs/books_sd/La Biblia en su entorno.pdf",
+  "kind": "born digital",
+  "ocr": "none",
+  "language": "es",
+  "pages": 455
+ },
+ {
+  "path": "test_pdfs/books_sd/reale_y_antiseri/Historia de Filosofía Antigua Tomo 1.pdf",
+  "kind": "scan",
+  "ocr": "skip",
+  "language": "es",
+  "pages": 610
+ },
+ {
+  "path": "test_pdfs/books_sd/reale_y_antiseri/Historia De La Filosofía Tomo V.pdf",
+  "kind": "scan",
+  "ocr": "redo",
+  "language": "es",
+  "pages": 606
+ },
+ {
+  "path": "test_pdfs/books_sd/Introduction to Christianity by Ratzinger.epub",
+  "kind": "epub",
+  "language": "es",
+  "pages": 56
+ },
+ {
+  "path": "test_pdfs/books_sd/copleston/4 - De Descartes a Leibniz Frederick Copleston.epub",
+  "kind": "epub",
+  "language": "es",
+  "pages": 26
+ },
+ {
+  "path": "test_pdfs/books_sd/AF/Prometeo Encadenado Bilingüe.epub",
+  "kind": "epub",
+  "language": "es",
+  "pages": 12
+ },
+ {
+  "path": "test_pdfs/books_sd/AF/The Four Loves by C.S. Lewis.epub",
+  "kind": "epub",
+  "language": "en",
+  "pages": 16
+ },
+ {
+  "path": "test_pdfs/Timeo_by_Platón_no_intro.pdf",
+  "kind": "born digital",
+  "ocr": "none",
+  "language": "es",
+  "pages": 261
+ },
+ {
+  "path": "test_pdfs/platon_dialogos_vi_bad.pdf",
+  "kind": "scan",
+  "ocr": "redo",
+  "language": "es",
+  "pages": 293
+ }
+]
