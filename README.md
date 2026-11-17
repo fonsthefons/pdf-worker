@@ -2,7 +2,37 @@
 
 A Python toolkit of PDF processing features, exposed as a `pdf-worker` CLI.
 
+## Main commands, step by step
+
+`./help.sh` lists them with examples. If something breaks, see
+[to_check_in_case_of_failure.md](to_check_in_case_of_failure.md).
+
+**`pdf-worker process`** (the usual way: drop books in `file_conversion/file_inbox/`):
+1. Picks the best copy if a folder holds several PDFs of one book.
+2. OCRs the book if it is a scan (Tesseract plus Apple Vision, or `--engine paddle`).
+3. Builds the EPUB and PDF. A book with words to check goes to `file_outbox/drafts/` and the run offers the review.
+4. You review the words in the browser (`pdf-worker review`) and save.
+5. Run `process` again: it rebuilds the book into `file_outbox/`, moves the original to `file_work/converted/`
+   and writes `file_work/<book>/report.md` with a grade from A to D.
+
+**`pdf-worker find-book --title ... --author ...`**: searches the free sources in parallel, ranks the results,
+downloads the one you pick into `file_inbox`, checks its quality and suggests the next step (OCR, convert,
+`process`).
+
+**`pdf-worker convert book.pdf`** (one book, no folders): text layer (`--ocr` if needed), then the book's marks if
+`book.marks.json` exists, then headings, notes and paragraphs, then `book.epub` (or `--to md|html|txt|docx|pdf`),
+plus `book.fixes.tsv` with suspicious words. `review` decides on those words; converting again applies the
+decisions.
+
+**`pdf-worker kindle book.pdf`**: OCR if needed, then convert, in one step, to a Kindle-ready EPUB.
+
+**`pdf-worker mark book.pdf`**: mark examples of headings, notes and running heads in the browser. `convert`
+then follows them.
+
 ## Setup
+
+`./install.sh` does all of this (`--paddle` adds the PaddleOCR-VL environment below) and lists the steps
+that are left to you.
 
 ```bash
 python3 -m venv .venv
