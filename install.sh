@@ -28,8 +28,8 @@ done
 [ -x .venv/bin/python ] || try ".venv" python3 -m venv .venv
 try "pip: ai-client + pdf-worker[dev,ocr]" .venv/bin/python -m pip install -q -e "$AI" -e '.[dev,ocr]'
 
-# 4. Folders for `pdf-worker process` (gitignored)
-mkdir -p file_conversion/file_inbox file_conversion/file_outbox file_conversion/file_work
+# 4. Folders for `pdf-worker process`, and scratch/ (tests put tmp_path in scratch/pytest); all gitignored
+mkdir -p file_conversion/file_inbox file_conversion/file_outbox file_conversion/file_work scratch/tmp
 
 # 5. Optional: PaddleOCR-VL in its own Python 3.12 venv (README: OCR)
 if [ "${1:-}" = "--paddle" ]; then
