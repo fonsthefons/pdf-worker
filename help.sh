@@ -44,6 +44,21 @@ pdf-worker: convert, OCR and clean up PDFs and ebooks (EPUB, Markdown, Kindle).
   .venv/bin/pdf-worker highlights book.epub --kindle-db ksdk_annotation_v1.db --azw3 book.azw3
       Write book.highlighted.pdf with the highlights made on the Kindle
 
+  .venv/bin/pdf-worker process --clean
+      Delete work folders and originals of finished books (asks first; file_outbox stays)
+
   .venv/bin/pdf-worker help
       List every command with examples
+
+Setup and checks
+  ./install.sh                  (add --paddle for the PaddleOCR-VL engine)
+      First install or repair: .venv, ai-client, Tesseract, Pandoc; safe to re-run
+
+  ../ai-client/.venv/bin/python -m ai_client
+      Check the AI side (Groq key, word lists) used by the word check and review
+
+  .venv/bin/pytest -m "not integration" -q
+      Fast tests (~8 min); plain .venv/bin/pytest also runs the real-PDF tests in test_pdfs/
+
+More: README.md (how it works), to_check_in_case_of_failure.md (what to do when it breaks).
 X
