@@ -5,6 +5,7 @@ as raw Typst), turned into Typst source by Pandoc, given the rules of ``typst/bo
 (page, fonts, margin references, notes at the end) and compiled by the ``typst`` package.
 """
 
+import json
 import os
 import re
 import shutil
@@ -37,8 +38,9 @@ def write_pdf(
     cover: bool = False,
     on_pass: Callable[[int, int], None] | None = None,
 ) -> WriteStats:
-    """Typeset the book as an A5 PDF. ``notes_at``: "page" sets each footnote at the foot
-    of its page, "end" gathers them in a notes section after the book. ``cover`` adds a
+    """Typeset the book as an A5 PDF; an ``output_path`` ending in ``.typ`` gets the Typst
+    source instead (pictures in ``<stem>_images/`` beside it). ``notes_at``: "page" sets
+    each footnote at the foot of its page, "end" gathers them in a notes section after the book. ``cover`` adds a
     text cover (``pdf_worker.cover``) as page 1, unnumbered. ``on_pass(done, 1)``: one
     pass."""
     pandoc = pandoc_path()
@@ -46,12 +48,16 @@ def write_pdf(
         on_pass(0, 1)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=output_path.parent, prefix=f".{output_path.name}.w."))
+    source_only = output_path.suffix.lower() == ".typ"
+    # Pictures go to <stem>_images/ (write_markdown's folder), kept beside a .typ output.
+    images = f"{output_path.stem}_images"
     try:
-        stats = write_markdown(_keep_unreferenced(blocks), work / "book.md", meta, typst=True)
+        md_name = f"{output_path.stem}.md"
+        stats = write_markdown(_keep_unreferenced(blocks), work / md_name, meta, typst=True)
         # No title block: the cover shows the title; the template sets the PDF's own.
         blank = ["-V", "title=", "-V", "author=", "-V", "date="]
         result = subprocess.run(
-            [pandoc, "book.md", "-f", "markdown", "-t", "typst", "-s", "-o", "book.typ"]
+            [pandoc, md_name, "-f", "markdown", "-t", "typst", "-s", "-o", "book.typ"]
             + ["--resource-path", ".", *blank],
             cwd=work,
             capture_output=True,
@@ -69,18 +75,26 @@ def write_pdf(
             raise PdfWorkerError(
                 "Pandoc's Typst template has no conf() call (a custom default.typst?)"
             ) from None
-        rules = TEMPLATE.read_text(encoding="utf-8")
-        source_path.write_text(source[:at] + rules + source[at:], encoding="utf-8")
         if cover:
-            (work / "cover.jpg").write_bytes(cover_jpeg(meta))
+            (work / images).mkdir(exist_ok=True)
+            (work / images / "cover.jpg").write_bytes(cover_jpeg(meta))
         inputs = {
             "title": meta.title,
             "author": meta.author,
             "lang": meta.language.split("-")[0],
             "notes": notes_at,
             "notes-title": _notes_title(meta.language),
-            "cover": "cover.jpg" if cover else "",
+            "cover": f"{images}/cover.jpg" if cover else "",
         }
+        rules = TEMPLATE.read_text(encoding="utf-8")
+        if source_only:  # baked in, so a plain `typst compile` needs no --input flags
+            rules = rules.replace("#let inputs = sys.inputs", f"#let inputs = {_dict(inputs)}", 1)
+        source_path.write_text(source[:at] + rules + source[at:], encoding="utf-8")
+        if source_only:
+            if (work / images).is_dir():
+                shutil.copytree(work / images, output_path.parent / images, dirs_exist_ok=True)
+            os.replace(source_path, output_path)
+            return stats
         target = work / "book.pdf"
         try:
             typst.compile(str(source_path), output=str(target), sys_inputs=inputs)
@@ -94,6 +108,12 @@ def write_pdf(
     if on_pass:
         on_pass(1, 1)
     return stats
+
+
+def _dict(values: dict[str, str]) -> str:
+    """A Typst dictionary literal. JSON's escapes are Typst's, except \\uXXXX: keep Unicode."""
+    pairs = (f"{json.dumps(k)}: {json.dumps(v, ensure_ascii=False)}" for k, v in values.items())
+    return "(" + ", ".join(pairs) + ")"
 
 
 def _keep_unreferenced(blocks: Iterable[Block]) -> Iterator[Block]:
