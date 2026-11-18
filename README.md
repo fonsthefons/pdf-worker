@@ -538,6 +538,8 @@ rebuilt book (headings, paragraphs, notes, pictures, tables, links):
 - **PDF:** made with Typst via Pandoc (`brew install pandoc`; Pandoc is needed). Reflowed
   onto A5 pages with working contents and footnote links; the PDF is tagged (accessible).
   Good for reading a scanned or awkwardly laid-out book on a tablet.
+- **Typst (`-o book.typ` or `--to typ`):** the PDF's Typst source, to edit and compile
+  yourself with `typst compile book.typ`. Pictures (and the cover) go in `book_images/`.
 
 - **EPUB 3:** passes `epubcheck` with no warnings, and is made for Send to Kindle.
   Footnotes and endnotes become pop-up notes, with links from the reference to the note

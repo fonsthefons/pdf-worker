@@ -2,6 +2,7 @@ import re
 
 import pymupdf
 import pytest
+import typst
 from conftest import TEST_PDFS_DIR
 
 from pdf_worker import convert, typst_export
@@ -95,6 +96,17 @@ def test_the_cover_is_page_one_without_a_number(tmp_path):
     with _write(tmp_path, [Paragraph("Hola.")], cover=True) as doc:
         assert doc[0].get_images() and not doc[0].get_text().strip()
         assert doc[1].get_text().split()[-1] == "2"
+
+
+def test_a_typ_output_is_source_that_compiles_on_its_own(tmp_path):
+    out = tmp_path / "libro.typ"
+    typst_export.write_pdf(_note_blocks(), out, META, cover=True)
+    assert (tmp_path / "libro_images" / "cover.jpg").is_file()
+    assert "= sys.inputs" not in out.read_text(encoding="utf-8")
+    typst.compile(str(out), output=str(tmp_path / "libro.pdf"))  # no sys_inputs needed
+    with pymupdf.open(tmp_path / "libro.pdf") as doc:
+        assert doc.metadata["author"] == "Platón" and doc[0].get_images()
+        assert "Única nota del libro." in doc[doc.page_count - 1].get_text()
 
 
 def test_greek_has_glyphs(tmp_path):

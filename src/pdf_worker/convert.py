@@ -49,6 +49,7 @@ FORMATS = {
     "txt": ".txt",
     "docx": ".docx",
     "pdf": ".pdf",
+    "typ": ".typ",  # the reflowed PDF's Typst source
 }
 # Where a reflowed PDF sets its footnotes; "none" leaves notes out of every format.
 NOTE_PLACES = ("page", "end", "none")
@@ -263,20 +264,20 @@ def convert_pdf(
         blocks = _referenced_notes(tidy(review.apply(blocks), meta.language))
         if notes_at == "none":
             blocks = drop_notes(blocks)
-        if fmt in ("epub", "html", "pdf"):
+        if fmt in ("epub", "html", "pdf", "typ"):
             blocks = link_index(blocks)
         if marked:
             blocks = follow_marks.sections(blocks, marked)
         if fmt == "epub":
             stats = write_epub(blocks, output_path, meta, cover=cover_jpeg(meta) if cover else None)
-        elif fmt == "pdf":
+        elif fmt in ("pdf", "typ"):
             stats = write_pdf(
                 blocks,
                 output_path,
                 meta,
                 notes_at=notes_at,
                 cover=cover,
-                on_pass=step("laying out the PDF", "passes"),
+                on_pass=step("laying out the PDF", "passes") if fmt == "pdf" else None,
             )
         elif fmt == "docx":
             stats = write_docx(blocks, output_path, meta, cover=cover)
