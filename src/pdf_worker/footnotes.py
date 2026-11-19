@@ -35,6 +35,7 @@ from pdf_worker.layout import (
     plain_note_start,
 )
 from pdf_worker.marks import DROPPED_KINDS, FURNITURE_KINDS
+from pdf_worker.pdf_tags import TagBox, tag_lines
 from pdf_worker.styles import span_text
 
 # Footnote regions must start in the lower part of the page.
@@ -92,8 +93,10 @@ class BodyLine:
     # A contents entry (in a layout-model ``content`` box, or set so by ``structure``):
     # never a heading.
     entry: bool = False
-    # Its kind by the book's marks (``follow_marks``), None: today's rules.
+    # Its kind by the book's marks (``follow_marks``); None: today's rules.
     kind: str | None = None
+    # A tagged PDF's element it is in: kind, element id, list depth and printed label.
+    tag: TagBox | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,10 @@ def layout_page(
 ) -> PageLayout:
     """Split a page into body lines (references marked) and its footnotes."""
     lines = page_lines(page)
+    tagged = tag_lines(lines, profile.tags[page_index]) if page_index in profile.tags else None
+    # Furniture stays the rules', tagged or not: PyMuPDF shows a page's artifacts and the
+    # lines an element runs on to from the page before (Chrome's print) alike, as text
+    # outside the tree, so being outside it doesn't make a line furniture.
     furniture = profile.furniture(page_index, lines, page.rect.height)
     chapter_notes = profile.chapter_notes
     # The marks' kinds (``follow_marks``) win over the rules; None leaves a line to them.
@@ -157,6 +164,8 @@ def layout_page(
             lines, region, page_index + 1, previous_label, profile.paren_refs
         )
 
+    # Kept on tagged pages too: many exports (Chrome's print) tag headings as P, so the
+    # model's titles still count; the tags add starts, list items and H headings.
     row = profile.layout.get(page_index)
     found = boxes(page, row, lines) if row else [None] * len(lines)
     labels = [None if i is None else row["blocks"][i]["label"] for i in found]
@@ -171,6 +180,7 @@ def layout_page(
     ]
     entry = None  # the box (index, label) of the body line before
     item = False  # the body line before starts like a new item
+    element = None  # the tagged element of the body line before (None: the page's top)
 
     references: list[str] = []
     # A note continued from the previous page reuses that page's label; count it once.
@@ -188,6 +198,21 @@ def layout_page(
             starts = entry != before
         elif before and entry == before and not (item or after_item):
             starts = False  # inside one text box
+        tag = tagged[line_index] if tagged else None
+        if tag and tag.kind:
+            # A new element starts a paragraph; an LI's or H's lines are one item or heading.
+            # Inside a P the rules still decide: Chrome's print puts a title's lines or a
+            # verse quotation in one P (<br>). The page's first P, after any lines outside
+            # the tree, may run on from the page before (Chrome's print tags its rest as a
+            # new P); its first LI or H doesn't.
+            if element is None:
+                starts = True if tag.kind != "p" else starts
+            elif tag.element != element:
+                starts = True
+            elif tag.kind != "p":
+                starts = False
+        if tag:
+            element = tag.element
         if page_index in chapter_notes.note_pages:
             hung = plain_note_start(lines, line_index)
             if hung and hung[1] != line_index and (page_index, hung[1]) in chapter_notes.defs:
@@ -223,9 +248,11 @@ def layout_page(
         title = labels[line_index] in ("doc_title", "paragraph_title")
         listed = labels[line_index] == "content"
         kind = kinds[line_index]
+        if tag and tag.kind.startswith("h") and kind is None:
+            title = True  # its level: ``structure``, as a rule heading's (the marks win)
         if kind == "margin-ref" and text.strip():
             text = margin_ref(text.strip())  # its place in the text: ``structure`` labels it
-        body.append(BodyLine(text, line, endnote, starts, title, listed, kind))
+        body.append(BodyLine(text, line, endnote, starts, title, listed, kind, tag))
     # A note's marker set as plain text in the body ("(1)", "[1]"): link it there.
     for marker, label in marker_labels.items():
         if label in references or not marker.isdigit():

@@ -12,7 +12,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 
 from pdf_worker.footnotes import BodyLine
-from pdf_worker.inline import CELL, LEADING_PAGE_MARKS_RE, STYLE_RE, margin_ref
+from pdf_worker.inline import CELL, ITEM_RE, LEADING_PAGE_MARKS_RE, STYLE_RE, margin_ref
 from pdf_worker.layout import Line, ink_bbox
 from pdf_worker.margin_refs import LONG_LINE_SHARE, UNREADABLE, is_mark
 
@@ -124,6 +124,7 @@ def _trim_edge_marks(body_line: BodyLine, left: float, right: float, body_size: 
         and len(mark) <= 4
         and spans[second]["bbox"][0] - spans[first]["bbox"][2] > gap
         and found
+        and not ITEM_RE.fullmatch(mark)  # "1.", "a)", "IV.": the text's own numbering
         and second != cut_tail
     ):
         cut_head = first
@@ -191,8 +192,10 @@ def _join(a: BodyLine, b: BodyLine) -> BodyLine:
         max(a.line.bbox[3], b.line.bbox[3]),
     )
     line = Line(spans=(*a.line.spans, space, *b.line.spans), size=a.line.size, bbox=bbox)
-    # The cells stay apart (CELL), so rows of several cells can become tables.
-    return replace(a, text=a.text.rstrip() + CELL + b.text.lstrip(), line=line)
+    # The cells stay apart (CELL), so rows of several cells can become tables; not two
+    # pieces of one tagged element ("i)", tab, "Burro y asno": one list item).
+    one = a.tag and b.tag and a.tag.kind and a.tag.element == b.tag.element
+    return replace(a, text=a.text.rstrip() + (" " if one else CELL) + b.text.lstrip(), line=line)
 
 
 def _body_column(lines: list[BodyLine], page_width: float) -> tuple[float, float] | None:

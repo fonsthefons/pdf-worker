@@ -1,5 +1,371 @@
 # Progress
 
+## Plan: quick-check (2026-11-19)
+Goal: one before/after check that runs in a few minutes instead of ~55 (tools/regression.py build ~12 min +
+tools/quality.py build ~43 min, one book after another, every page), used by plans only when a change can reach
+untagged/scanned books. Out of scope: changing book_score/headings_test scoring, new test books, the pipeline.
+Branch: feature/quick-check (start from main after tagged-pdf is merged)
+
+User decisions (2026-11-19): quick check = fixed page samples (~50 pages per book) of the regression and
+quality books, diffed and counted as regression.py does, plus the two headings page sets (headings_test run);
+whole-book reference scores (book_score) only with `--full`. Plans run the check only when the change touches
+rules that apply to untagged/scanned books (structure, margins, footnotes, layout, headings, paddle path);
+writer-only or tagged-only changes skip it.
+Facts: regression.convert_book(label, pdf, out, paddle, marks) converts a whole book with cached layout rows
+(paddle_ocr.layout_pages(pdf), cache scratch/paddle-home) or paddle rows (paddle_pages(pdf, pages));
+convert_pdf has no page-range argument, but takes layout_rows/paddle_rows dicts keyed by page index.
+Books: regression.BOOKS (8) and quality.PAIRS (10; lugones, dialogos, niebla in both; philosophy and
+platon_bad are paddle scans). headings_test.run(out, tests) runs page sets only (already quick once cached).
+Defaults chosen: sample pages fixed once in tools/check_pages.json (contents, chapter starts, notes pages,
+then an even spread up to 50); books run in parallel with ProcessPoolExecutor, workers = max(1, cpu_count - 2).
+
+- [ ] S1 tools/check.py: sampled, parallel build + compare
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: high
+  after: -
+  context: tools/regression.py (all); tools/quality.py:1-95 and 182-235 (build, score); tools/headings_test.py:145-185;
+    src/pdf_worker/convert.py:116-240 (convert_pdf, how layout_rows/paddle_rows are used); src/pdf_worker/paddle_ocr.py
+    (layout_pages, paddle_pages: cache keys)
+  do: First time one book's convert (e.g. lugones) by stage (layout rows load vs convert) and report it.
+    New tools/check.py: `build OUT_DIR [--full]` and `compare BEFORE AFTER`. build: per unique book of BOOKS+PAIRS,
+    a sub-PDF of its sample pages (tools/check_pages.json, chosen by a `pick` subcommand once and committed) with
+    the original's cached rows remapped to the sub-PDF's page indexes (no new model runs; if rows can't be
+    remapped, say so and cache the sub-PDF's rows once), converted via convert_book; books in parallel; then
+    headings_test.run on both page sets. compare: regression.compare's numbers/headings/diffs per book plus
+    headings page-set scores via quality's page measures. `--full` runs regression.build + quality.build as today.
+    Sub-PDFs and their cache live under scratch/. One unit test for page picking/remapping on a make_pdf book.
+  done: `.venv/bin/python tools/check.py build scratch/check-a` then `build scratch/check-b`, each exits 0 in
+    < 5 min (second run, cache warm); `compare scratch/check-a scratch/check-b` → same numbers for every book;
+    fast tests pass
+  return: <= 10 lines: profile result, run time, files changed, whether rows were remapped, anything surprising
+
+- [ ] S2 Docs and skills use the quick check
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: low
+  after: S1
+  context: CLAUDE.md (dev tools paragraph); docs/quality-plan.md (merge gate section); .claude/skills/plan-feature/SKILL.md;
+    .claude/skills/pdf-layout-plan/SKILL.md; .claude/skills/experiment/SKILL.md (if it names the builds)
+  do: CLAUDE.md: add tools/check.py (build/compare, --full) to the tools list and say it is the default
+    before/after check; regression.py/quality.py stay as the `--full` engines. quality-plan's merge gate: the
+    quick check, `--full` before a release or when a sample can't show the change. plan-feature SKILL.md: add a
+    rule: include a before/after `tools/check.py` step pair only when the change touches rules that apply to
+    untagged/scanned books (structure, margins, footnotes, layout, headings, paddle path); writer-only or
+    tagged-only changes skip it. Same wording wherever the skills tell agents to run the whole-book builds.
+  done: `rtk grep -rn "regression.py build\|quality.py build" CLAUDE.md docs/quality-plan.md .claude/skills` shows
+    each mention paired with check.py or `--full`
+  return: <= 10 lines: files changed
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+
+## Plan: tagged-pdf (2026-11-19)
+Goal: born-digital PDFs with a sound structure tree (Word/Acrobat PDFMaker exports) take their
+paragraphs, list items, headings and furniture from the tags, lists come out as real list markup,
+and the rules get two small list fixes for untagged PDFs. Out of scope: tables/figures/notes from
+tags, the Paddle/OCR path (iter_paddle_blocks), reading order from tags, nested-list styling beyond depth.
+Branch: feature/tagged-pdf
+
+Motivating case: file_conversion/file_inbox/Log_ex_1.pdf (Acrobat PDFMaker 25 for Word, re-saved by
+macOS Quartz in append mode; MarkInfo Marked true; 11 L, 106 LI/LBody, 13 P). Today's convert merges
+"a) … b) … c) …" into one paragraph and drops "1.", "2." (copy: scratch/log_ex_1.md).
+Root causes: structure.py:738 short-line rule breaks only before an upper-case/digit start, not "b)";
+margins._trim_edge_marks (margins.py:93-140) cuts the hanging "1." (x=85, text at 103) as a margin mark.
+User decisions (2026-11-19): real list markup; tags followed: P, L/LI/Lbl/LBody, H/H1-H6, Artifact
+(text outside the tree = furniture); tags beat cached layout-model rows, marks beat both; add `--no-tags`.
+Defaults chosen: "sound" = tree present AND >= 90% of the page's non-blank body chars sit in P/LI/H
+elements on >= 80% of text pages (else whole book falls back to rules); list item keeps its printed
+label (Lbl text) as `label`, never renumbered.
+Key fact: PyMuPDF 1.28.2 `page.get_text("dict", flags=pymupdf.TEXTFLAGS_DICT | pymupdf.TEXT_COLLECT_STRUCTURE)`
+returns nested blocks of type 2 with `std` (P, LI, Lbl, LBody, L, H1, Sect…), `bbox` and child blocks
+down to ordinary text blocks (type 0) with lines/spans: no content-stream or MCID parsing needed.
+Existing hook to reuse: footnotes.BodyLine.starts/title (footnotes.py:78-96), set from layout-model
+boxes in footnotes.layout_page (160-228) and honoured by structure._starts_paragraph (684-686).
+
+- [x] S1 Baseline before any change
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: -
+  context: none
+  do: On main (before the branch has code changes) run, via tools/run_logged.py:
+    `.venv/bin/python tools/regression.py build scratch/tagged-before` and
+    `.venv/bin/python tools/quality.py build scratch/tagged-quality-before`; wait with tools/wait_log.py.
+    Also `.venv/bin/pdf-worker convert file_conversion/file_inbox/Log_ex_1.pdf -o scratch/tagged-before/Log_ex_1.md`.
+  done: both logs end `exit 0`; scratch/tagged-before/Log_ex_1.md exists
+  return: <= 10 lines: the numbers lines of both builds, any failure
+
+- [x] S2 Rule fixes for untagged lists
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: src/pdf_worker/structure.py:60-90 and 684-738; src/pdf_worker/margins.py:42-140; tests for
+    structure/margins (find with tests_for); tests/conftest.py (make_pdf)
+  do: (a) structure.py:738: a short line also ends its paragraph when the next line matches `_ITEM_RE`
+    ("b) …", "2. …"). (b) margins._trim_edge_marks: don't cut a leading mark that matches `_ITEM_RE`
+    as a whole ("1.", "a)", "IV."); real margin marks ("22b", "d", "11") keep being cut. Move or import
+    `_ITEM_RE` without a circular import. Unit tests with make_pdf: a hanging-numbered question
+    followed by "a) x" / "b) y" short lines gives separate paragraphs with "1." kept; a Stephanus "22b"
+    in the margin is still cut.
+  done: .venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass
+  return: <= 10 lines: files changed, done result, anything surprising
+
+- [x] S3 Tag reader and tagged path
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S2
+  context: src/pdf_worker/footnotes.py:78-228; src/pdf_worker/layout.py:286-360 (boxes, DocumentProfile);
+    src/pdf_worker/convert.py:180-240; src/pdf_worker/structure.py:684-690 and 740-760 (_flush headings);
+    src/pdf_worker/cli.py (convert's --no-marks registration, copy for --no-tags); tests/conftest.py
+  do: New module src/pdf_worker/pdf_tags.py: `read_tags(doc) -> dict[int, list[TagBox]] | None` walking the
+    TEXT_COLLECT_STRUCTURE tree (key fact above); TagBox = bbox, kind ("p" | "li" | "h1".."h6"), element id
+    (one per P/LI/H, so two lines in one LI share it), list depth, Lbl text. Lbl and LBody belong to their LI.
+    None when the tree is missing or unsound (default above). Store on DocumentProfile (e.g. `tags`); in
+    convert.py fill it unless `--no-tags` (new flag, CLI + settings like --no-marks). In layout_page, when
+    the page has tags they replace the layout-model boxes: match lines to boxes like layout.boxes does;
+    starts=True at a new element, False inside one; title=True with the heading level for H*; lines in no
+    element are furniture (Artifact) unless a mark says otherwise; marks' kinds still win. Carry each
+    line's list info (depth, label, element id) on BodyLine for S4. Tests: build tagged PDFs in tests
+    (pymupdf Story or insert_htmlbox can write tagged output; if not, a tiny committed fixture made by
+    a script in tests/), plus one integration test on a copy of Log_ex_1.pdf if it can be committed
+    (else skip that test and note it).
+  done: .venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; convert
+    Log_ex_1.pdf to scratch/tagged-after/Log_ex_1.md: every "a)…" on its own paragraph, "1." … "6." present
+  return: <= 10 lines: files changed, how soundness is judged, how fixtures are made, anything surprising
+
+- [x] S4 List block and writers
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: high
+  after: S3
+  context: src/pdf_worker/structure.py:96-151 (blocks) and the builder/_flush around 600-760;
+    src/pdf_worker/epub.py:290-360; src/pdf_worker/markdown_export.py; src/pdf_worker/text_export.py;
+    src/pdf_worker/drop_notes.py; src/pdf_worker/typst_export.py:110-130; their tests
+  do: Add `ListItem(text, label, depth, page, top)` to Block. The builder emits one per tagged LI
+    (BodyLine list info from S3) instead of a Paragraph. EPUB (and so HTML): consecutive items become
+    nested <ol>/<li> by depth with the printed label kept visible (list-style none, label in text, or
+    `value`/CSS counters: pick the one that keeps "a)" exact). Markdown (and so docx/typ via pandoc):
+    pandoc list syntax that keeps the label ("a)" fancy_lists; escape where pandoc would renumber).
+    Text: label + text, indented by depth. drop_notes and any other isinstance dispatch pass it through.
+    Tests per writer.
+  done: .venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; convert
+    Log_ex_1.pdf to .html and .md in scratch/tagged-after: <ol>/list syntax with "a)" labels
+  return: <= 10 lines: files changed, how labels survive in each writer, anything surprising
+
+- [x] S5 Regression check and docs
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: S4
+  context: none
+  do: Same builds as S1 into scratch/tagged-after and scratch/tagged-quality-after, then
+    `tools/regression.py compare scratch/tagged-before scratch/tagged-after` and
+    `tools/quality.py compare scratch/tagged-quality-before scratch/tagged-quality-after`. Full test suite.
+  done: both compares show no change beyond tolerance (test books are scans/untagged: expect only S2's
+    list breaks); .venv/bin/pytest /Users/fons/Documents/programs/pdf-worker → all pass
+  return: <= 10 lines: compare summaries, any lost headings or changed numbers, test result
+
+- [x] S6 Review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S5
+  context: git diff main...feature/tagged-pdf
+  do: Review for wrong fallbacks (unsound tags used, tagged text silently dropped as furniture),
+    marks precedence, and writer output for lists across formats. Then the conductor adds a line to
+    CLAUDE.md (tagged path, --no-tags) and README, and follows the repo's commit/PR/merge rules.
+  done: no important findings left open
+  return: <= 10 lines: ranked findings
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- S1, 2026-11-19: pass. regression build exit 0 (693 s), quality build exit 0 (2569 s), Log_ex_1.md written.
+- S2, 2026-11-19: pass. ITEM_RE moved to inline.py; structure/margins fixes + 2 tests; fast tests 481 passed.
+- S3, 2026-11-19: pass. pdf_tags.py + --no-tags; fast tests 485 passed; Log_ex_1.md: 1.–11. and every a)… on its own paragraph.
+- S4, 2026-11-19: pass. ListItem + writers; fast tests 489 passed; html has <ol class="items"> with "a)" spans, md has pandoc lists.
+- S5, 2026-11-19: FAIL. Quality build stopped by the user (too slow; see Plan: quick-check); regression only.
+  dilexit (Chrome print-to-PDF, sound tags, headings tagged as P) headings 57 -> 2, paragraphs 242 -> 273;
+  metafisica 14-line diff; integration test_convert_endnotes_pdf_to_valid_epub 86 < 90 headings. Conductor kept
+  the layout rows on tagged pages (footnotes.py): dilexit 53 headings / 225 paragraphs. S3 retried (opus/high).
+- S3 retry, 2026-11-19: pass. Furniture always from the rules (PyMuPDF shows Artifacts and a P's carried-over
+  lines alike, outside the tree); inside a P/H the rules decide starts, inside an LI no break. dilexit 242/57
+  (only diff: two "La SANTA SEDE" # -> ## from H2 tags); other 7 regression books have no usable tags.
+- S5, 2026-11-19: pass (after S3 retry). Regression: 6 books unchanged, metafisica gains its "1)", "a)", "b)"
+  labels (S2), dilexit as above. Full suite 506 passed, 3 skipped. Quality build skipped (user's choice).
+- S6, 2026-11-19: review found 8 (LI split at page break; new element at page top not started; adjacent H
+  merged; styled labels lost; Word bullets break md lists; one-P-per-line trees pass soundness; H tag beats
+  marks' title; stale docs). All sent to an opus/high fix agent.
+- S6 fixes, 2026-11-19: pass. All 8 fixed (finding 2 narrowed: a P at a page top stays with the rules, as Chrome
+  re-tags a carried-over paragraph as a new P). dilexit 242/57, Log_ex_1 1.–11. and a)… kept. Full suite: 511
+  passed, 3 skipped (one setup error from a stray parallel run; that file re-run alone: 9 passed). One earlier
+  full run stalled at ~41% for 17 min with nothing running alongside; not reproduced.
+- S3, 2026-11-19: pass. New pdf_tags.py (read_tags, tag_lines), DocumentProfile.tags, BodyLine.tag,
+  layout_page follows tags, convert/CLI --no-tags, margins._join keeps one element's row pieces as one
+  line (no table); tests/test_pdf_tags.py builds tagged PDFs by hand. Fast tests 485 passed;
+  Log_ex_1 → scratch/tagged-after/Log_ex_1.md: 1.–11. present, every a)… its own paragraph. No
+  Log_ex_1 integration test: the PDF is in the gitignored inbox (not committable).
+
+## Plan: drop-in-adopt (2026-11-17)
+Goal: adopt the three recommendations of docs/results.md:269-302 (cut spread scans before OCR;
+born-digital PDFs finish without the spelling review; an opt-in sentence check that settles
+the flagged words of scans). Out of scope: Docling/MinerU, automatic marks, more word lists,
+the model-loop guard, margin references on the inbox (results.md:358-375).
+Branch: feature/drop-in-adopt (pdf-worker and ai-client, one PR each against main)
+
+User decisions (2026-11-17): a scan with no text layer is judged from its page image; a
+born-digital book is held as a draft by margin rows only (note and spelling rows go to the
+report and TSV); sentence-check answers are applied as `auto: sentence` rows, undoable like
+`auto: split`; De Anima's heading loss is investigated but does not block. The user thought
+PaddleOCR-VL already cut spreads: it doesn't; the baseline's three spread scans came out woven
+(joins 70.4% on Filosofia del Hombre).
+Defaults chosen: "born-digital" = prepared.json `ocr` false and no PADDLE_MARK (EPUBs and ebooks
+laid out as PDFs count too); the sentence check runs only on scans, switched on per book by
+`process --sentence-check` saved in settings.json like `--mark`; the generic part (prompt,
+batching, gate, timeout) goes in ai-client per the repo rule, rows in pdf-worker.
+
+- [ ] S1 Spread cut in the product, before OCR
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: docs/experiments/drop-in/split_spreads.py:1-212 and its selftest (281-end);
+    src/pdf_worker/inbox.py:145-210 and 311-360 (_prepare); tests/test_inbox.py; tests/conftest.py (make_pdf)
+  do: New module src/pdf_worker/spreads.py from split_spreads.py's Sheet/judge/judge_book/_half/split
+    (keep its rule: landscape AND no line crosses the 3% middle band AND each side >= 1/3 of lines;
+    "by the book" fallback; textless sheets never cut by the text rule; pages map new page -> sheet, side).
+    Add an image judge for sheets with no text layer: landscape, rendered at low DPI, a vertical band
+    near the middle with almost no ink-like detail on both halves' text (a dark gutter shadow is allowed);
+    the book-level "mostly spreads" rule applies as before. Atomic writes, open via open_pdf, no printing.
+    In inbox._prepare, before OCR or the Paddle copy: if any sheet is cut, write the cut PDF into the work
+    folder and use it as the source for both engines; add a report note "N spread sheets cut in two" to
+    prepared.json notes. Unit tests with make_pdf: two-block landscape page is cut (text and image cases),
+    one-block and two-column portrait pages are not, inbox uses the cut source.
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass
+  return: <= 10 lines: files changed, done result, how the image judge decides, anything surprising
+
+- [ ] S2 Spread cut: false alarms and the three spread books
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: docs/experiments/drop-in/README.md:40-58 (how to run long jobs); docs/results.md:207-250 (S10's numbers);
+    docs/experiments/drop-in/split_spreads.py:1-37 (order); docs/experiments/drop-in/books_sd.json
+  do: Scratch script under scratch/drop-in-adopt/ running pdf_worker.spreads' judge on the 20 PDFs
+    (tools/quality.py PAIRS + books_sd.json PDFs) on the ORIGINALS, image judge included: cut sheets per
+    book. Must be 0 outside Antropología, De Anima, Filosofia del Hombre (S10: 0 false alarms; the rule
+    alone gave 40). Then drop the three originals into an inbox under scratch/drop-in-adopt/ (one build
+    at a time, tools/run_logged.py) and score with split_spreads.py order and audit.py score as S10 did;
+    Filosofia del Hombre may be limited to its first 60 sheets. Compare with S10: joins 92.7/95.0/96.4%,
+    woven 1 of 562, invented margin refs 2/134/1. Write results to scratch/drop-in-adopt/S2.md.
+  done: /Users/fons/Documents/programs/pdf-worker/scratch/drop-in-adopt/S2.md exists with the false-alarm table and the before/after table
+  return: <= 10 lines: false alarms, the three books' figures against S10, minutes of jobs
+
+- [ ] S3 De Anima's main headings after the cut
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S2
+  context: scratch/drop-in-adopt/S2.md; the S2 build's De Anima work folder; tools/page_parts.py usage (CLAUDE.md)
+  do: Find why De Anima finds 3 of 8 outline main headings after the cut (6 before). Use tools/page_parts.py
+    and tools/page_lines.py on the cut PDF's pages holding the 8 titles. If the cause is contained (e.g. a
+    page-size-dependent threshold or half-sheet page labels), fix it with a unit test and confirm
+    tools/regression.py compare shows no loss on the eight test books. If not contained, write the cause
+    and leave it: this step does not block (user decision).
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; cause written in scratch/drop-in-adopt/S3.md
+  return: <= 10 lines: cause, fix or not, headings found now, regression compare result
+
+- [ ] S4 Born-digital books finish without the spelling review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: src/pdf_worker/inbox.py:1-25, 145-210, 246-268; src/pdf_worker/review.py:40-60; src/pdf_worker/book_report.py (count_rows, markdown); tests/test_inbox.py
+  do: In _process_book, a born-digital book (prepared.json `ocr` false and no PADDLE_MARK) counts only
+    margin rows (kinds margin-est, margin-missing) as holding; every other open row stays in the TSV and
+    report.md, reported as "N row(s) left for an optional review". Scans unchanged. Update the module
+    docstring (line 11). Test: a born-digital book with open spelling and note rows finishes in one run;
+    with an open margin row it stays a draft; a scan with a spelling row stays a draft. Then measure on
+    copies in scratch/drop-in-adopt/: La Biblia en su entorno and Timeo_by_Platón_no_intro through the
+    inbox, state before/after and the rows that hold (results.md: La Biblia 449 spelling + 59 note rows,
+    Timeo 102 note rows). Write scratch/drop-in-adopt/S4.md.
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; S4.md states both books' state
+  return: <= 10 lines: files changed, done result, the two books' state and holding rows
+
+- [ ] S5 ai-client: settle flagged words by their sentences
+  repo: /Users/fons/Documents/programs/ai-client
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: docs/experiments/drop-in/sentence_check.py:1-82 and 184-310 (in pdf-worker; the tested code);
+    /Users/fons/Documents/programs/ai-client/ai_client/check.py:77-90 (Flag), 343-520; ai-client's README and tests layout
+  do: Add check.settle(text, flags, language, model=None, timeout=60, max_sentences=40) -> list of
+    (flag, verdict, value): verdict "change" (value = corrected word(s)), "keep", or "open". Port
+    sentences_mode/gate/parse/pack/call: free OpenRouter model via get_client("openrouter"), discover()+is_up,
+    temperature 0, no fallbacks, wall-clock timeout per request. Two changes from the experiment: a
+    sentence the model does not return stays "open" (not keep: that made nearly all 17 wrong), and batches
+    hold at most max_sentences (copleston's 164-sentence request came back after 77 s). No key, no requests
+    left, error, bad JSON, late answer: everything "open", never raise. README section. Tests with a fake
+    client: change within the gate, rewrite outside the gate -> open, missing sentence -> open, timeout -> open.
+  done: the ai-client test command from its README → all pass
+  return: <= 10 lines: files changed, done result, the API signature
+
+- [ ] S6 pdf-worker: `--sentence-check` writes `auto: sentence` rows
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: high
+  after: S4,S5
+  context: src/pdf_worker/fixes.py:1-130 and 230-300 (where check.text flags become rows, AUTO handling);
+    src/pdf_worker/cli.py:930-1002 (process options, --mark pattern); src/pdf_worker/inbox.py:145-210;
+    tests/test_fixes.py; tests/test_cli.py; help.sh
+  do: process --sentence-check sets settings["sentence_check"]; inbox passes it to the build only for scans
+    (prepared.json ocr true or PADDLE_MARK). In fixes.py, after check.text, open spelling flags go through
+    check.settle: "change" -> replace row, type `auto: sentence`, value applied on the build; "keep" ->
+    ignore row, type `auto: sentence`; "open" -> today's row. Add "sentence" to AUTO; such rows are not
+    open rows. Docstring (fixes.py:44-49), CLI help, help.sh. Off by default: without the flag no model
+    call is made. Tests with check.settle monkeypatched (change, keep, open; flag off -> not called).
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; ruff check clean
+  return: <= 10 lines: files changed, done result, anything surprising
+
+- [ ] S7 Sentence check: measure on scans
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S6
+  context: docs/experiments/drop-in/sentence_check.py:1-29 and 401-462 (score); docs/results.md:292-302
+  do: Build philosophy and lugones (551 flags; never run before) with and without --sentence-check on copies
+    in scratch/drop-in-adopt/ (run_logged, one at a time). Score the auto: sentence rows against the
+    reference with sentence_check.py's score rules (scratch script reusing its functions): right, wrong,
+    harmed, left, requests, seconds. Compare with S6: philosophy 55 of 74 right; overall 125/17/2/1 of 145.
+    Write scratch/drop-in-adopt/S7.md with a one-line verdict on whether it stays off by default.
+  done: /Users/fons/Documents/programs/pdf-worker/scratch/drop-in-adopt/S7.md exists with both books' figures
+  return: <= 10 lines: figures per book, requests, seconds, verdict
+
+- [ ] S8 Review
+  repo: /Users/fons/Documents/programs/pdf-worker and /Users/fons/Documents/programs/ai-client
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S3,S7
+  context: git diff main...feature/drop-in-adopt in both repos
+  do: Review for data loss (cut PDF replacing the source, atomic writes), rows silently dropped or applied
+    wrongly, a model call made with the flag off, a book finishing that should wait, missing tests.
+  done: findings list returned; conductor fixes CONFIRMED ones and reruns the tests
+  return: <= 10 lines: ranked findings
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+
 ## Plan: drop-in-experiment (2026-11-14)
 Goal: find out, with numbers, what stops "drop a file in the inbox, get a good PDF, EPUB and
 Typst file in the outbox" from working every time, and measure four candidate answers

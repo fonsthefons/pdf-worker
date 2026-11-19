@@ -14,7 +14,17 @@ from pathlib import Path
 
 from pdf_worker.inline import LinkClose, LinkOpen, MarginRef, Style, pieces, plain
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph, Table
+from pdf_worker.structure import (
+    REF_RE,
+    Block,
+    Gloss,
+    Heading,
+    Image,
+    ListItem,
+    Note,
+    Paragraph,
+    Table,
+)
 
 # Characters that would otherwise start Markdown formatting.
 _INLINE_SPECIAL_RE = re.compile(r"([\\`*_<])")
@@ -112,7 +122,11 @@ def write_markdown(
                 body.write(f"date: {_yaml(meta.year)}\n")
             body.write(f"lang: {meta.language}\n---\n\n")
             open_note: Note | None = None
+            listing: dict[int, str] = {}  # open list depths -> the label that comes next
             for block in blocks:
+                if listing and not isinstance(block, ListItem):
+                    body.write("\n")  # a blank line ends the list
+                    listing.clear()
                 if isinstance(block, Heading):
                     stats.headings += 1
                     level = min(block.level, 6)
@@ -121,6 +135,9 @@ def write_markdown(
                 elif isinstance(block, Paragraph):
                     stats.paragraphs += 1
                     body.write(render(block.text) + "\n\n")
+                elif isinstance(block, ListItem):
+                    stats.paragraphs += 1
+                    body.write(_list_item(block, listing, render))
                 elif isinstance(block, Table):
                     stats.tables += 1
                     body.write(_table(block, render) + "\n")
@@ -157,6 +174,41 @@ def write_markdown(
     finally:
         Path(notes_name).unlink(missing_ok=True)
     return stats
+
+
+def _next_label(label: str) -> str:
+    """The label Pandoc gives the next item of a list: "a)" -> "b)", "9." -> "10."."""
+    number, mark = label[:-1], label[-1]
+    return (str(int(number) + 1) if number.isdigit() else chr(ord(number) + 1)) + mark
+
+
+def _list_item(item: ListItem, listing: dict[int, str], render) -> str:
+    """One item as Pandoc list syntax (``fancy_lists``): "a) text" starts a list at "a)" and
+    Pandoc numbers on from there, so the printed label survives only while each is the one
+    after the item before, or starts a list of another kind ("1." then "a)": a blank line
+    between); any other label (or one Pandoc reads as a name, like "A.") is escaped text
+    in a paragraph of its own. ``listing`` holds the open depths (see ``_next_label``).
+    shortcut: a second list restarting at "1." after the first is a paragraph at its
+    first item; add a separator comment if books need it."""
+    depth = min(item.depth, max(listing, default=0) + 1)
+    for deeper in [d for d in listing if d > depth]:
+        del listing[deeper]
+    label = item.label
+    # Any one-sign label ("•", "–", "*", U+F0B7) or Word's "o" (a nested list's) is a bullet.
+    bullet = label in ("", "o") or (len(label) == 1 and not label.isalnum())
+    marker = "-" if bullet else label
+    want = listing.get(depth, marker)
+    kind = lambda m: (m[:-1].isdigit(), m[-1])  # noqa: E731 - digits or letters, "." or ")"
+    if (bullet or re.fullmatch(r"\d{1,3}[.)]|[a-zA-Z]\)", label)) and (
+        want == marker or kind(want) != kind(marker)
+    ):
+        listing[depth] = marker if bullet else _next_label(label)
+        new_list = "\n" if want != marker else ""
+        return new_list + "    " * (depth - 1) + f"{marker} {render(item.text, line_start=False)}\n"
+    out = "\n" if listing else ""
+    listing.clear()
+    escaped = re.sub(r"[.)(]", r"\\\g<0>", escape_markdown(label, line_start=False))
+    return out + f"{escaped} {render(item.text, line_start=False)}".lstrip() + "\n\n"
 
 
 def _table(table: Table, render=render_markdown) -> str:

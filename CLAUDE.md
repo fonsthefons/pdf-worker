@@ -57,6 +57,14 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
 - Left to today's rules: unmarked kinds, block quotations, epigraphs, glosses and line
   numbers (dropped), Bekker labels, bare-number section titles, notes sections on scans.
 
+## Tagged PDFs (`pdf_tags.py`)
+- A PDF with a sound structure tree (>= 90% of tree text in P/LI/H on >= 80% of pages) is
+  read through its tags unless `convert --no-tags`: a new element starts a paragraph, LI
+  lines stay one `ListItem` (printed label kept, never renumbered), H1-H6 are headings.
+  Inside a P/H, starts, furniture and page tops are still the rules' (Chrome tags headings as P
+  and PyMuPDF can't tell Artifacts apart), and the layout model's titles still count.
+  Marks beat tags.
+
 # Working rules for this repo
 
 These rules exist so that every command runs without needing my approval. I often leave tasks running unattended, and a single approval prompt stops all progress until I come back. Follow them strictly.
