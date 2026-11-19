@@ -41,11 +41,17 @@ confirm it), ``swap`` (b read for h or c for e, "becho", "comcr": pre-filled too
 ``ocr1: <word>?`` (one letter off: a guess), ``near: <word>?`` (close to a common
 word), ``name`` / ``name: <name>?`` (capitalised) or ``unknown``.
 
-Two kinds of check flags are applied without review, each written as a ``replace`` row
-of type ``auto: split`` or ``auto: learned`` (set it to ``ignore`` to undo it): words
-split in two ("inmor-talidad", "por ciones") and corrections learned from earlier
-decisions. Every word row you decide (``replace``, ``ignore``) is recorded once in
-ai-client's decisions on the next build, under the book's ``source`` (``check.record``).
+Some check flags are applied without review, each written as a ``replace`` row of type
+``auto: split`` or ``auto: learned`` (set it to ``ignore`` to undo it): words split in two
+("inmor-talidad", "por ciones") and corrections learned from earlier decisions. With the
+sentence check (``process --sentence-check``, scans only) a model settles each spelling
+flag from its sentence: a correction becomes a ``replace`` row, a word it finds right an
+``ignore`` row (for that page only), both of type ``auto: sentence``; the rest stay open
+rows. Later builds follow these rows (an edited value too) and ask only about words still
+open; words with a row you decided, and a word's occurrences on a page that get different
+answers, aren't settled by it. Every word row
+you decide (``replace``, ``ignore``) is recorded once in ai-client's decisions on the next
+build, under the book's ``source`` (``check.record``).
 """
 
 import csv
@@ -54,7 +60,7 @@ import re
 import tempfile
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import cache
 from itertools import islice
 from pathlib import Path
@@ -76,7 +82,12 @@ from pdf_worker.structure import REF_RE, Block, Heading, ListItem, Note, Paragra
 
 SPELL_LANGUAGES = tuple(check.config.LANGUAGES)
 WORD_KINDS = ("spelling", "chars")  # rows about a word: their decisions are recorded
-AUTO = ("split", "learned")  # check flags applied without review
+AUTO = ("split", "learned", "sentence")  # check flags applied without review
+_SENTENCE = "auto: sentence"  # a row the sentence check settled
+# Blocks wait for the sentence check until this many flags (check.settle's max_sentences:
+# one full request) or this many blocks.
+_SETTLE_FLAGS = 40
+_SETTLE_BLOCKS = 200
 _MAX_SPELLING_COUNT = 2
 _MAX_MISSING = 10  # more margin labels lost in a row: the found ones are suspect
 _CONTEXT = 30  # characters each side
@@ -116,6 +127,18 @@ class Fix:
     value: str = ""
     status: str = ""
     type: str = ""  # a spelling row's likely error: accent, ocr1 (with a guess), name...
+
+
+@dataclass
+class _Checked:
+    """A block the check has read, waiting to be fixed."""
+
+    block: Block
+    reference: bool = False  # in a bibliography/index
+    clean: str = ""  # its text as the check saw it (``_clean``) ...
+    at: list[int] = field(default_factory=list)  # ... and where each character is in it
+    auto: list[check.Flag] = field(default_factory=list)  # changes to apply
+    asked: list[tuple[check.Flag, str, str]] = field(default_factory=list)  # flag, page, context
 
 
 COLUMNS = ("id", "page", "kind", "type", "find", "context", "action", "value", "status")
@@ -161,12 +184,15 @@ class Review:
         spelling: bool = True,
         source: str = "",
         italics: bool = True,
+        sentence_check: bool = False,
     ):
         """``spelling=False``: no word check. ``source`` names the book in ai-client's
         decisions (the review file's stem): without it, decisions are used but not recorded.
         ``italics=False``: no rows for words in italics (born-digital text, where they set
-        apart foreign words and titles; in a scan they are misread like any other)."""
+        apart foreign words and titles; in a scan they are misread like any other).
+        ``sentence_check``: spelling flags are settled by a model (``check.settle``)."""
         self.fixes = fixes
+        self.sentence_check = sentence_check
         self.italics = italics
         self.lexicon = _words(language) if spelling and language in SPELL_LANGUAGES else None
         self.decisions = check.Decisions(language) if self.lexicon else None
@@ -177,7 +203,23 @@ class Review:
         self.hits = [0] * len(fixes)  # occurrences of each fix's target on its page
         self.done = [False] * len(fixes)
         self.known: set[str] = set()  # lowercase words never flagged: the user's own
-        self.kept = {f.find for f in fixes if f.action == "ignore"}  # never flagged again
+        sentence = [f for f in fixes if f.type == _SENTENCE]
+        # Never flagged again; a word the sentence check kept is so on its page only.
+        self.kept = {f.find for f in fixes if f.action == "ignore" and f.type != _SENTENCE}
+        # (find, page) of the other rows decided: the sentence check isn't asked about them.
+        self.decided = {
+            (f.find, f.page)
+            for f in fixes
+            if f.action in ("replace", "ignore") and f.type != _SENTENCE
+        }
+        # (find, page) -> (verdict, value): the sentence check's, as its rows now say (an
+        # edited value included), and this build's; asked once.
+        self.settled: dict[tuple[str, str], tuple[str, str]] = {
+            (f.find, f.page): ("change", f.value) if f.action == "replace" else ("keep", "")
+            for f in sentence
+            if f.action == "ignore" or (f.action == "replace" and f.value)
+        }
+        self.check_page = ""  # the page _check is at (blocks wait for the sentence check)
         self.by_page: dict[str, list[int]] = {}  # rows with an action, by page
         for i, fix in enumerate(fixes):
             if fix.action:
@@ -191,33 +233,76 @@ class Review:
         self.notes: dict[str, str] = {}
         self.labels: list[tuple[str, str] | None] = []  # margin labels; None: a heading
         self.back: int | None = None  # level of the bibliography/index heading we're under
-        self.body = True  # spelling is checked in the body text only
         self.reference = False  # bibliography/index: nothing is checked
 
     def apply(self, blocks: Iterable[Block]) -> Iterator[Block]:
+        """Checked blocks wait (a few pages at most) while flags gather for one sentence
+        check request; without flags to ask about, each block goes on at once."""
         blocks = iter(blocks)
         ahead: deque[Block] = deque()  # blocks read early by _section, not yet applied
+        held: list[_Checked] = []
         while ahead or (block := next(blocks, None)) is not None:
             if ahead:
                 block = ahead.popleft()
+            checked = _Checked(block)
             if isinstance(block, Heading | Paragraph | ListItem | Note):
                 if isinstance(block, Heading):
-                    self.labels.append(None)
                     if self.back is not None:
                         ahead.extend(islice(blocks, _LOOK_AHEAD - len(ahead)))
                     self._section(block, ahead)
                 self.reference = self.back is not None or _is_reference(block, self.reference)
-                self.body = not self.reference and not isinstance(block, Note)
-                self.body = self.body and not getattr(block, "small", False)
-                # Checked before the review file's rows apply, as those were written on
-                # the checked text (split words already joined).
-                text = self._check(block.text) if self.body and self.lexicon else block.text
-                text = self._text(self._across_pages(text))
-                if isinstance(block, Note):
-                    self.notes.setdefault(block.label, self.page)
-                if text != block.text:
-                    block = replace(block, text=text)
-            yield block
+                checked.reference = self.reference
+                body = not self.reference and not isinstance(block, Note)
+                if body and not getattr(block, "small", False) and self.lexicon:
+                    self._check(checked)
+                self.check_page = _page_at(block.text, len(block.text), self.check_page)
+            held.append(checked)
+            asked = sum(len(c.asked) for c in held)
+            if not asked or asked >= _SETTLE_FLAGS or len(held) >= _SETTLE_BLOCKS:
+                yield from self._release(held)
+                held = []
+        yield from self._release(held)
+
+    def _release(self, held: list[_Checked]) -> Iterator[Block]:
+        """The ``held`` blocks' flags settled in one ``check.settle`` call, then each block
+        fixed: the check's changes, then the review file's rows."""
+        asked = [(c, a) for c in held for a in c.asked]
+        if asked:
+            joined, flags = "", []
+            for c in held:
+                if c.asked:
+                    off = len(joined)
+                    flags += [replace(f, start=f.start + off, end=f.end + off) for f, *_ in c.asked]
+                    joined += c.clean + "\n\n"  # a paragraph break ends a sentence
+            verdicts: dict[tuple[str, str], set] = {}
+            for (_, (flag, page, _)), (_, verdict, value) in zip(
+                asked, check.settle(joined, flags, self.language), strict=True
+            ):
+                settled = (verdict, value) if verdict == "keep" or value else ("open", "")
+                verdicts.setdefault((flag.find, page), set()).add(settled)
+            # One verdict per word and page, like its row: occurrences that disagree stay open.
+            for key, found in verdicts.items():
+                self.settled[key] = found.pop() if len(found) == 1 else ("open", "")
+            for c, (flag, page, context) in asked:
+                self._settled(c, flag, page, context)
+        for c in held:
+            block = c.block
+            if not isinstance(block, Heading | Paragraph | ListItem | Note):
+                yield block
+                continue
+            if isinstance(block, Heading):
+                self.labels.append(None)
+            # Checked before the review file's rows apply, as those were written on the
+            # checked text (split words already joined).
+            text = block.text
+            for flag in sorted(c.auto, key=lambda f: f.start, reverse=True):
+                start, end = c.at[flag.start], c.at[flag.end - 1] + 1
+                marks = "".join(m.group() for m in _HIDDEN_RE.finditer(text, start, end))
+                text = text[:start] + marks + flag.value + text[end:]
+            text = self._text(self._across_pages(text), c.reference)
+            if isinstance(block, Note):
+                self.notes.setdefault(block.label, self.page)
+            yield replace(block, text=text) if text != block.text else block
 
     def _across_pages(self, text: str) -> str:
         """A two-word find split by a page break ("def <page>niciones"), on the row's page
@@ -244,12 +329,13 @@ class Review:
                         break
         return text
 
-    def _check(self, text: str) -> str:
-        """ai-client's check on a body block's words: split and learned flags applied (as
-        ``auto`` rows), the others kept for review. Marks inside a fixed span go before it."""
-        clean, at = _clean(text)
+    def _check(self, c: _Checked) -> None:
+        """ai-client's check on a body block's words: split and learned flags to apply (as
+        ``auto`` rows), spelling flags settled already (``auto: sentence`` rows) or to ask
+        the sentence check about, the others kept for review."""
+        text = c.block.text
+        c.clean, c.at = clean, at = _clean(text)
         flags = check.text(clean, self.lexicon, source=self.source, decisions=self.decisions)
-        auto = []
         for flag in flags:
             find = flag.find
             if find in self.kept or find.lower() in self.known:
@@ -260,35 +346,59 @@ class Review:
                 clean, max(0, flag.start - _CONTEXT), flag.start
             ):
                 continue  # a transliteration: the one word right after its Greek word
-            page = _page_at(text, at[flag.start], self.page)
+            page = _page_at(text, at[flag.start], self.check_page)
             context = " ".join(flag.context.split())
             if flag.kind in AUTO and flag.value:
-                auto.append(flag)
-                self.auto.append(
-                    Fix(
-                        "",
-                        page,
-                        "spelling",
-                        find,
-                        context,
-                        "replace",
-                        flag.value,
-                        "applied",
-                        f"auto: {flag.kind}",
-                    )
-                )
+                c.auto.append(flag)
+                self._auto(flag, page, context, "replace", flag.value)
             elif flag.kind != "context" and (self.italics or not _in_italics(text, at[flag.start])):
-                kind, value = _row_type(flag)
-                entry = self.words.get(("spelling", find.lower()))
-                if entry:
-                    entry[0] += 1
+                key = (find, page)
+                if flag.kind == "spelling" and key in self.settled:
+                    self._settled(c, flag, page, context)
+                elif (
+                    self.sentence_check
+                    and flag.kind == "spelling"
+                    and not {key, (find, "*")} & self.decided
+                ):
+                    c.asked.append((flag, page, context))
                 else:
-                    self.words[("spelling", find.lower())] = [1, page, find, context, kind, value]
-        for flag in sorted(auto, key=lambda f: f.start, reverse=True):
-            start, end = at[flag.start], at[flag.end - 1] + 1
-            marks = "".join(m.group() for m in _HIDDEN_RE.finditer(text, start, end))
-            text = text[:start] + marks + flag.value + text[end:]
-        return text
+                    self._open(flag, page, context)
+
+    def _settled(self, c: _Checked, flag: check.Flag, page: str, context: str) -> None:
+        """A spelling flag the sentence check settled: corrected, kept, or left open."""
+        verdict, value = self.settled[(flag.find, page)]
+        if verdict == "change":
+            c.auto.append(replace(flag, value=value))
+            self._auto(flag, page, context, "replace", value, "sentence")
+        elif verdict == "keep":
+            self._auto(flag, page, context, "ignore", "", "sentence")
+        else:
+            self._open(flag, page, context)
+
+    def _auto(
+        self, flag: check.Flag, page: str, context: str, action: str, value: str, kind=None
+    ) -> None:
+        """A row for a check flag settled without review (``auto: <kind>``)."""
+        kind = kind or flag.kind
+        self.auto.append(
+            Fix("", page, "spelling", flag.find, context, action, value, "applied", f"auto: {kind}")
+        )
+
+    def _open(self, flag: check.Flag, page: str, context: str) -> None:
+        """A spelling flag left for review: one row per word, counting its occurrences."""
+        kind, value = _row_type(flag)
+        entry = self.words.get(("spelling", flag.find.lower()))
+        if entry:
+            entry[0] += 1
+        else:
+            self.words[("spelling", flag.find.lower())] = [
+                1,
+                page,
+                flag.find,
+                context,
+                kind,
+                value,
+            ]
 
     def _section(self, heading: Heading, ahead: Iterable[Block] = ()) -> None:
         """A bibliography or index lasts until a higher heading, or one of its level that
@@ -311,7 +421,7 @@ class Review:
         ):
             self.back = None
 
-    def _text(self, text: str) -> str:
+    def _text(self, text: str, reference: bool) -> str:
         parts = _SPLIT_RE.split(text)  # text, mark, label, text, mark, label, ...
         out = []
         for i in range(0, len(parts), 3):
@@ -319,7 +429,7 @@ class Review:
                 out.append(parts[i - 2])
                 self.page = parts[i - 1]
             segment = self._fix(parts[i])
-            self._scan(segment)
+            self._scan(segment, reference)
             out.append(segment)
         return "".join(out)
 
@@ -374,17 +484,17 @@ class Review:
         at = matches[0].end() if after else matches[0].start()
         return text[:at] + mark + text[at:]
 
-    def _scan(self, text: str) -> None:
+    def _scan(self, text: str, reference: bool) -> None:
         for match in REF_RE.finditer(text):
             self.refs.setdefault(match.group(1), self.page)
         for label in MARGIN_REF_RE.findall(text):
             self.labels.append((label, self.page))
         words = REF_RE.sub("", plain(text))
-        for match in _DOLLAR_RE.finditer(words if not self.reference else ""):
+        for match in _DOLLAR_RE.finditer(words if not reference else ""):
             self._flag("chars", match.group(), words, match)
         for match in _WORD_RE.finditer(words):
             word = match.group()
-            if self.reference or (len(word) > 1 and word.isupper()):
+            if reference or (len(word) > 1 and word.isupper()):
                 continue  # ALL CAPS (headings, small caps) is never flagged: user's choice
             if self.check_chars and (_MACRON_RE.search(word) or _CYRILLIC_RE.search(word)):
                 self._flag("chars", word, words, match)

@@ -623,6 +623,21 @@ def test_a_divider_page_keeps_the_title_its_running_heads_repeat(make_layout_pdf
     assert text.count("INTRODUCCION") == 1
 
 
+def test_a_chapter_title_set_lower_than_the_heads_it_repeats_is_kept(make_layout_pdf, tmp_path):
+    # De Anima cut into single pages: the chapter opens a quarter down its page, in body
+    # type, the first line of the page, as the heads on the pages after it.
+    pages = [
+        [(100, 250, "INTRODUCCION GENERAL", BODY), *_paragraph(300, FULL[:2], ENDINGS[0])],
+        *(
+            [(250, 50, "INTRODUCCION GENERAL", 8), *_paragraph(100, FULL[:2], ENDINGS[n])]
+            for n in (1, 2)
+        ),
+    ]
+    text, _ = _md(make_layout_pdf, tmp_path, pages)
+
+    assert text.count("INTRODUCCION GENERAL") == 1
+
+
 def test_footnotes_become_markdown_notes(make_layout_pdf, tmp_path):
     marker_x = 72 + pymupdf.get_text_length("A claim", fontsize=BODY)
     page = [

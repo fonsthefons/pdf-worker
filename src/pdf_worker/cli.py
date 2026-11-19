@@ -954,6 +954,15 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
         "beside a text PDF in file_inbox is used too.",
     )
     parser.add_argument(
+        "--sentence-check",
+        action=argparse.BooleanOptionalAction,
+        help="Scans only: a free OpenRouter model settles each suspect word from its "
+        "sentence (corrects it, or finds it right) instead of leaving a row to review; "
+        "rows it can't settle stay. Kept for the book's later runs until "
+        "--no-sentence-check (the rows it wrote stay). Off by default: no model call "
+        "unless set for the book.",
+    )
+    parser.add_argument(
         "--clean",
         action="store_true",
         help="Only delete what belongs to no book left in file_inbox: work folders, the "
@@ -1007,6 +1016,8 @@ def _run_process(args: argparse.Namespace) -> int:
         args.settings["formats"] = args.to
     if args.mark:
         args.settings["mark"] = True
+    if args.sentence_check is not None:
+        args.settings["sentence_check"] = args.sentence_check
     results = _process_folder(args)
     rebuild = "pdf-worker process" + (
         "" if args.folder == PROCESS_FOLDER else f" {shlex.quote(str(args.folder))}"

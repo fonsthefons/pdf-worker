@@ -26,6 +26,7 @@ FOUND_KINDS = ("chars", "note-no-ref", "ref-no-note")
 AUTO_LABELS = {
     "auto: split": "words split in two, joined",
     "auto: learned": "corrections learned from earlier decisions",
+    "auto: sentence": "words corrected by the sentence check",
 }
 SPELLING_LABELS = {
     "accent": "accent probably lost",

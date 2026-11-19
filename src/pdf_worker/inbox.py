@@ -8,7 +8,9 @@ works with no options.
 A book whose review file has rows to decide gets drafts in ``file_outbox/drafts`` and
 waits. Once ``review`` has saved decisions, the next run rebuilds it into ``file_outbox``,
 deletes the drafts and moves the original to ``file_work/converted``. A book with nothing
-to review (an EPUB, most born-digital PDFs) is finished in one run.
+to review (an EPUB, most born-digital PDFs) is finished in one run. A born-digital book
+is held only by margin-reference rows; its other open rows stay in the review file and
+``report.md`` as an optional review. A scan is held by every open row.
 
 An EPUB is rebuilt the same way as a converted PDF (``pdf_worker.epub_reader``): notes
 as pop-ups, no front matter, a text cover. One it can't read is published as it is.
@@ -41,6 +43,7 @@ from pdf_worker import (
     epub_reader,
     kindle,
     review,
+    spreads,
 )
 from pdf_worker.document import open_pdf
 from pdf_worker.errors import PdfWorkerError
@@ -56,6 +59,8 @@ DRAFT_MARK = "draft"  # in a work folder: drafts are out, waiting for the review
 PREPARED = "prepared.json"  # in a work folder: how the text was obtained
 SETTINGS = "settings.json"  # in a work folder: the book's formats and convert options
 CHOSEN = "copy.json"  # in a folder book's work folder: the copy used, and why
+MARGIN_KINDS = ("margin-est", "margin-missing")  # the rows that hold a born-digital book
+SPREADS = ".spreads.pdf"  # <stem>.spreads.pdf in a work folder: the book's spreads cut
 # What a book can be made into; "searchable" is the PDF the book was built from (OCR'd).
 FORMATS = (*convert.FORMATS, "searchable")
 DEFAULT_FORMATS = ("epub", "pdf")
@@ -195,7 +200,8 @@ def _process_book(root, entry, engine, say, on_step, given) -> BookResult:
     elif "searchable" in formats:
         _copy(pdf, _outputs(target, stem, ["searchable"])[0])
     rows = read_fixes(fixes)
-    left = len(review.open_rows(rows))
+    holding, optional = _holding(rows, work)
+    left = len(holding)
     final = reviewed or not left
     state = "final" if final else "draft"
     graded = chosen + _write_report(name, pdf, conversion, rows, state, chosen) + note
@@ -205,9 +211,29 @@ def _process_book(root, entry, engine, say, on_step, given) -> BookResult:
                 if out.exists():
                     os.replace(out, outbox / out.name)
         undecided = f"; {left} row(s) to review left undecided" if left else ""
+        if optional and not left:
+            undecided = f"; {optional} row(s) left for an optional review"
         return _finish(root, entry, graded + undecided)
     draft_mark.touch()
     return BookResult(name, "draft", f"{graded}; {left} row(s) to review", pdf)
+
+
+def _holding(rows, work: Path) -> tuple[list, int]:
+    """The open rows that keep a book a draft, and how many others are left optional.
+    A scan: every open row holds. A born-digital book: only margin references do."""
+    open_rows = review.open_rows(rows)
+    if _is_scan(work):
+        return open_rows, 0
+    margin = [
+        f for f in rows if f.kind in MARGIN_KINDS and not f.action and f.status != "stale"
+    ]
+    return margin, len(open_rows)
+
+
+def _is_scan(work: Path) -> bool:
+    """The book in this work folder was read by OCR."""
+    info = json.loads((work / PREPARED).read_text()) if (work / PREPARED).exists() else {}
+    return info.get("ocr", False) or (work / PADDLE_MARK).exists()
 
 
 def _chosen_copy(folder: Path, work: Path, say) -> tuple[Path | None, str]:
@@ -317,6 +343,18 @@ def _prepare(original: Path, pdf: Path, engine: str, say) -> None:
         _write_text(pdf.parent / PREPARED, json.dumps({"how": "ebook laid out as a PDF"}))
         return
     with open_pdf(original) as doc:
+        sheets = spreads.judge_book(doc)
+    cut = sum(s.cut for s in sheets)
+    spread_note = [f"{cut} spread sheets cut in two"] if cut else []
+    if cut and default_marks_path(original).exists():  # made on the sheets: kept so
+        spread_note = [f"{cut} spread sheets not cut: the marks given are for the sheets"]
+        cut = 0
+    if cut:  # both engines read the cut PDF: one printed page per page
+        say(f"  cutting {cut} spread sheet(s) in two")
+        cut_pdf = pdf.with_name(pdf.stem + SPREADS)  # never the book's own name
+        spreads.split(original, cut_pdf, sheets)
+        original = cut_pdf
+    with open_pdf(original) as doc:
         assessment = assess_text_layer(doc)
     say(f"  text layer: {assessment.reason}")
     info = {
@@ -325,7 +363,8 @@ def _prepare(original: Path, pdf: Path, engine: str, say) -> None:
             f"Text-layer check (sampled pages): {assessment.text_pages:.0%} with text, "
             f"{assessment.scanned_pages:.0%} scanned, {assessment.suspect_words:.1%} words "
             f"look misread, {assessment.jittery_lines:.0%} jittery lines"
-        ],
+        ]
+        + spread_note,
     }
     if engine == "paddle" and assessment.mode:
         # Built from Paddle's blocks of the original; the review finds its crops by content.
@@ -412,6 +451,10 @@ def _build(
             # The original's PDF metadata and file name, not the copy's.
             source_pdf=original if original.suffix.lower() == ".pdf" else pdf,
             layout_rows=layout,
+            # Asked in the first build only: the others follow the rows it wrote.
+            sentence_check=fmt == built[0]
+            and bool(settings.get("sentence_check"))
+            and _is_scan(pdf.parent),
             **{k: settings[k] for k in BOOK_OPTIONS if k in settings},
         )
         for fmt, home in zip(built, homes, strict=True)
