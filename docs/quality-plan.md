@@ -43,13 +43,14 @@ The goal is any PDF, not these books. So:
    fixing; only read their row in the yardstick's held-out table.
 5. **A fix that helps one working book and no other** is suspect: record it in
    `PROGRESS.md` and leave it out.
-6. **Merge gate** (`tools/quality.py compare`, Phase 1): the phase's own measure gets
+6. **Merge gate** (the quick check, `tools/check.py compare`; `--full` (which runs
+   `tools/quality.py compare`) before a release or when a sample can't show the change, Phase 1): the phase's own measure gets
    better on the working books, and no other measure gets worse by more than the
    tolerance on the working or the held-out books. Tolerance: 1 point for percentages,
    1 per 10,000 reference words for counts. If the held-out books get worse beyond it,
    stop (draft PR, `STOPPED:`). If only a working book does, record the page and line
    and stop the same way.
-7. The eight regression books (`tools/regression.py`) are run too; read the headings
+7. The eight regression books (`tools/check.py --full`, which uses `tools/regression.py`) are run too; read the headings
    lost and added for anything clearly wrong.
 
 ## Effort and fan

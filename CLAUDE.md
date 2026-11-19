@@ -29,16 +29,18 @@ Run each as its own call, from the repo root (`/Users/fons/Documents/programs/pd
   `--png OUT.png` draws the model's boxes), `render_clip.py` (a page area as
   PNG), `epub_score.py` (an EPUB against a reference), `check_and_fix.py` (EPUBs whose
   `mimetype` entry isn't first/stored get repacked in place; `--check` only reports),
+  `check.py` (`build OUT_DIR` / `compare BEFORE AFTER`; `--full` runs the whole-book builds below:
+  the default before/after check for a pipeline change), the `--full` engines
   `regression.py` (`build OUT_DIR` converts the eight test books to Markdown with their
   numbers, passing the layout model's rows cached in `scratch/paddle-home`; `compare BEFORE AFTER` shows numbers, headings lost/added and writes diffs:
-  run it before and after a change to the pipeline), `parts_report.py` (`OUT_DIR [LABEL...]`
+  run via `check.py --full` before a release), `parts_report.py` (`OUT_DIR [LABEL...]`
   builds the test books and counts, part by part, the lines today's rules and the layout
   model agree on; `--show PAGE...` prints a page's lines with both), `headings_test.py`
   (`run OUT_DIR` scores heading-rule variants on `test_pdfs/book_tests_pdfs/` against its
   `truth.json`; runs the layout model; `score OUT_DIR` re-scores; `--set heldout` for the
   held-out pages), `book_score.py` (`REFERENCE OURS.md`: a whole converted book against a
   reference EPUB or `.txt` of the same text: words, headings, paragraph breaks, notes in
-  the body, leftovers; `selftest`), `quality.py` (`build OUT_DIR` converts the reference
+  the body, leftovers; `selftest`), `quality.py` (a `--full` engine; `build OUT_DIR` converts the reference
   books of docs/quality-plan.md and runs both headings page sets (`--no-marks` ignores the
   books' marks files, `--only LABEL,...` converts those books only), `score OUT_DIR`
   re-scores, `compare BEFORE AFTER` marks changes beyond the tolerance: the quality
