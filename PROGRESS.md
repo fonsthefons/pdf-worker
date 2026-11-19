@@ -19,7 +19,7 @@ platon_bad are paddle scans). headings_test.run(out, tests) runs page sets only 
 Defaults chosen: sample pages fixed once in tools/check_pages.json (contents, chapter starts, notes pages,
 then an even spread up to 50); books run in parallel with ProcessPoolExecutor, workers = max(1, cpu_count - 2).
 
-- [ ] S1 tools/check.py: sampled, parallel build + compare
+- [x] S1 tools/check.py: sampled, parallel build + compare
   repo: /Users/fons/Documents/programs/pdf-worker
   run: agent:implementer
   model: sonnet    effort: high
@@ -40,7 +40,7 @@ then an even spread up to 50); books run in parallel with ProcessPoolExecutor, w
     fast tests pass
   return: <= 10 lines: profile result, run time, files changed, whether rows were remapped, anything surprising
 
-- [ ] S2 Docs and skills use the quick check
+- [x] S2 Docs and skills use the quick check
   repo: /Users/fons/Documents/programs/pdf-worker
   run: agent:implementer
   model: sonnet    effort: low
@@ -62,6 +62,13 @@ failure in its brief; failing again, or no longer fitting the code, it goes unde
 continue with steps that don't depend on it.
 
 ### Run log
+- 2026-11-19: S1 started on feature/quick-check, then stopped before it changed any files (user paused, low battery). Resume with /run-plan.
+- 2026-11-19: S1 done. check.py build 71 s (15 books x 32 sampled pages, rows remapped from cache, no model runs);
+  compare check-a/check-b: same numbers for all books (metafisica: 1-line text diff between identical runs,
+  nondeterminism to look at); 498 fast tests pass. Sample is 32 pages/book (agent's choice, not ~50). Cut PDFs carry
+  no marks/tags, so marked/tagged books are checked by the rules path only.
+- 2026-11-19: S2 done. CLAUDE.md, docs/quality-plan.md (merge gate), plan-feature SKILL.md name check.py; the two
+  remaining "build" mentions are quality-plan Phase 1's historical build instructions, left as they are.
 
 ## Plan: tagged-pdf (2026-11-19)
 Goal: born-digital PDFs with a sound structure tree (Word/Acrobat PDFMaker exports) take their

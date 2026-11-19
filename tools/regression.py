@@ -130,8 +130,8 @@ def _count(value) -> int:
     return len(value) if isinstance(value, list) else value
 
 
-def compare(before: Path, after: Path) -> None:
-    for label, _ in BOOKS:
+def compare(before: Path, after: Path, labels: list[str] | None = None) -> None:
+    for label in labels or [label for label, _ in BOOKS]:
         a_json, b_json = before / f"{label}.json", after / f"{label}.json"
         if not (a_json.exists() and b_json.exists()):
             print(f"{label}: missing in {before if not a_json.exists() else after}")
