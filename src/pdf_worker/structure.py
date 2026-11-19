@@ -23,7 +23,12 @@ from pdf_worker.footnotes import (
 )
 from pdf_worker.images import PageImage, labels_inside, page_images
 from pdf_worker.inline import (
+    BOLD,
     CELL,
+    END_BOLD,
+    END_ITALIC,
+    ITALIC,
+    ITEM_RE,
     LEADING_PAGE_MARKS_RE,
     MARGIN_REF_RE,
     STYLE_RE,
@@ -76,8 +81,6 @@ _CONTENTS_ENTRY_RE = re.compile(
     re.IGNORECASE,
 )
 _MIN_CONTENTS_ENTRIES = 5
-# A numbered or lettered item: "1. Duda", "II.- LA FE", "a).- Primer", "b.).-", "A. EL".
-_ITEM_RE = re.compile(r"(?:\d{1,3}|[IVXLC]{1,6})\s?[.)\-–—]|[A-Za-z]\.?\)|[A-Za-z]\.\s")
 # A note's first line: its number or sign ("3. Ibidem.", "3.", "* See").
 _NOTE_START_RE = re.compile(r"^\s*(?:\d{1,3}|[*†‡])[.)]?(?:\s|$)")
 # Chapter numbers are short headings too: "3", "IV", "II.".
@@ -106,6 +109,18 @@ class Heading:
 class Paragraph:
     text: str
     small: bool = False  # smaller type than the body: glosses, captions, asides
+    page: int = -1  # where it starts, for resolving links (see Heading)
+    top: float = 0.0
+
+
+@dataclass(frozen=True)
+class ListItem:
+    """An item of a tagged PDF's list: its printed label ("a)", "1.", "•"; "" if none) is
+    kept apart from its text, never renumbered. ``depth``: the lists it is in (1 = outer)."""
+
+    text: str
+    label: str
+    depth: int
     page: int = -1  # where it starts, for resolving links (see Heading)
     top: float = 0.0
 
@@ -148,7 +163,25 @@ class SectionStart:
     kind: str  # marks.SECTION_KINDS
 
 
-Block = Heading | Paragraph | Note | Gloss | Image | Table | SectionStart
+Block = Heading | Paragraph | ListItem | Note | Gloss | Image | Table | SectionStart
+# A list item's label at the start of its text: a number, letter or bullet.
+# (Word's "o" bullet only from an Lbl: here it would take the word "o".)
+_LABEL_RE = re.compile(f"(?:{ITEM_RE.pattern}|[•◦▪●‣–·*-])\\s*")
+
+
+def cut_label(text: str, label: str) -> tuple[str, str]:
+    """An item's printed label (``label``, the Lbl's, or one ``_LABEL_RE`` finds; "" if
+    none) and the text after it. Matched without style markers (a bold "1."); the label's
+    own markers go with it, those that run on into the text stay."""
+    pattern = re.escape(label) + r"\s*" if label else _LABEL_RE
+    found = re.match(pattern, STYLE_RE.sub("", text))
+    cut = seen = 0
+    while found and seen < found.end():
+        seen += not STYLE_RE.match(text[cut])
+        cut += 1
+    styles = "".join(STYLE_RE.findall(text[:cut]))
+    styles = styles.replace(BOLD + END_BOLD, "").replace(ITALIC + END_ITALIC, "")
+    return (found.group().strip() if found else ""), styles + text[cut:].lstrip()
 
 
 @dataclass
@@ -163,9 +196,9 @@ class _Margins:
 class _Builder:
     """The block currently being assembled."""
 
-    kind: str = ""  # "", "para", "small", "note", "heading", "table"
-    label: str = ""
-    level: int = 0
+    kind: str = ""  # "", "para", "small", "note", "heading", "table", "item"
+    label: str = ""  # an item's printed label, if the tags give it
+    level: int = 0  # a heading's level, an item's depth
     parts: list[str] = field(default_factory=list)
     lines: int = 0
     size_total: float = 0.0
@@ -556,6 +589,8 @@ class _State:
         level = marked
         if marked or text_only:
             pass  # the marks decide; a contents entry is never a heading
+        elif body_line.tag and body_line.tag.kind.startswith("h"):
+            level = int(body_line.tag.kind[1:])  # a tagged PDF's H element
         elif body_line.title:
             # The layout model's title box; its size gives the level.
             sizes = profile.heading_sizes
@@ -627,7 +662,7 @@ class _State:
                 return
             before, start = plain(self.prev_text).rstrip(), plain(text).lstrip()
             full = self.ran_on and not _CONTENTS_ENTRY_RE.match(before)
-            item = bool(_ITEM_RE.match(start))
+            item = bool(ITEM_RE.match(start))
             wrapped = before.endswith("-") or (not item and (start[:1].islower() or full))
             if not (self.current.kind == "entry" and wrapped):
                 yield from self._flush()
@@ -660,20 +695,26 @@ class _State:
                 self.current = _Builder(kind="heading", level=level)
             self.current.level = level  # a joined number takes its title's level
         else:
-            kind = "small" if is_small(line, profile.body_size) else "para"
+            tag = body_line.tag
+            item = bool(tag and tag.kind == "li")
+            kind = "item" if item else "small" if is_small(line, profile.body_size) else "para"
             starts = self._starts_paragraph(body_line, margins, new_page)
             if starts and self.current.kind == "note" and not self.break_next:
                 # A numbered note ("[5] ... (14 octubre 2016):") runs on to the next note
                 # or a change of type ("Copyright ©" after the last), not a short line.
                 size = self.current.size or line.size
                 starts = abs(line.size - size) > _SIZE_JITTER * size
-            if not starts and self.current.kind in ("note", "para", "small"):
-                # Wrapped lines keep the block's kind: endnote text, and OCR'd lines whose
-                # size straddles the small-type threshold.
+            keep = ("note", "para", "small") + (() if tag else ("item",))
+            if not starts and self.current.kind in keep:
+                # Wrapped lines keep the block's kind: endnote text, OCR'd lines whose size
+                # straddles the small-type threshold, and an item's lines outside the tree
+                # (Chrome's print leaves an element's carried-over lines out of it).
                 kind = self.current.kind
             if starts or self.current.kind != kind:
                 yield from self._flush()
                 self.current = _Builder(kind=kind)
+                if item:
+                    self.current.label, self.current.level = tag.label or "", tag.depth
         # A page the layout model didn't box keeps the rules from before it (the user's
         # a+c+d: "a book without rows keeps the size test"), short bold lines included.
         free = not (body_line.kind or body_line.entry or self.page_index in profile.layout)
@@ -735,7 +776,10 @@ class _State:
         # starts like a new item (contents entries, lists, verse); in the marks'
         # bibliography, always: one entry per paragraph ("— Otra obra", "de Unamuno").
         bibliography = self.profile.sections.get(self.page_index) == "bibliography"
-        return short and (ends_sentence or first.isupper() or first.isdigit() or bibliography)
+        item = bool(ITEM_RE.match(text.lstrip()))
+        return short and (
+            ends_sentence or first.isupper() or first.isdigit() or item or bibliography
+        )
 
     # -- output -----------------------------------------------------------------------
     def _flush(self) -> Iterator[Block]:
@@ -755,6 +799,16 @@ class _State:
                 yield Heading(self._respaced(text), current.level, current.page, current.top)
         elif current.kind == "note":
             yield Note(current.label, current.text())
+        elif current.kind == "item":
+            text = current.text().lstrip()
+            # The label is in the item's first line, after a page's marks: take it out.
+            lead = LEADING_PAGE_MARKS_RE.match(text)
+            marks, text = (lead.group(1), lead.group(2).lstrip()) if lead else ("", text)
+            if text.strip():
+                label, rest = cut_label(text, current.label)
+                yield ListItem(
+                    marks + rest, label, max(current.level, 1), current.page, current.top
+                )
         elif current.kind == "entry":
             yield Paragraph(contents_entry(current.text()), False, current.page, current.top)
         elif current.kind == "table":

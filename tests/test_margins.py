@@ -114,6 +114,40 @@ def test_picture_noise_is_dropped_but_section_breaks_stay(make_layout_pdf, tmp_p
     assert "\\* \\* \\*" in text
 
 
+def test_short_lines_before_items_are_separate_paragraphs(make_layout_pdf, tmp_path):
+    page = [(72, 100 + LINE * i, t, BODY) for i, t in enumerate(FULL)]
+    page += [
+        (72, 100 + 6 * LINE, "1. Explain the following", BODY),
+        (72, 100 + 7 * LINE, "a) the first thing", BODY),
+        (72, 100 + 8 * LINE, "b) the second thing", BODY),
+    ]
+
+    text, _ = _md(make_layout_pdf, tmp_path, [page])
+
+    assert "1\\. Explain the following\n\na) the first thing\n\nb) the second thing" in text
+
+
+def _edge_line(mark, text="Quid est iustitia?"):
+    from pdf_worker.footnotes import BodyLine
+    from pdf_worker.layout import Line
+
+    spans = (
+        {"text": mark, "bbox": (40, 100, 52, 111)},
+        {"text": text, "bbox": (72, 100, 200, 111)},
+    )
+    line = Line(spans=spans, size=11, bbox=(40, 100, 200, 111))
+    return BodyLine(text=f"{mark} {text}", line=line)
+
+
+def test_edge_mark_is_cut_but_a_numbering_stays():
+    from pdf_worker.margins import _trim_edge_marks
+
+    for mark in ("22b", "d", "11"):
+        assert len(_trim_edge_marks(_edge_line(mark), 72, 400, 11).line.spans) == 1
+    for mark in ("1.", "a)", "IV."):
+        assert len(_trim_edge_marks(_edge_line(mark), 72, 400, 11).line.spans) == 2
+
+
 def test_long_dotted_leader_is_junk_without_backtracking():
     from pdf_worker.margins import _is_junk
 

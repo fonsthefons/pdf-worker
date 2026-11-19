@@ -23,6 +23,8 @@ CELL = ""
 _PAGE_OPEN, _PAGE_CLOSE = "", ""
 _LINK_OPEN, _LINK_MID, _LINK_CLOSE = "", "", ""
 _TOKEN_RE = re.compile("(\\d+)\\|([^]*)|([^]*)|")
+# A numbered or lettered item: "1. Duda", "II.- LA FE", "a).- Primer", "b.).-", "A. EL".
+ITEM_RE = re.compile(r"(?:\d{1,3}|[IVXLC]{1,6})\s?[.)\-–—]|[A-Za-z]\.?\)|[A-Za-z]\.\s")
 PAGE_MARK_RE = re.compile(f"{_PAGE_OPEN}\\d+\\|([^{_PAGE_CLOSE}]*){_PAGE_CLOSE}")
 LEADING_PAGE_MARKS_RE = re.compile("^((?:[^]*)+)(.*)$", re.DOTALL)
 

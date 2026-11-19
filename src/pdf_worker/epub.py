@@ -47,6 +47,7 @@ from pdf_worker.structure import (
     Gloss,
     Heading,
     Image,
+    ListItem,
     Note,
     Paragraph,
     SectionStart,
@@ -123,6 +124,9 @@ nav#toc > ol { padding-left: 0; }
 nav#toc li { margin: 0.2em 0; }
 ol.contents { list-style: none; padding-left: 0; }
 ol.contents li { margin: 0.2em 0; }
+ol.items { list-style: none; padding-left: 1.5em; }
+ol.items li { margin: 0.2em 0; text-align: justify; }
+span.lbl { margin-right: 0.4em; }
 a.noteref { text-decoration: none; }
 span.mref { color: #2e7d32; font-family: sans-serif; font-weight: bold; font-size: 0.95em;
   padding: 0 0.2em; }
@@ -249,6 +253,7 @@ class _EpubBuilder:
         self.chapter_title = ""
         self.section_name = ""  # the marked section's name: a chapter title (_SECTION_NAMES)
         self.in_list = False  # a list of contents entries is open
+        self.depth = 0  # lists of ListItems open (nested <ol>s)
         self.entries: list[str] = []  # each contents entry's key (_entry_key)
         self.entry_hrefs: dict[int, str] = {}  # entry -> its heading's href, at the end
         self.note_ids: dict[str, str] = {}  # label -> "n7"
@@ -276,6 +281,33 @@ class _EpubBuilder:
         if self.in_list:
             self.parts.append("</ol>\n")
             self.in_list = False
+        if self.depth:
+            self.parts.append("</li>\n" + "</ol></li>\n" * (self.depth - 1) + "</ol>\n")
+            self.depth = 0
+
+    def _add_item(self, block: ListItem) -> None:
+        """An item of nested ``<ol>``s, by depth; its printed label stays as text (no list
+        numbers), so "a)" and "1." come out as printed."""
+        if self.in_list:
+            self._close_list()
+        depth = min(block.depth, self.depth + 1)
+        if depth > self.depth:
+            self.parts.append('<ol class="items">\n')
+        else:
+            self.parts.append("</li>\n" + "</ol></li>\n" * (self.depth - depth))
+        self.depth = depth
+        self.stats.paragraphs += 1
+        anchor = f"b{self.stats.paragraphs}"
+        if block.page >= 0:
+            key = _match_key(REF_RE.sub("", plain(block.text)))
+            self.anchors.setdefault(block.page, []).append(
+                (block.top, f"{self.current_file}#{anchor}", key)
+            )
+            self.word_page = block.page
+        self._add_words(block.text, f"{self.current_file}#{anchor}")
+        label = f'<span class="lbl">{_esc(block.label)}</span>' if block.label else ""
+        self.parts.append(f'<li id="{anchor}">{label}{self._inline(block.text)}')
+        self.chars += len(block.text)
 
     def _close_chapter(self) -> None:
         self._close_list()
@@ -296,14 +328,17 @@ class _EpubBuilder:
 
     def add(self, block: Block) -> None:
         entry = isinstance(block, Paragraph) and is_contents_entry(block.text)
-        if not entry:
+        if not entry and not isinstance(block, ListItem):
             self._close_list()
         if isinstance(block, SectionStart):
             self._close_chapter()  # each section a chapter of its own
             names = _SECTION_NAMES.get(self.meta.language.split("-")[0], _SECTION_NAMES["en"])
             self.section_name = names.get(block.kind, block.kind)
+        elif isinstance(block, ListItem):
+            self._add_item(block)
         elif entry:
             if not self.in_list:
+                self._close_list()  # items of a list of ListItems
                 self.parts.append('<ol class="contents">\n')
                 self.in_list = True
             self.stats.paragraphs += 1

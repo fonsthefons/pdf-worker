@@ -20,6 +20,7 @@ from pdf_worker import (
     font_sizes,
     glued_refs,
     margin_estimates,
+    pdf_tags,
 )
 from pdf_worker.cover import cover_jpeg
 from pdf_worker.document import open_pdf
@@ -37,7 +38,7 @@ from pdf_worker.markdown_export import write_markdown
 from pdf_worker.marks import Settings
 from pdf_worker.ocr_check import assess_text_layer
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph, iter_blocks
+from pdf_worker.structure import REF_RE, Block, Heading, ListItem, Note, Paragraph, iter_blocks
 from pdf_worker.text_export import write_text
 from pdf_worker.tidy import tidy
 from pdf_worker.typst_export import write_pdf
@@ -131,6 +132,7 @@ def convert_pdf(
     source_pdf: str | Path | None = None,
     layout_rows: dict[int, dict] | None = None,
     marks: bool = True,
+    tags: bool = True,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
@@ -158,6 +160,9 @@ def convert_pdf(
     With ``marks``, the book's marks file (``<pdf stem>.marks.json``, ``pdf_worker.marks``),
     if there is one, says which lines are running heads, page numbers, footnotes, note
     numbers... and where notes are printed (``pdf_worker.follow_marks``).
+    With ``tags``, a tagged PDF's sound structure tree says which lines make a paragraph,
+    list item or heading (``pdf_worker.pdf_tags``); furniture and page tops stay with the
+    rules, the layout model's titles still count and the marks still win.
     """
     if estimate_margin_refs:
         margin_refs = True
@@ -224,6 +229,7 @@ def convert_pdf(
                 notes_pages={index for index, kind in section_kinds.items() if kind == "notes"},
             )
             profile.layout = layout_rows or {}
+            profile.tags = (tags and pdf_tags.read_tags(doc)) or {}
             profile.sections = section_kinds
             if marked:
                 profile.kinds, profile.note_refs, profile.rule_levels = follow_marks.text_kinds(
@@ -358,13 +364,13 @@ def _referenced_notes(blocks: Iterable[Block]) -> Iterator[Block]:
         stray = isinstance(block, Note) and block.label.startswith(("c", "o"))
         if stray and block.label not in seen:
             continue
-        if isinstance(block, Heading | Paragraph | Note):
+        if isinstance(block, Heading | Paragraph | ListItem | Note):
             seen.update(REF_RE.findall(block.text))
         yield block
 
 
 def _without_margin_refs(blocks: Iterable[Block]) -> Iterator[Block]:
     for block in blocks:
-        if isinstance(block, Heading | Paragraph) and MARGIN_REF_RE.search(block.text):
+        if isinstance(block, Heading | Paragraph | ListItem) and MARGIN_REF_RE.search(block.text):
             block = replace(block, text=MARGIN_REF_RE.sub("", block.text))
         yield block

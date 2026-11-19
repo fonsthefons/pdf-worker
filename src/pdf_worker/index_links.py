@@ -27,7 +27,7 @@ from pdf_worker.inline import (
     pieces,
     plain,
 )
-from pdf_worker.structure import Block, Heading, Paragraph
+from pdf_worker.structure import Block, Heading, ListItem, Paragraph
 
 # shortcut: an index runs from its heading to the next heading of the same or higher
 # level that isn't an index too; a book with text after an unheaded index loses nothing,
@@ -75,7 +75,7 @@ def link_index(blocks: Iterable[Block]) -> Iterator[Block]:
     pages: dict[str, int] = {}  # printed label -> PDF page index
     level = None  # the index heading's level, while in the index
     for block in blocks:
-        if isinstance(block, Heading | Paragraph):
+        if isinstance(block, Heading | Paragraph | ListItem):
             for piece in pieces(block.text):
                 if isinstance(piece, PageMark):
                     pages.setdefault(piece.label, piece.index)

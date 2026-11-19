@@ -7,7 +7,16 @@ notes (an endnotes chapter, "NOTAS", and its per-chapter subheadings) go with th
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
 
-from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Note, Paragraph, Table
+from pdf_worker.structure import (
+    REF_RE,
+    Block,
+    Gloss,
+    Heading,
+    ListItem,
+    Note,
+    Paragraph,
+    Table,
+)
 
 
 def drop_notes(blocks: Iterable[Block]) -> Iterator[Block]:
@@ -32,7 +41,7 @@ def drop_notes(blocks: Iterable[Block]) -> Iterator[Block]:
 
 
 def _strip(block: Block) -> Block:
-    if isinstance(block, Heading | Paragraph):
+    if isinstance(block, Heading | Paragraph | ListItem):
         return replace(block, text=REF_RE.sub("", block.text))
     if isinstance(block, Gloss):
         return replace(block, lines=tuple(REF_RE.sub("", line) for line in block.lines))

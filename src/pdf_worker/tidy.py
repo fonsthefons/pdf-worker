@@ -18,7 +18,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import replace
 
 from pdf_worker.inline import END_BOLD, END_ITALIC, STYLE_RE, plain
-from pdf_worker.structure import Block, Gloss, Heading, Note, Paragraph
+from pdf_worker.structure import Block, Gloss, Heading, ListItem, Note, Paragraph
 
 _APOSTROPHE_RE = re.compile(r"(?<=\w)'(?=\w)")
 # A quote opens at the start or after a space, an opening bracket, a dash or a marker
@@ -78,7 +78,7 @@ def tidy(blocks: Iterable[Block], language: str = "") -> Iterator[Block]:
                 block = replace(block, level=block.level + 1)
             else:
                 numbered = None
-        if isinstance(block, Heading | Paragraph | Note):
+        if isinstance(block, Heading | Paragraph | ListItem | Note):
             block = replace(block, text=touch(block.text))
         elif isinstance(block, Gloss):
             block = replace(block, lines=tuple(touch(line) for line in block.lines))

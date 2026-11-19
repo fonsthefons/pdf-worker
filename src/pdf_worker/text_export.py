@@ -13,7 +13,17 @@ from pathlib import Path
 from pdf_worker.footnotes import display_marker
 from pdf_worker.inline import MARGIN_REF_RE, plain
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Gloss, Heading, Image, Note, Paragraph, Table
+from pdf_worker.structure import (
+    REF_RE,
+    Block,
+    Gloss,
+    Heading,
+    Image,
+    ListItem,
+    Note,
+    Paragraph,
+    Table,
+)
 
 
 def write_text(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> WriteStats:
@@ -31,13 +41,21 @@ def write_text(blocks: Iterable[Block], output_path: Path, meta: Metadata) -> Wr
                 body.write(meta.author + "\n")
             body.write("\n")
             open_note: Note | None = None
+            listing = False  # the block before is a list item: a blank line ends the list
             for block in blocks:
+                if listing and not isinstance(block, ListItem):
+                    body.write("\n")
+                listing = isinstance(block, ListItem)
                 if isinstance(block, Heading):
                     stats.headings += 1
                     body.write(f"\n{_text(block.text)}\n\n")
                 elif isinstance(block, Paragraph):
                     stats.paragraphs += 1
                     body.write(_text(block.text) + "\n\n")
+                elif isinstance(block, ListItem):
+                    stats.paragraphs += 1
+                    item = f"{block.label} {_text(block.text)}".strip()
+                    body.write("    " * (block.depth - 1) + item + "\n")
                 elif isinstance(block, Gloss):
                     stats.glosses += 1
                     body.write("".join(f"    {_text(line)}\n" for line in block.lines) + "\n")

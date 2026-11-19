@@ -167,6 +167,8 @@ described in detail under [Features](#features).
   --no-images  --no-cover
   --no-marks   ignore book.marks.json (pdf-worker mark: running heads, page numbers,
                footnotes, note numbers and where notes are printed, from marked examples)
+  --no-tags    ignore a born-digital PDF's structure tags (Word/Acrobat exports: P, lists,
+               H1-H6 give paragraph starts, list items with their printed labels, headings)
                                          ▼
   WRITE (atomic)  --to / -o extension:
     epub → book.epub         EPUB 3, pop-up notes, nav+NCX, page list, cover

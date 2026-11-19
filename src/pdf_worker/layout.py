@@ -27,6 +27,7 @@ from pdf_worker.glued_refs import apply_refs, page_refs
 from pdf_worker.letter_spacing import WORD_RE, letter_spaced
 from pdf_worker.margin_refs import OCR_DIGITS, apply_marks, has_bracketed, in_book, page_marks
 from pdf_worker.note_numbers import FROM_SUP, SUP_DIGITS
+from pdf_worker.pdf_tags import TagBox
 
 SUPERSCRIPT = 1  # MuPDF span flag bits
 BOLD = 16
@@ -353,6 +354,10 @@ class DocumentProfile:
     # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``): bibliography
     # entries and paragraphs (``footnotes.layout_page``).
     layout: dict[int, dict] = field(default_factory=dict)
+    # Sound page index -> a tagged PDF's structure tree (``pdf_tags.read_tags``): it gives
+    # paragraph, list and heading structure; furniture and page tops stay with the rules,
+    # and the layout model's titles still count.
+    tags: dict[int, list[TagBox]] = field(default_factory=dict)
     # From the book's marks (``pdf_worker.follow_marks``): page index -> each line's kind
     # (None: today's rules), the boxes of note numbers, and where notes are printed.
     kinds: dict[int, list[str | None]] = field(default_factory=dict)

@@ -72,7 +72,7 @@ from pdf_worker.inline import (
     plain,
 )
 from pdf_worker.margin_estimates import label_value, value_label
-from pdf_worker.structure import REF_RE, Block, Heading, Note, Paragraph
+from pdf_worker.structure import REF_RE, Block, Heading, ListItem, Note, Paragraph
 
 SPELL_LANGUAGES = tuple(check.config.LANGUAGES)
 WORD_KINDS = ("spelling", "chars")  # rows about a word: their decisions are recorded
@@ -200,7 +200,7 @@ class Review:
         while ahead or (block := next(blocks, None)) is not None:
             if ahead:
                 block = ahead.popleft()
-            if isinstance(block, Heading | Paragraph | Note):
+            if isinstance(block, Heading | Paragraph | ListItem | Note):
                 if isinstance(block, Heading):
                     self.labels.append(None)
                     if self.back is not None:

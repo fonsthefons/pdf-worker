@@ -346,6 +346,13 @@ def _add_convert_command(subparsers: argparse._SubParsersAction) -> None:
         help="Ignore the book's marks file (<pdf stem>.marks.json, made with 'pdf-worker "
         "mark'), which otherwise says which lines are running heads, footnotes...",
     )
+    parser.add_argument(
+        "--no-tags",
+        dest="tags",
+        action="store_false",
+        help="Ignore a tagged PDF's structure tree, which otherwise says which lines are "
+        "paragraphs, list items or headings (running heads stay with the rules).",
+    )
     _add_ocr_options(parser)
     parser.set_defaults(handler=_run_convert)
 
@@ -363,6 +370,7 @@ def _run_convert(args: argparse.Namespace) -> int:
         estimate_margin_refs=args.estimate_margin_refs,
         fixes_path=args.fixes or default_fixes_path(args.pdf),  # not the OCR'd copy's
         marks=args.marks,
+        tags=args.tags,
     )
     if args.ocr in ("redo", "force") and args.engine == "paddle":
         # The book is built from Paddle's blocks themselves, not from a text layer.
