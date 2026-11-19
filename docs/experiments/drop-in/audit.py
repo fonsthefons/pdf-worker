@@ -124,8 +124,9 @@ _NOTEREF_RE = re.compile(
     r'<a\b[^>]*\bhref="[^"#]*#([^"]+)"[^>]*epub:type="noteref"[^>]*>.*?</a>', re.S
 )
 _PAGEBREAK_RE = re.compile(r'<span\b[^>]*\bid="pg(\d+)"[^>]*>\s*</span>')
-# A page mark first in a heading: moved before it, so the heading stays one line.
-_HEAD_PAGE_RE = re.compile(f"(<h[1-6]\\b[^>]*>)(\\s*{_PAGEBREAK_RE.pattern})")
+# Page marks first in a heading (two after a blank page): moved before it, so the
+# heading stays one line.
+_HEAD_PAGE_RE = re.compile(f"(<h[1-6]\\b[^>]*>)((?:\\s*{_PAGEBREAK_RE.pattern})+)")
 _A_RE = re.compile(r'<a\b[^>]*\bhref="([^"]*)"[^>]*>(.*?)</a>', re.S)
 _NCX_RE = re.compile(r"<text>(.*?)</text>\s*</navLabel>\s*<content[^>]*\bsrc=\"([^\"]*)\"", re.S)
 _MD_NOTE_RE = re.compile(r"^\[\^([^\]]+)\]:\s*")
@@ -779,6 +780,7 @@ def selftest() -> None:
         '<h1 id="c1">Capítulo uno</h1><p><span class="mref" id="m1">[17a]</span> El texto'
         '<a class="noteref" id="r1" href="notes.xhtml#n1" epub:type="noteref"><sup>1</sup></a>'
         ' sigue.</p><h2 id="s1"><span epub:type="pagebreak" id="pg5" aria-label="6"></span>'
+        '<span epub:type="pagebreak" id="pg6" aria-label="7"></span>'
         "Sección</h2><p>Otra página.</p></body></html>"
     )
     notes = (
@@ -817,7 +819,7 @@ def selftest() -> None:
         "## Sección",
         "Otra página.",
     ], ours.lines
-    assert ours.notes == {"n1": "1. Una nota."} and ours.pages == {4: 0, 5: 2}, (
+    assert ours.notes == {"n1": "1. Una nota."} and ours.pages == {4: 0, 5: 2, 6: 2}, (
         ours.notes,
         ours.pages,
     )
@@ -825,7 +827,8 @@ def selftest() -> None:
     assert (len(ours.toc), ours.toc_ok) == (3, 2), ours.toc
     heads = [f" {' '.join(words(t))} " for _, t in ours.headings]
     assert _found("1. Capítulo uno", heads) and not _found("Perdido", heads)
-    assert _slices(ours, [], True) == {4: (0, 2), 5: (2, 4)} and not _slices(ours, [], False)
+    assert _slices(ours, [], True) == {4: (0, 2), 5: (2, 2), 6: (2, 4)}
+    assert not _slices(ours, [], False)
 
     md = work / "ours.md"
     _write_atomic(

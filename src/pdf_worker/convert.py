@@ -133,6 +133,7 @@ def convert_pdf(
     layout_rows: dict[int, dict] | None = None,
     marks: bool = True,
     tags: bool = True,
+    sentence_check: bool = False,
 ) -> ConvertReport:
     """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
 
@@ -163,6 +164,8 @@ def convert_pdf(
     With ``tags``, a tagged PDF's sound structure tree says which lines make a paragraph,
     list item or heading (``pdf_worker.pdf_tags``); furniture and page tops stay with the
     rules, the layout model's titles still count and the marks still win.
+    With ``sentence_check``, a model settles the spelling flags from their sentences
+    (``check.settle``; ``pdf_worker.fixes``).
     """
     if estimate_margin_refs:
         margin_refs = True
@@ -266,7 +269,13 @@ def convert_pdf(
         # Born-digital text is checked too: its rare words, once kept, teach the check.
         source = fixes_path.name.removesuffix(".fixes.tsv")
         scanned = paddle_rows is not None or assess_text_layer(doc).scanned_pages >= 0.5
-        review = Review(read_fixes(fixes_path), meta.language, source=source, italics=scanned)
+        review = Review(
+            read_fixes(fixes_path),
+            meta.language,
+            source=source,
+            italics=scanned,
+            sentence_check=sentence_check,
+        )
         blocks = _referenced_notes(tidy(review.apply(blocks), meta.language))
         if notes_at == "none":
             blocks = drop_notes(blocks)

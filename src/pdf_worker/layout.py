@@ -45,6 +45,9 @@ _BODY_FONT_SHARE = 0.85
 # fewer) is a running head or foot, if no bigger than this share of the body size.
 _RUNNING_PAGES = 2
 _RUNNING_SIZE = 1.05
+# ... and within this share of the page height of where it is there: a chapter title set
+# lower down that repeats the heads (De Anima's cut pages) is not one.
+_RUNNING_DRIFT = 0.1
 # The old rule, kept beside it (user, 2026-10-28): in this fraction of the page at the
 # top and bottom, a bare page number, or a line of any size whose key is there on at
 # least this share of pages (and 3 pages), is furniture. It catches heads bigger than
@@ -318,8 +321,8 @@ class DocumentProfile:
     # Heading font sizes, largest first; index + 1 is the heading level.
     heading_sizes: list[float] = field(default_factory=list)
     # (edge, ``running_key``) of each line in a page's top or bottom row (``edge_rows``)
-    # -> the pages it is on.
-    edge_pages: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    # -> the pages it is on, each with the line's top there.
+    edge_pages: dict[tuple[str, str], dict[int, float]] = field(default_factory=dict)
     # Keys of lines in the ``_MARGIN_ZONE`` of ``_RUNNING_SHARE`` of the pages.
     running_texts: set[str] = field(default_factory=set)
     # Lines repeated mid-page on most pages ("Page Proof Pending Publication").
@@ -384,7 +387,8 @@ class DocumentProfile:
         """Indexes of the page's furniture: in its top or bottom row, a bare page number,
         or a line no bigger than the body (2+ letters) that shares its row with a page
         number standing alone ("TIMEO ... 163"; not a line number beside body text) or
-        is in the same row of a page at most ``_RUNNING_PAGES`` away; in the
+        is in the same row of a page at most ``_RUNNING_PAGES`` away, at about the same
+        height (``_RUNNING_DRIFT``); in the
         ``_MARGIN_ZONE``, a bare page number or a ``running_texts`` line; anywhere, a
         watermark."""
         rows = edge_rows(lines)
@@ -404,7 +408,8 @@ class DocumentProfile:
                     edge in numbered
                     or any(
                         0 < abs(page - page_index) <= _RUNNING_PAGES
-                        for page in self.edge_pages.get((edge, key), ())
+                        and abs(top - line.top) <= _RUNNING_DRIFT * page_height
+                        for page, top in self.edge_pages.get((edge, key), {}).items()
                     )
                 )
             )
@@ -430,7 +435,7 @@ def analyze_document(
     ``notes`` says."""
     sizes: Counter[float] = Counter()
     gaps: Counter[float] = Counter()
-    edge_pages: defaultdict[tuple[str, str], set[int]] = defaultdict(set)
+    edge_pages: defaultdict[tuple[str, str], dict[int, float]] = defaultdict(dict)
     margin_texts: Counter[str] = Counter()  # keys of lines in the margin zone -> pages
     offsets: Counter[int] = Counter()  # printed page number minus page index
     image_pages: Counter[int] = Counter()  # image xref -> pages it is placed on
@@ -474,7 +479,7 @@ def analyze_document(
                 sizes[round(span["size"], 1)] += len(span["text"].strip())
                 fonts[span.get("font", "")] += len(span["text"].strip())
             if line_index in rows:
-                edge_pages[(rows[line_index], running_key(text))].add(page_index)
+                edge_pages[(rows[line_index], running_key(text))][page_index] = line.top
                 printed = _PRINTED_NUMBER_RE.match(text)
                 if printed:
                     page_offsets.add(int(printed.group(1).replace(" ", "")) - page_index)

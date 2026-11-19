@@ -149,6 +149,21 @@ def test_process_one_file_with_its_options(monkeypatch, tmp_path, capsys):
     assert options["settings"] == {"title": "T", "margin_refs": False, "formats": ["epub", "md"]}
 
 
+def test_process_sentence_check_is_kept_as_a_setting(monkeypatch, tmp_path):
+    from pdf_worker import inbox
+
+    calls = []
+    monkeypatch.setattr(inbox, "process", lambda *a, **k: calls.append(k) or [])
+
+    main(["process", str(tmp_path), "--sentence-check"])
+    main(["process", str(tmp_path)])
+    main(["process", str(tmp_path), "--no-sentence-check"])
+
+    assert calls[0]["settings"] == {"sentence_check": True}
+    assert calls[1]["settings"] == {}
+    assert calls[2]["settings"] == {"sentence_check": False}  # saved over the kept one
+
+
 def test_process_clean_deletes_what_no_inbox_book_needs(tmp_path, capsys):
     old = tmp_path / "file_work" / "old.pdf"
     old.mkdir(parents=True)

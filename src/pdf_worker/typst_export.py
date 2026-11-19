@@ -40,9 +40,9 @@ def write_pdf(
 ) -> WriteStats:
     """Typeset the book as an A5 PDF; an ``output_path`` ending in ``.typ`` gets the Typst
     source instead (pictures in ``<stem>_images/`` beside it). ``notes_at``: "page" sets
-    each footnote at the foot of its page, "end" gathers them in a notes section after the book. ``cover`` adds a
-    text cover (``pdf_worker.cover``) as page 1, unnumbered. ``on_pass(done, 1)``: one
-    pass."""
+    each footnote at the foot of its page, "end" gathers them in a notes section after the
+    book. ``cover`` adds a text cover (``pdf_worker.cover``) as page 1, unnumbered.
+    ``on_pass(done, 1)``: one pass."""
     pandoc = pandoc_path()
     if on_pass:
         on_pass(0, 1)

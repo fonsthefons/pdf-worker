@@ -1,5 +1,190 @@
 # Progress
 
+## Plan: drop-in-adopt (2026-11-17)
+Goal: adopt the three recommendations of docs/results.md:269-302 (cut spread scans before OCR;
+born-digital PDFs finish without the spelling review; an opt-in sentence check that settles
+the flagged words of scans). Out of scope: Docling/MinerU, automatic marks, more word lists,
+the model-loop guard, margin references on the inbox (results.md:358-375).
+Branch: feature/drop-in-adopt (pdf-worker and ai-client, one PR each against main)
+
+User decisions (2026-11-17): a scan with no text layer is judged from its page image; a
+born-digital book is held as a draft by margin rows only (note and spelling rows go to the
+report and TSV); sentence-check answers are applied as `auto: sentence` rows, undoable like
+`auto: split`; De Anima's heading loss is investigated but does not block. The user thought
+PaddleOCR-VL already cut spreads: it doesn't; the baseline's three spread scans came out woven
+(joins 70.4% on Filosofia del Hombre).
+Defaults chosen: "born-digital" = prepared.json `ocr` false and no PADDLE_MARK (EPUBs and ebooks
+laid out as PDFs count too); the sentence check runs only on scans, switched on per book by
+`process --sentence-check` saved in settings.json like `--mark`; the generic part (prompt,
+batching, gate, timeout) goes in ai-client per the repo rule, rows in pdf-worker.
+
+- [x] S1 Spread cut in the product, before OCR
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: docs/experiments/drop-in/split_spreads.py:1-212 and its selftest (281-end);
+    src/pdf_worker/inbox.py:145-210 and 311-360 (_prepare); tests/test_inbox.py; tests/conftest.py (make_pdf)
+  do: New module src/pdf_worker/spreads.py from split_spreads.py's Sheet/judge/judge_book/_half/split
+    (keep its rule: landscape AND no line crosses the 3% middle band AND each side >= 1/3 of lines;
+    "by the book" fallback; textless sheets never cut by the text rule; pages map new page -> sheet, side).
+    Add an image judge for sheets with no text layer: landscape, rendered at low DPI, a vertical band
+    near the middle with almost no ink-like detail on both halves' text (a dark gutter shadow is allowed);
+    the book-level "mostly spreads" rule applies as before. Atomic writes, open via open_pdf, no printing.
+    In inbox._prepare, before OCR or the Paddle copy: if any sheet is cut, write the cut PDF into the work
+    folder and use it as the source for both engines; add a report note "N spread sheets cut in two" to
+    prepared.json notes. Unit tests with make_pdf: two-block landscape page is cut (text and image cases),
+    one-block and two-column portrait pages are not, inbox uses the cut source.
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass
+  return: <= 10 lines: files changed, done result, how the image judge decides, anything surprising
+
+- [x] S2 Spread cut: false alarms and the three spread books
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: docs/experiments/drop-in/README.md:40-58 (how to run long jobs); docs/results.md:207-250 (S10's numbers);
+    docs/experiments/drop-in/split_spreads.py:1-37 (order); docs/experiments/drop-in/books_sd.json
+  do: Scratch script under scratch/drop-in-adopt/ running pdf_worker.spreads' judge on the 20 PDFs
+    (tools/quality.py PAIRS + books_sd.json PDFs) on the ORIGINALS, image judge included: cut sheets per
+    book. Must be 0 outside Antropología, De Anima, Filosofia del Hombre (S10: 0 false alarms; the rule
+    alone gave 40). Then drop the three originals into an inbox under scratch/drop-in-adopt/ (one build
+    at a time, tools/run_logged.py) and score with split_spreads.py order and audit.py score as S10 did;
+    Filosofia del Hombre may be limited to its first 60 sheets. Compare with S10: joins 92.7/95.0/96.4%,
+    woven 1 of 562, invented margin refs 2/134/1. Write results to scratch/drop-in-adopt/S2.md.
+  done: /Users/fons/Documents/programs/pdf-worker/scratch/drop-in-adopt/S2.md exists with the false-alarm table and the before/after table
+  return: <= 10 lines: false alarms, the three books' figures against S10, minutes of jobs
+
+- [x] S3 De Anima's main headings after the cut
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S2
+  context: scratch/drop-in-adopt/S2.md; the S2 build's De Anima work folder; tools/page_parts.py usage (CLAUDE.md)
+  do: Find why De Anima finds 3 of 8 outline main headings after the cut (6 before). Use tools/page_parts.py
+    and tools/page_lines.py on the cut PDF's pages holding the 8 titles. If the cause is contained (e.g. a
+    page-size-dependent threshold or half-sheet page labels), fix it with a unit test and confirm
+    tools/regression.py compare shows no loss on the eight test books. If not contained, write the cause
+    and leave it: this step does not block (user decision).
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; cause written in scratch/drop-in-adopt/S3.md
+  return: <= 10 lines: cause, fix or not, headings found now, regression compare result
+
+- [x] S4 Born-digital books finish without the spelling review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: src/pdf_worker/inbox.py:1-25, 145-210, 246-268; src/pdf_worker/review.py:40-60; src/pdf_worker/book_report.py (count_rows, markdown); tests/test_inbox.py
+  do: In _process_book, a born-digital book (prepared.json `ocr` false and no PADDLE_MARK) counts only
+    margin rows (kinds margin-est, margin-missing) as holding; every other open row stays in the TSV and
+    report.md, reported as "N row(s) left for an optional review". Scans unchanged. Update the module
+    docstring (line 11). Test: a born-digital book with open spelling and note rows finishes in one run;
+    with an open margin row it stays a draft; a scan with a spelling row stays a draft. Then measure on
+    copies in scratch/drop-in-adopt/: La Biblia en su entorno and Timeo_by_Platón_no_intro through the
+    inbox, state before/after and the rows that hold (results.md: La Biblia 449 spelling + 59 note rows,
+    Timeo 102 note rows). Write scratch/drop-in-adopt/S4.md.
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; S4.md states both books' state
+  return: <= 10 lines: files changed, done result, the two books' state and holding rows
+
+- [x] S5 ai-client: settle flagged words by their sentences
+  repo: /Users/fons/Documents/programs/ai-client
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: docs/experiments/drop-in/sentence_check.py:1-82 and 184-310 (in pdf-worker; the tested code);
+    /Users/fons/Documents/programs/ai-client/ai_client/check.py:77-90 (Flag), 343-520; ai-client's README and tests layout
+  do: Add check.settle(text, flags, language, model=None, timeout=60, max_sentences=40) -> list of
+    (flag, verdict, value): verdict "change" (value = corrected word(s)), "keep", or "open". Port
+    sentences_mode/gate/parse/pack/call: free OpenRouter model via get_client("openrouter"), discover()+is_up,
+    temperature 0, no fallbacks, wall-clock timeout per request. Two changes from the experiment: a
+    sentence the model does not return stays "open" (not keep: that made nearly all 17 wrong), and batches
+    hold at most max_sentences (copleston's 164-sentence request came back after 77 s). No key, no requests
+    left, error, bad JSON, late answer: everything "open", never raise. README section. Tests with a fake
+    client: change within the gate, rewrite outside the gate -> open, missing sentence -> open, timeout -> open.
+  done: the ai-client test command from its README → all pass
+  return: <= 10 lines: files changed, done result, the API signature
+
+- [x] S6 pdf-worker: `--sentence-check` writes `auto: sentence` rows
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: high
+  after: S4,S5
+  context: src/pdf_worker/fixes.py:1-130 and 230-300 (where check.text flags become rows, AUTO handling);
+    src/pdf_worker/cli.py:930-1002 (process options, --mark pattern); src/pdf_worker/inbox.py:145-210;
+    tests/test_fixes.py; tests/test_cli.py; help.sh
+  do: process --sentence-check sets settings["sentence_check"]; inbox passes it to the build only for scans
+    (prepared.json ocr true or PADDLE_MARK). In fixes.py, after check.text, open spelling flags go through
+    check.settle: "change" -> replace row, type `auto: sentence`, value applied on the build; "keep" ->
+    ignore row, type `auto: sentence`; "open" -> today's row. Add "sentence" to AUTO; such rows are not
+    open rows. Docstring (fixes.py:44-49), CLI help, help.sh. Off by default: without the flag no model
+    call is made. Tests with check.settle monkeypatched (change, keep, open; flag off -> not called).
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; ruff check clean
+  return: <= 10 lines: files changed, done result, anything surprising
+
+- [x] S7 Sentence check: measure on scans
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S6
+  context: docs/experiments/drop-in/sentence_check.py:1-29 and 401-462 (score); docs/results.md:292-302
+  do: Build philosophy and lugones (551 flags; never run before) with and without --sentence-check on copies
+    in scratch/drop-in-adopt/ (run_logged, one at a time). Score the auto: sentence rows against the
+    reference with sentence_check.py's score rules (scratch script reusing its functions): right, wrong,
+    harmed, left, requests, seconds. Compare with S6: philosophy 55 of 74 right; overall 125/17/2/1 of 145.
+    Write scratch/drop-in-adopt/S7.md with a one-line verdict on whether it stays off by default.
+  done: /Users/fons/Documents/programs/pdf-worker/scratch/drop-in-adopt/S7.md exists with both books' figures
+  return: <= 10 lines: figures per book, requests, seconds, verdict
+
+- [x] S8 Review
+  repo: /Users/fons/Documents/programs/pdf-worker and /Users/fons/Documents/programs/ai-client
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S3,S7
+  context: git diff main...feature/drop-in-adopt in both repos
+  do: Review for data loss (cut PDF replacing the source, atomic writes), rows silently dropped or applied
+    wrongly, a model call made with the flag off, a book finishing that should wait, missing tests.
+  done: findings list returned; conductor fixes CONFIRMED ones and reruns the tests
+  return: <= 10 lines: ranked findings
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- S5, 2026-11-19: pass. check.settle in ai-client (+ tests, README); 101 tests OK. Note: the prompt asks the model
+  to return only changed sentences, so with "not returned = open", "keep" is rare; S7 should look at how many stay open.
+- S1, 2026-11-19: pass. spreads.py (text + image judge, 36 dpi, ink = neighbour diff > 48), inbox._prepare writes
+  spreads.pdf/spreads.pages.json and uses it as source; 502 fast tests pass. Thresholds only tested on synthetic pages.
+- S4, 2026-11-19: pass. inbox._holding: born-digital held by margin rows only; 504 fast tests pass. La Biblia now
+  finishes (452 optional rows); Timeo stays draft, held by 17 margin rows (margin rows never held before). No open
+  note rows found in either TSV (results.md counted 59/102).
+- S6, 2026-11-19: pass. --sentence-check (settings, scans only), Review sends spelling flags to check.settle;
+  508 fast tests pass, ruff clean (conductor wrapped a pre-existing long docstring line in typst_export.py).
+  Note: "change" rows stay replace rows, so each rebuild calls settle again for them.
+- 2026-11-19: S7 held until S2's inbox builds finish (both run heavy scan builds; plan says one at a time).
+- S2, 2026-11-19: pass. 0 false alarms on the 17 other PDFs; cuts 106/130/118. Joins 92.9/95.0/96.5% (S10
+  92.7/95.0/96.4), woven 1 of 562, invented margin refs 2/134/2 (Filosofia +1 back step). 84 min of builds.
+  De Anima still fails in Typst ("no bibliography"), as before. Results: scratch/drop-in-adopt/S2.md.
+- S7, 2026-11-19: pass. philosophy right/wrong/harmed/left 60/7/10/28 (155 requests, +116 s); lugones
+  135/26/102/184 (399 requests, +406 s; old spelling "modernised"). settle runs per body block, not packed
+  across the book. Verdict: stays off by default. Built via convert_pdf, not process.
+- S3, 2026-11-19: pass. Cause: a lowered chapter title equal to a running head was taken as furniture
+  (layout.py: now must sit within 10% of the head's height), plus an audit regex miscount (audit.py fixed).
+  De Anima 5 of 8 (base was really 5; Libro I-III can't match "LIBRO PRIMERO..."). Regression: 8 books, 0 diff.
+  509 fast tests pass. Paddle path (paddle_book.furniture) has the same rule, untouched.
+- S8, 2026-11-19: review found 7 (settle overrides user rows; per-block settle, no batching, re-asks every
+  build; one "keep" whitelists the word everywhere; marks + spreads -> "made on another file"; no Rotate/CropBox
+  test for _half; spreads.pdf name collision; sentence_check can't be switched off). All sent to an opus/high fix agent.
+- S8 fixes, 2026-11-19: all 7 real. fixes.Review holds checked blocks until 40 flags (or 200 blocks) for one
+  settle call; auto: sentence rows are reused (edited values win), rows you decided are never asked, a keep is
+  per page, disagreeing occurrences on a page stay open; inbox asks in the first format's build only.
+  Marks given + spreads: not cut (noted). Cut PDF is <stem>.spreads.pdf. --no-sentence-check. spreads: /Rotate
+  sheets were misjudged (page_lines unrotated: rows now turned); CropBox fine; landscape tables were cut (cells
+  are separate lines): a side must read as a page. 518 fast tests pass, ruff clean.
+- S8, 2026-11-19: pass (conductor verified). 518 fast tests, ruff clean; judge20 after the table guard: cuts
+  106/130/118, 0 elsewhere; ai-client 101 tests, transcribe 213 passed. Open: the sentence check also asks about
+  words seen 3+ times (the review would leave them); Paddle-path running-head rule not given S3's drift fix.
+
 ## Plan: quick-check (2026-11-19)
 Goal: one before/after check that runs in a few minutes instead of ~55 (tools/regression.py build ~12 min +
 tools/quality.py build ~43 min, one book after another, every page), used by plans only when a change can reach
@@ -220,158 +405,6 @@ continue with steps that don't depend on it.
   line (no table); tests/test_pdf_tags.py builds tagged PDFs by hand. Fast tests 485 passed;
   Log_ex_1 → scratch/tagged-after/Log_ex_1.md: 1.–11. present, every a)… its own paragraph. No
   Log_ex_1 integration test: the PDF is in the gitignored inbox (not committable).
-
-## Plan: drop-in-adopt (2026-11-17)
-Goal: adopt the three recommendations of docs/results.md:269-302 (cut spread scans before OCR;
-born-digital PDFs finish without the spelling review; an opt-in sentence check that settles
-the flagged words of scans). Out of scope: Docling/MinerU, automatic marks, more word lists,
-the model-loop guard, margin references on the inbox (results.md:358-375).
-Branch: feature/drop-in-adopt (pdf-worker and ai-client, one PR each against main)
-
-User decisions (2026-11-17): a scan with no text layer is judged from its page image; a
-born-digital book is held as a draft by margin rows only (note and spelling rows go to the
-report and TSV); sentence-check answers are applied as `auto: sentence` rows, undoable like
-`auto: split`; De Anima's heading loss is investigated but does not block. The user thought
-PaddleOCR-VL already cut spreads: it doesn't; the baseline's three spread scans came out woven
-(joins 70.4% on Filosofia del Hombre).
-Defaults chosen: "born-digital" = prepared.json `ocr` false and no PADDLE_MARK (EPUBs and ebooks
-laid out as PDFs count too); the sentence check runs only on scans, switched on per book by
-`process --sentence-check` saved in settings.json like `--mark`; the generic part (prompt,
-batching, gate, timeout) goes in ai-client per the repo rule, rows in pdf-worker.
-
-- [ ] S1 Spread cut in the product, before OCR
-  repo: /Users/fons/Documents/programs/pdf-worker
-  run: agent:implementer
-  model: opus    effort: high
-  after: -
-  context: docs/experiments/drop-in/split_spreads.py:1-212 and its selftest (281-end);
-    src/pdf_worker/inbox.py:145-210 and 311-360 (_prepare); tests/test_inbox.py; tests/conftest.py (make_pdf)
-  do: New module src/pdf_worker/spreads.py from split_spreads.py's Sheet/judge/judge_book/_half/split
-    (keep its rule: landscape AND no line crosses the 3% middle band AND each side >= 1/3 of lines;
-    "by the book" fallback; textless sheets never cut by the text rule; pages map new page -> sheet, side).
-    Add an image judge for sheets with no text layer: landscape, rendered at low DPI, a vertical band
-    near the middle with almost no ink-like detail on both halves' text (a dark gutter shadow is allowed);
-    the book-level "mostly spreads" rule applies as before. Atomic writes, open via open_pdf, no printing.
-    In inbox._prepare, before OCR or the Paddle copy: if any sheet is cut, write the cut PDF into the work
-    folder and use it as the source for both engines; add a report note "N spread sheets cut in two" to
-    prepared.json notes. Unit tests with make_pdf: two-block landscape page is cut (text and image cases),
-    one-block and two-column portrait pages are not, inbox uses the cut source.
-  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass
-  return: <= 10 lines: files changed, done result, how the image judge decides, anything surprising
-
-- [ ] S2 Spread cut: false alarms and the three spread books
-  repo: /Users/fons/Documents/programs/pdf-worker
-  run: agent:implementer
-  model: sonnet    effort: medium
-  after: S1
-  context: docs/experiments/drop-in/README.md:40-58 (how to run long jobs); docs/results.md:207-250 (S10's numbers);
-    docs/experiments/drop-in/split_spreads.py:1-37 (order); docs/experiments/drop-in/books_sd.json
-  do: Scratch script under scratch/drop-in-adopt/ running pdf_worker.spreads' judge on the 20 PDFs
-    (tools/quality.py PAIRS + books_sd.json PDFs) on the ORIGINALS, image judge included: cut sheets per
-    book. Must be 0 outside Antropología, De Anima, Filosofia del Hombre (S10: 0 false alarms; the rule
-    alone gave 40). Then drop the three originals into an inbox under scratch/drop-in-adopt/ (one build
-    at a time, tools/run_logged.py) and score with split_spreads.py order and audit.py score as S10 did;
-    Filosofia del Hombre may be limited to its first 60 sheets. Compare with S10: joins 92.7/95.0/96.4%,
-    woven 1 of 562, invented margin refs 2/134/1. Write results to scratch/drop-in-adopt/S2.md.
-  done: /Users/fons/Documents/programs/pdf-worker/scratch/drop-in-adopt/S2.md exists with the false-alarm table and the before/after table
-  return: <= 10 lines: false alarms, the three books' figures against S10, minutes of jobs
-
-- [ ] S3 De Anima's main headings after the cut
-  repo: /Users/fons/Documents/programs/pdf-worker
-  run: agent:implementer
-  model: opus    effort: high
-  after: S2
-  context: scratch/drop-in-adopt/S2.md; the S2 build's De Anima work folder; tools/page_parts.py usage (CLAUDE.md)
-  do: Find why De Anima finds 3 of 8 outline main headings after the cut (6 before). Use tools/page_parts.py
-    and tools/page_lines.py on the cut PDF's pages holding the 8 titles. If the cause is contained (e.g. a
-    page-size-dependent threshold or half-sheet page labels), fix it with a unit test and confirm
-    tools/regression.py compare shows no loss on the eight test books. If not contained, write the cause
-    and leave it: this step does not block (user decision).
-  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; cause written in scratch/drop-in-adopt/S3.md
-  return: <= 10 lines: cause, fix or not, headings found now, regression compare result
-
-- [ ] S4 Born-digital books finish without the spelling review
-  repo: /Users/fons/Documents/programs/pdf-worker
-  run: agent:implementer
-  model: sonnet    effort: medium
-  after: S1
-  context: src/pdf_worker/inbox.py:1-25, 145-210, 246-268; src/pdf_worker/review.py:40-60; src/pdf_worker/book_report.py (count_rows, markdown); tests/test_inbox.py
-  do: In _process_book, a born-digital book (prepared.json `ocr` false and no PADDLE_MARK) counts only
-    margin rows (kinds margin-est, margin-missing) as holding; every other open row stays in the TSV and
-    report.md, reported as "N row(s) left for an optional review". Scans unchanged. Update the module
-    docstring (line 11). Test: a born-digital book with open spelling and note rows finishes in one run;
-    with an open margin row it stays a draft; a scan with a spelling row stays a draft. Then measure on
-    copies in scratch/drop-in-adopt/: La Biblia en su entorno and Timeo_by_Platón_no_intro through the
-    inbox, state before/after and the rows that hold (results.md: La Biblia 449 spelling + 59 note rows,
-    Timeo 102 note rows). Write scratch/drop-in-adopt/S4.md.
-  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; S4.md states both books' state
-  return: <= 10 lines: files changed, done result, the two books' state and holding rows
-
-- [ ] S5 ai-client: settle flagged words by their sentences
-  repo: /Users/fons/Documents/programs/ai-client
-  run: agent:implementer
-  model: opus    effort: high
-  after: -
-  context: docs/experiments/drop-in/sentence_check.py:1-82 and 184-310 (in pdf-worker; the tested code);
-    /Users/fons/Documents/programs/ai-client/ai_client/check.py:77-90 (Flag), 343-520; ai-client's README and tests layout
-  do: Add check.settle(text, flags, language, model=None, timeout=60, max_sentences=40) -> list of
-    (flag, verdict, value): verdict "change" (value = corrected word(s)), "keep", or "open". Port
-    sentences_mode/gate/parse/pack/call: free OpenRouter model via get_client("openrouter"), discover()+is_up,
-    temperature 0, no fallbacks, wall-clock timeout per request. Two changes from the experiment: a
-    sentence the model does not return stays "open" (not keep: that made nearly all 17 wrong), and batches
-    hold at most max_sentences (copleston's 164-sentence request came back after 77 s). No key, no requests
-    left, error, bad JSON, late answer: everything "open", never raise. README section. Tests with a fake
-    client: change within the gate, rewrite outside the gate -> open, missing sentence -> open, timeout -> open.
-  done: the ai-client test command from its README → all pass
-  return: <= 10 lines: files changed, done result, the API signature
-
-- [ ] S6 pdf-worker: `--sentence-check` writes `auto: sentence` rows
-  repo: /Users/fons/Documents/programs/pdf-worker
-  run: agent:implementer
-  model: sonnet    effort: high
-  after: S4,S5
-  context: src/pdf_worker/fixes.py:1-130 and 230-300 (where check.text flags become rows, AUTO handling);
-    src/pdf_worker/cli.py:930-1002 (process options, --mark pattern); src/pdf_worker/inbox.py:145-210;
-    tests/test_fixes.py; tests/test_cli.py; help.sh
-  do: process --sentence-check sets settings["sentence_check"]; inbox passes it to the build only for scans
-    (prepared.json ocr true or PADDLE_MARK). In fixes.py, after check.text, open spelling flags go through
-    check.settle: "change" -> replace row, type `auto: sentence`, value applied on the build; "keep" ->
-    ignore row, type `auto: sentence`; "open" -> today's row. Add "sentence" to AUTO; such rows are not
-    open rows. Docstring (fixes.py:44-49), CLI help, help.sh. Off by default: without the flag no model
-    call is made. Tests with check.settle monkeypatched (change, keep, open; flag off -> not called).
-  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker → all pass; ruff check clean
-  return: <= 10 lines: files changed, done result, anything surprising
-
-- [ ] S7 Sentence check: measure on scans
-  repo: /Users/fons/Documents/programs/pdf-worker
-  run: agent:implementer
-  model: sonnet    effort: medium
-  after: S6
-  context: docs/experiments/drop-in/sentence_check.py:1-29 and 401-462 (score); docs/results.md:292-302
-  do: Build philosophy and lugones (551 flags; never run before) with and without --sentence-check on copies
-    in scratch/drop-in-adopt/ (run_logged, one at a time). Score the auto: sentence rows against the
-    reference with sentence_check.py's score rules (scratch script reusing its functions): right, wrong,
-    harmed, left, requests, seconds. Compare with S6: philosophy 55 of 74 right; overall 125/17/2/1 of 145.
-    Write scratch/drop-in-adopt/S7.md with a one-line verdict on whether it stays off by default.
-  done: /Users/fons/Documents/programs/pdf-worker/scratch/drop-in-adopt/S7.md exists with both books' figures
-  return: <= 10 lines: figures per book, requests, seconds, verdict
-
-- [ ] S8 Review
-  repo: /Users/fons/Documents/programs/pdf-worker and /Users/fons/Documents/programs/ai-client
-  run: agent:reviewer
-  model: opus    effort: high
-  after: S3,S7
-  context: git diff main...feature/drop-in-adopt in both repos
-  do: Review for data loss (cut PDF replacing the source, atomic writes), rows silently dropped or applied
-    wrongly, a model call made with the flag off, a book finishing that should wait, missing tests.
-  done: findings list returned; conductor fixes CONFIRMED ones and reruns the tests
-  return: <= 10 lines: ranked findings
-
-Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
-failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
-continue with steps that don't depend on it.
-
-### Run log
 
 ## Plan: drop-in-experiment (2026-11-14)
 Goal: find out, with numbers, what stops "drop a file in the inbox, get a good PDF, EPUB and

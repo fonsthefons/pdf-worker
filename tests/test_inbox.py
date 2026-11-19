@@ -1,4 +1,5 @@
 import os
+import shutil
 import zipfile
 
 import pymupdf
@@ -6,6 +7,7 @@ import pytest
 
 from pdf_worker import convert, epub_mimetype, inbox, paddle_ocr
 from pdf_worker.convert import convert_pdf
+from pdf_worker.fixes import Fix
 
 TEXT = ["Chapter One\n\nIt was a quiet morning in the village.", "The end of the story."]
 
@@ -47,6 +49,32 @@ def test_the_layout_rows_reach_the_conversion(make_pdf, tmp_path, monkeypatch):
     assert given and all(g is rows for g in given)
 
 
+def test_the_sentence_check_reaches_the_build_of_scans_only(make_pdf, tmp_path, monkeypatch):
+    given = []
+    real = convert.convert_pdf
+    monkeypatch.setattr(
+        convert,
+        "convert_pdf",
+        lambda *a, **k: given.append(k["sentence_check"]) or real(*a, **k),
+    )
+    root = tmp_path / "root"
+    (root / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "a.pdf")
+    inbox.process(root, settings={"sentence_check": True})
+    assert given and not any(given)  # born-digital: never
+
+    given.clear()
+    scan = tmp_path / "root2"
+    (scan / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), scan / inbox.INBOX / "b.pdf")
+    work = scan / inbox.WORK / "b.pdf"
+    work.mkdir(parents=True)
+    shutil.copy(scan / inbox.INBOX / "b.pdf", work / "b.pdf")
+    (work / inbox.PREPARED).write_text('{"ocr": true}')
+    inbox.process(scan, settings={"sentence_check": True})
+    assert given == [True, False]  # the EPUB's build asks; the PDF's follows its rows
+
+
 def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):
     root = tmp_path / "root"
     (root / inbox.INBOX).mkdir(parents=True)
@@ -84,8 +112,40 @@ def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):
     assert [p.name for p in (root / inbox.INBOX).iterdir()] == ["notes.docx"]
 
 
+SPELLING, NOTE = Fix("1", "1", "spelling", "teh"), Fix("2", "1", "chars", "3")
+MARGIN = Fix("3", "1", "margin-est", "A 12")
+
+
+def _run_with_rows(make_pdf, tmp_path, monkeypatch, rows, ocr=False):
+    monkeypatch.setattr(inbox, "read_fixes", lambda path: rows)
+    root = tmp_path / "root"
+    (root / inbox.INBOX).mkdir(parents=True)
+    os.replace(make_pdf(TEXT), root / inbox.INBOX / "sample.pdf")
+    if ocr:  # a scan: its OCR'd PDF is already in the work folder
+        work = root / inbox.WORK / "sample.pdf"
+        work.mkdir(parents=True)
+        shutil.copy2(root / inbox.INBOX / "sample.pdf", work / "sample.pdf")
+        (work / inbox.PREPARED).write_text('{"how": "OCR", "ocr": true}')
+    [result] = inbox.process(root)
+    return result
+
+
+def test_born_digital_book_is_held_only_by_margin_rows(make_pdf, tmp_path, monkeypatch):
+    done = _run_with_rows(make_pdf, tmp_path / "a", monkeypatch, [SPELLING, NOTE])
+    assert done.state == "finished"
+    assert "2 row(s) left for an optional review" in done.detail
+    held = _run_with_rows(make_pdf, tmp_path / "b", monkeypatch, [SPELLING, NOTE, MARGIN])
+    assert held.state == "draft"
+    assert "1 row(s) to review" in held.detail
+
+
+def test_a_scan_is_held_by_a_spelling_row(make_pdf, tmp_path, monkeypatch):
+    scan = _run_with_rows(make_pdf, tmp_path, monkeypatch, [SPELLING], ocr=True)
+    assert scan.state == "draft"
+
+
 def test_book_to_review_waits_in_drafts_until_reviewed(make_pdf, tmp_path, monkeypatch):
-    monkeypatch.setattr(inbox.review, "open_rows", lambda fixes: ["row"])
+    monkeypatch.setattr(inbox, "read_fixes", lambda path: [MARGIN])
     root = tmp_path / "root"
     (root / inbox.INBOX).mkdir(parents=True)
     os.replace(make_pdf(TEXT), root / inbox.INBOX / "sample.pdf")
@@ -153,7 +213,7 @@ def test_marks_given_beside_a_book_in_the_inbox_go_with_it(make_pdf, tmp_path):
 
 
 def test_one_book_with_its_formats_kept_for_the_rebuild(make_pdf, tmp_path, monkeypatch):
-    monkeypatch.setattr(inbox.review, "open_rows", lambda fixes: ["row"])
+    monkeypatch.setattr(inbox, "read_fixes", lambda path: [MARGIN])
     root = tmp_path / "root"
     (root / inbox.INBOX).mkdir(parents=True)
     os.replace(make_pdf(TEXT), root / inbox.INBOX / "other.pdf")
@@ -202,6 +262,40 @@ def test_a_folder_of_copies_is_built_from_the_best_one(make_pdf, tmp_path):
         "empty.pdf",
         "good.pdf",
     ]
+
+
+def _spread_book(root, stem, marks=False):
+    (root / inbox.INBOX).mkdir(parents=True)
+    doc = pymupdf.open()
+    page = doc.new_page(width=800, height=560)
+    for x in (60, 460):
+        for k in range(12):
+            page.insert_text((x, 80 + 14 * k), f"line {k} of the page at {x}", fontsize=9)
+    doc.save(root / inbox.INBOX / f"{stem}.pdf")
+    if marks:
+        (root / inbox.INBOX / f"{stem}.marks.json").write_text("{}")
+    inbox.process(root)
+    return root / inbox.WORK / f"{stem}.pdf"
+
+
+@pytest.mark.parametrize("stem", ["book", "spreads"])  # "spreads": its cut PDF's name too once
+def test_a_book_of_spreads_is_built_from_its_cut_pdf(tmp_path, stem):
+    work = _spread_book(tmp_path / "root", stem)
+
+    assert (work / f"{stem}{inbox.SPREADS}").exists()
+    with pymupdf.open(work / f"{stem}.pdf") as pdf:
+        assert pdf.page_count == 2
+    prepared = (work / inbox.PREPARED).read_text()
+    assert "1 spread sheets cut in two" in prepared
+
+
+def test_a_book_of_spreads_with_marks_given_is_not_cut(tmp_path):
+    work = _spread_book(tmp_path / "root", "book", marks=True)  # the marks: on the sheets
+
+    assert not (work / f"book{inbox.SPREADS}").exists()
+    with pymupdf.open(work / "book.pdf") as pdf:
+        assert pdf.page_count == 1
+    assert "not cut: the marks given" in (work / inbox.PREPARED).read_text()
 
 
 def test_clean_keeps_the_inbox_books_and_the_finished_files(tmp_path):

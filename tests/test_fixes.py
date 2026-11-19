@@ -1,5 +1,6 @@
 from pdf_worker.fixes import Fix, Review, default_fixes_path, read_fixes, write_fixes
 from pdf_worker.inline import margin_ref, page_mark, plain, styled
+from pdf_worker.review import open_rows
 from pdf_worker.structure import Heading, Note, Paragraph
 
 
@@ -269,6 +270,124 @@ def test_split_and_learned_words_are_fixed_without_review(tmp_path):
     out = list(review.apply([Paragraph(page_mark(0, "1") + text)]))
     review.finish()
     assert plain(out[0].text) == text
+
+
+def test_sentence_check_settles_spelling_flags(monkeypatch):
+    from ai_client import check
+
+    calls = []
+
+    def fake_settle(text, flags, language):
+        calls.append([f.find for f in flags])
+        verdicts = {"pudieramos": ("change", "pudiéramos"), "Zqxwrt": ("keep", "")}
+        return [(f, *verdicts.get(f.find, ("open", ""))) for f in flags]
+
+    monkeypatch.setattr(check, "settle", fake_settle)
+    text = "Zqxwrt dijo: si pudieramos, Pusible."
+    blocks = [Paragraph(page_mark(0, "1") + text)]
+
+    review = Review([], "es", sentence_check=True)
+    out = list(review.apply(blocks))
+    review.finish()
+
+    assert plain(out[0].text) == "Zqxwrt dijo: si pudiéramos, Pusible."
+    assert len(calls) == 1
+    rows = {f.find: (f.type, f.action, f.value, f.status) for f in review.fixes}
+    assert rows == {
+        "pudieramos": ("auto: sentence", "replace", "pudiéramos", "applied"),
+        "Zqxwrt": ("auto: sentence", "ignore", "", "applied"),
+        "Pusible": ("name: Posible?", "", "", ""),
+    }
+    assert [f.find for f in open_rows(review.fixes)] == ["Pusible"]
+
+
+def _fake_settle(monkeypatch, calls):
+    """A word after "bien" is kept, after "mal" corrected to "pudiéramos", else open."""
+    from ai_client import check
+
+    def settle(text, flags, language):
+        calls.append([f.find for f in flags])
+        assert all(text[f.start : f.end] == f.find for f in flags)
+        out = []
+        for f in flags:
+            before = text[max(0, f.start - 6) : f.start]
+            verdict = ("keep", "") if "bien" in before else ("open", "")
+            out.append((f, *(("change", "pudiéramos") if "mal" in before else verdict)))
+        return out
+
+    monkeypatch.setattr(check, "settle", settle)
+
+
+def test_sentence_check_asks_once_per_build_and_reuses_its_rows(monkeypatch):
+    calls = []
+    _fake_settle(monkeypatch, calls)
+    blocks = [
+        Paragraph(page_mark(0, "1") + "Dijo mal pudieramos."),
+        Paragraph("Dijo bien Zqxwrt."),
+        Paragraph(page_mark(1, "2") + "Dijo Zqxwrt otra vez."),
+    ]
+    review = Review([], "es", sentence_check=True)
+    out = [plain(b.text) for b in review.apply(blocks)]
+    review.finish()
+    assert len(calls) == 1  # one request for the three blocks
+    assert out[0] == "Dijo mal pudiéramos."
+    rows = {(f.find, f.page): (f.type, f.action) for f in review.fixes}
+    assert rows[("pudieramos", "1")] == ("auto: sentence", "replace")
+    assert rows[("Zqxwrt", "1")] == ("auto: sentence", "ignore")
+    assert rows[("Zqxwrt", "2")][1] == ""  # open: the keep on page 1 is its own
+
+    # The next build (another format): the rows say what was settled; only the open
+    # word is asked again, and it still holds.
+    calls.clear()
+    again = Review(review.fixes, "es", sentence_check=True)
+    assert [plain(b.text) for b in again.apply(blocks)] == out
+    again.finish()
+    assert calls == [["Zqxwrt"]]
+    assert [(f.find, f.page) for f in open_rows(again.fixes)] == [("Zqxwrt", "2")]
+    statuses = {(f.find, f.page): f.status for f in again.fixes}
+    assert statuses == {
+        ("pudieramos", "1"): "applied",
+        ("Zqxwrt", "1"): "applied",
+        ("Zqxwrt", "2"): "",
+    }
+
+
+def test_sentence_check_leaves_decided_rows_alone(monkeypatch):
+    calls = []
+    _fake_settle(monkeypatch, calls)
+    blocks = [Paragraph(page_mark(0, "1") + "Dijo mal pudieramos y mal Zqxwrt.")]
+    fixes = [
+        Fix("1", "1", "spelling", "pudieramos", action="replace", value="pudiésemos"),
+        Fix("2", "1", "spelling", "Zqxwrt", action="replace", value="Zar", type="auto: sentence"),
+    ]
+    review = Review(fixes, "es", sentence_check=True)
+    out = list(review.apply(blocks))
+    review.finish()
+    assert calls == []  # the user's row and the edited model row win
+    assert plain(out[0].text) == "Dijo mal pudiésemos y mal Zar."
+    assert [f.status for f in review.fixes] == ["applied", "applied"]
+
+
+def test_sentence_check_occurrences_that_disagree_stay_open(monkeypatch):
+    calls = []
+    _fake_settle(monkeypatch, calls)
+    text = "Dijo mal pudieramos, y bien pudieramos."
+    review = Review([], "es", sentence_check=True)
+    out = list(review.apply([Paragraph(page_mark(0, "1") + text)]))
+    review.finish()
+    assert plain(out[0].text) == text
+    assert [(f.find, f.action) for f in review.fixes] == [("pudieramos", "")]
+
+
+def test_no_sentence_check_unless_asked(monkeypatch):
+    from ai_client import check
+
+    def settle(*args, **kwargs):
+        raise AssertionError("no model call without the flag")
+
+    monkeypatch.setattr(check, "settle", settle)
+    _, _, review = _run([], [Paragraph(page_mark(0, "1") + "Dijo pudieramos, Pusible.")])
+    assert not any(f.type.startswith("auto") for f in review.fixes)
 
 
 def test_decided_word_rows_are_recorded_once():

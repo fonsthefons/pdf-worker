@@ -12,6 +12,9 @@ pdf-worker: convert, OCR and clean up PDFs and ebooks (EPUB, Markdown, Kindle).
   .venv/bin/pdf-worker process book.pdf --to epub,pdf
       Process just one book, choosing the output formats
 
+  .venv/bin/pdf-worker process book.pdf --sentence-check
+      Scans: a free model settles suspect words from their sentence (fewer rows to review)
+
   .venv/bin/pdf-worker find-book --title "Confesiones" --author Agustín
       Find a free copy online, download the best one and check its quality
 
