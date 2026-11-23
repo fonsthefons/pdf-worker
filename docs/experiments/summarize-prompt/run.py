@@ -59,6 +59,39 @@ class Skeleton:
         return self.chat(system, user + SKELETON.format(ideas=self.ideas[text]))
 
 
+TARGET = (
+    " Write about {target} words: the original has {original}. Reach that length by "
+    "saying each idea in fewer words, not by leaving ideas out."
+)
+
+
+class Target:
+    """A chat whose system prompt names the length in words (set before each request)."""
+
+    def __init__(self, chat):
+        self.chat, self.target, self.original = chat, 0, 0
+
+    def context_words(self):
+        return self.chat.context_words()
+
+    def __call__(self, system, user):
+        extra = TARGET.format(target=self.target, original=self.original)
+        return self.chat(system + extra, user)
+
+
+class Pieces:
+    """A chat whose context holds only ``words`` of text: summarize cuts the part there."""
+
+    def __init__(self, chat, words):
+        self.chat, self.words = chat, words
+
+    def context_words(self):
+        return self.words
+
+    def __call__(self, system, user):
+        return self.chat(system, user)
+
+
 def main():
     variant, blocks, section, out = sys.argv[1:5]
     keep_bold = "--no-bold" not in sys.argv[5:]
@@ -71,9 +104,29 @@ def main():
         (out / "source.txt").write_text("\n\n".join(summ.plain(u) for u in units), "utf-8")
         return
     summ.SYSTEM = SYSTEM_B
-    chat = summ.ModelChat(MODEL)
+    model = next((a[8:] for a in sys.argv[5:] if a.startswith("--model=")), MODEL)
+    chat = summ.ModelChat(model)
+    print(f"model={model}")
     if variant == "C":
         chat = Skeleton(chat, "es")
+    target = None
+    if variant.startswith("E"):  # E[<words>]: the length named in words, pieces if given
+        chat = target = Target(chat)
+    if variant[0] in "DE" and variant[1:]:  # <words>: pieces of that size, joined, no merge
+        chat = Pieces(chat, int(variant[1:]))
+    ask = summ._Run.ask
+
+    def logged(self, path, units, original, phrases, merge=False):
+        if merge and variant[0] in "DE":
+            return "\n\n".join(units)
+        if target:
+            target.original, target.target = original, round(original * self.percent / 100)
+        answer = ask(self, path, units, original, phrases, merge)
+        n = len(answer.split())
+        print(f"  piece {original} -> {n} words ({100 * n / original:.0f}%)", flush=True)
+        return answer
+
+    summ._Run.ask = logged
     blocks_out = summ.summarize(
         outline, nodes, 0, chat, out / f"cache-{variant}.json", lang="es", detail="full",
         keep_bold=keep_bold, fresh=True,

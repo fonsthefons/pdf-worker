@@ -433,3 +433,43 @@ Conclusions:
   `--detail full`.
 - Next: D = B's prompt on ~1,500-word pieces, without and with `--keep-bold` (2 runs, about
   5 requests each).
+
+## Round 3 (2026-11-23): pieces, a target in words, other models
+
+Same text, B's prompt throughout. `D1500`: the part cut into ~1,500-word pieces at paragraph
+ends (summarize's own `pieces`, with the context reported as 1,500 words), the pieces'
+summaries joined without a merge request. `E`: B's prompt plus "Write about {target} words:
+the original has {original}. Reach that length by saying each idea in fewer words, not by
+leaving ideas out." (target = 30% of the request's text). `E1500`: both. Outputs:
+`scratch/summ_exp/out3/`. Free models listed as up: nemotron-3.5-super-vl, nemotron-3-ultra,
+gemma-4-31b-it. 37 free requests in all.
+
+| Run | Model | Bold | Words | Share | Pieces (share each) |
+|---|---|---|---|---|---|
+| D1500 | super | no | 3,706 | 58% | 70, 59, 26, 70, 65 |
+| D1500 | super | yes | 3,546 | 55% | 79, 69, 31, 44, 47 |
+| E | super | no | 6,188 | 97% | (one request) |
+| E1500 | super | no | 4,603 | 72% | 77, 83, 68, 74, 36 |
+| B | ultra | no | 651 | 10% | (one request) |
+| B | gemma | no | 5,870 | 92% | (one request) |
+| E | ultra | no | 2,709 | 42% | (one request) |
+| **E1500** | **ultra** | **no** | **2,390** | **37%** | 46, 32, 37, 30, 41 |
+| E1500 (repeat) | ultra | no | 2,429 | 38% | 31, 30, 42, 52, 26 |
+| E1500 | ultra | yes | 2,650 | 41% | 42, 29, 43, 50, 39 |
+
+Conclusions:
+- The model decides the length, not the prompt. nemotron-3.5-super-vl (summarize's first pick
+  today) barely condenses whatever it is told (55-97%), and naming a word target made it
+  longer. gemma copies (92%). nemotron-3-ultra condenses hard on its own (10%) and follows a
+  target in words: 37-42% over three runs.
+- Pieces help only a model that follows the target: ultra 42% → 37% (whole part → pieces).
+- E1500 on ultra, read in full: all 23 main ideas, long quotations cut to their point, lists
+  folded, real prose. Flaws: the seam between two pieces repeats Sophocles' ambivalence; each
+  piece opens a little like a new text ("El texto explora…"); the first sentence credits the
+  section's title (Felipe VI's words) to León XIV; "(en el Prometeo)" is outside knowledge.
+- Meets the goal (main ideas, 25-40%) without bold; 41% with `--keep-bold`. No retry or cap was
+  used, so nothing was cut to reach a length.
+- Product change suggested: `/plan-feature adopt E1500 for summarize` (the target in words in
+  the prompt, ~1,500-word pieces joined at `--detail full`, a model order that tries
+  nemotron-3-ultra first, and the piece's place in the part given to each request so pieces
+  don't open as new texts). Check it on a second book before changing the default model.
