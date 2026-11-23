@@ -1,6 +1,9 @@
 import pymupdf
 
+from pdf_worker.blocks_file import read_blocks
 from pdf_worker.cli import main
+from pdf_worker.convert import convert_pdf
+from pdf_worker.structure import Note
 from pdf_worker.text_extraction import extract_text_to_file, iter_page_texts
 
 BODY = 11
@@ -56,6 +59,26 @@ def test_page_footnote_is_linked_and_moved_to_page_end(make_layout_pdf):
     # The page number below the notes is page furniture: in neither the notes nor the body.
     assert "7" not in text
     assert "1 The footnote" not in text
+
+
+def test_a_linked_note_marker_stays_a_note_reference(make_layout_pdf, tmp_path):
+    # Introducción a la Filosofía (a Word export): each note number links to its note. The
+    # link's "1" used to be wrapped inside "[^p1-1]", which then matched no note.
+    pdf = make_layout_pdf([_page_with_footnote()])
+    x = 72 + pymupdf.get_text_length("Body text with a note", fontsize=BODY) + 0.5  # _with_sup's
+    with pymupdf.open(pdf) as doc:
+        to = pymupdf.Point(72, 750)
+        area = pymupdf.Rect(x, 87, x + 4, 97)  # the marker "1", raised over baseline 100
+        doc[0].insert_link({"kind": pymupdf.LINK_GOTO, "from": area, "page": 0, "to": to})
+        doc.save(tmp_path / "linked.pdf")
+    blocks = tmp_path / "book.blocks.jsonl"  # every format is written from these
+
+    convert_pdf(tmp_path / "linked.pdf", tmp_path / "book.md", "md", blocks_path=blocks)
+
+    found = list(read_blocks(blocks))
+    paragraph = next(b for b in found if "Body text" in getattr(b, "text", ""))
+    assert "Body text with a note[^p1-1] and more text." in paragraph.text
+    assert [b.label for b in found if isinstance(b, Note)] == ["p1-1"]
 
 
 def test_multiple_footnotes_with_numbers_and_symbols(make_layout_pdf):

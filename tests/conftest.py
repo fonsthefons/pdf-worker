@@ -53,17 +53,18 @@ def make_pdf(tmp_path: Path) -> Callable[..., Path]:
 def make_layout_pdf(tmp_path: Path) -> Callable[..., Path]:
     """Build a PDF from explicitly placed text: one list of items per page.
 
-    Each item is ``(x, y, text, fontsize)``; ``y`` is the baseline. Use a smaller font
-    and a raised ``y`` for superscript markers.
+    Each item is ``(x, y, text, fontsize)``, or with a fifth, PyMuPDF's font name ("hebo":
+    bold); ``y`` is the baseline. Use a smaller font and a raised ``y`` for superscript
+    markers.
     """
 
-    def _make(pages: list[list[tuple[float, float, str, float]]], name: str = "layout.pdf") -> Path:
+    def _make(pages: list[list[tuple]], name: str = "layout.pdf") -> Path:
         path = tmp_path / name
         doc = pymupdf.open()
         for items in pages:
             page = doc.new_page()
-            for x, y, text, size in items:
-                page.insert_text((x, y), text, fontsize=size)
+            for x, y, text, size, *font in items:
+                page.insert_text((x, y), text, fontsize=size, fontname=font[0] if font else "helv")
         doc.save(path)
         doc.close()
         return path

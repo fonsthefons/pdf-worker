@@ -58,7 +58,9 @@ def split_columns(lines: list[BodyLine], page_width: float, body_size: float) ->
         size = line.size or body_size
         if not text.strip():
             body.append(body_line)  # blank lines carry paragraph breaks
-        elif line.x1 < left - tolerance or line.x0 > right + tolerance:
+        elif line.x1 < left or line.x0 > right:
+            # Wholly outside the column: no body line starts past its right edge (the
+            # Filosofía's 5.6 pt glosses start 1.2 pt from it).
             margin.append(body_line)
         elif _is_junk(text):
             continue
@@ -81,7 +83,7 @@ def split_columns(lines: list[BodyLine], page_width: float, body_size: float) ->
         return _no_margins(lines, body_size)
     glosses = [
         _strip_line_number(gloss)
-        for gloss in _gloss_lines(margin)
+        for gloss in _gloss_lines(margin, left)
         if not _NUMBER_RE.match(gloss) and _looks_like_text(gloss)
     ]
     # With the margins gone the body is a single column: read it top to bottom, and
@@ -232,12 +234,15 @@ def _is_margin_column(
     return margin_chars <= body_chars * _MAX_MARGIN_CHAR_SHARE
 
 
-def _gloss_lines(margin: list[BodyLine]) -> list[str]:
-    """Margin lines top to bottom; fragments on the same row are joined left to right."""
+def _gloss_lines(margin: list[BodyLine], left: float) -> list[str]:
+    """Margin lines, the left margin's then the right's, top to bottom; fragments on the
+    same row of one margin are joined left to right (two margins' rows never are)."""
     rows: list[list] = []
-    for line in sorted((bl.line for bl in margin), key=lambda ln: (ln.top, ln.x0)):
+    lines = sorted((bl.line for bl in margin), key=lambda ln: (ln.x1 >= left, ln.top, ln.x0))
+    for line in lines:
         height = line.bbox[3] - line.bbox[1]
-        if rows and abs(line.top - rows[-1][0].top) < 0.5 * height:
+        same_side = rows and (line.x1 < left) == (rows[-1][0].x1 < left)
+        if same_side and abs(line.top - rows[-1][0].top) < 0.5 * height:
             rows[-1].append(line)
         else:
             rows.append([line])

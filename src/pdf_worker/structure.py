@@ -44,6 +44,7 @@ from pdf_worker.layout import (
     HEADING_RATIO,
     PAGE_NUMBER_RE,
     SMALL_RATIO,
+    SUPERSCRIPT,
     DocumentProfile,
     Line,
     edge_rows,
@@ -103,6 +104,7 @@ class Heading:
     level: int
     page: int = -1  # PDF page index and position of the heading, for resolving links
     top: float = 0.0
+    source: str = ""  # who set the level: "marks", "tags", or "" (type size, rules)
 
 
 @dataclass(frozen=True)
@@ -199,6 +201,7 @@ class _Builder:
     kind: str = ""  # "", "para", "small", "note", "heading", "table", "item"
     label: str = ""  # an item's printed label, if the tags give it
     level: int = 0  # a heading's level, an item's depth
+    source: str = ""  # a heading's ``Heading.source``
     parts: list[str] = field(default_factory=list)
     lines: int = 0
     size_total: float = 0.0
@@ -426,13 +429,15 @@ def _link_line(body_line: BodyLine, links: list[tuple[pymupdf.Rect, str]]) -> Bo
         overlap = min(rect.y1, line.bbox[3]) - max(rect.y0, line.bbox[1])
         if overlap < 0.5 * height or rect.x1 <= line.x0 or rect.x0 >= line.x1:
             continue
-        inside = [
-            span["text"]
+        spans = [
+            span
             for span in line.spans
             if rect.x0 - 1 <= (span["bbox"][0] + span["bbox"][2]) / 2 <= rect.x1 + 1
         ]
-        linked = "".join(inside).strip()
-        if not linked:
+        linked = "".join(span["text"] for span in spans).strip()
+        if not linked or all(span["flags"] & SUPERSCRIPT for span in spans if span["text"].strip()):
+            # A note marker's link goes to its note: the reference ``[^label]`` does that.
+            # Wrapping "1" would land on the first "1" of the line, inside "[^p2-1]".
             continue
         if linked == plain(text).strip():
             stripped = text.strip()
@@ -587,10 +592,12 @@ class _State:
         after_mark, self.after_mark = self.after_mark, marked is not None
         text_only = body_line.entry or kind in NOT_HEADING_KINDS
         level = marked
+        source = "marks" if marked else ""
         if marked or text_only:
             pass  # the marks decide; a contents entry is never a heading
         elif body_line.tag and body_line.tag.kind.startswith("h"):
             level = int(body_line.tag.kind[1:])  # a tagged PDF's H element
+            source = "tags"
         elif body_line.title:
             # The layout model's title box; its size gives the level.
             sizes = profile.heading_sizes
@@ -610,8 +617,8 @@ class _State:
             and not self.runs_on
             and bool(_NUMBERING_RE.match(plain(self.current.text())))
         )
-        if joins:
-            level = level or self.current.level
+        if joins and not level:
+            level, source = self.current.level, self.current.source
         # Lines of one level by the marks, one after the other (a number and its title in
         # one mark): one heading, whatever the type and gaps.
         marks_join = after_mark and self.current.kind == "heading" and self.current.level == marked
@@ -693,7 +700,9 @@ class _State:
             if not same_heading:
                 yield from self._flush()
                 self.current = _Builder(kind="heading", level=level)
-            self.current.level = level  # a joined number takes its title's level
+            # A joined number takes its title's level; a marks or tags line keeps its source.
+            self.current.level = level
+            self.current.source = self.current.source or source
         else:
             tag = body_line.tag
             item = bool(tag and tag.kind == "li")
@@ -796,7 +805,9 @@ class _State:
                 yield Paragraph(text, False, current.page, current.top)
             else:
                 self.has_heading = True
-                yield Heading(self._respaced(text), current.level, current.page, current.top)
+                yield Heading(
+                    self._respaced(text), current.level, current.page, current.top, current.source
+                )
         elif current.kind == "note":
             yield Note(current.label, current.text())
         elif current.kind == "item":

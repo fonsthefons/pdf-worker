@@ -5,7 +5,9 @@ import pytest
 from test_endnotes import _book as _chapter_notes_book
 
 from pdf_worker import follow_marks, marks
+from pdf_worker.blocks_file import read_blocks
 from pdf_worker.convert import convert_pdf
+from pdf_worker.inline import plain
 from pdf_worker.layout import page_lines
 from pdf_worker.marks import Mark
 from pdf_worker.structure import Heading, Paragraph
@@ -107,6 +109,17 @@ def test_a_heading_in_body_type_is_found_by_a_marks_style_at_its_level(make_layo
 
     assert not any("LOS PIONEROS" in h for h in _headings(before))
     assert "## LOS PIONEROS JONIOS" in _headings(after)
+
+
+def test_a_marked_number_joined_to_a_rules_title_keeps_its_marks_source(make_layout_pdf, tmp_path):
+    pdf = make_layout_pdf([[(72, 100, "V.", BODY), (72, 130, "LA CUNA", 18), *_body(y=170)]])
+    _save_marks(pdf, [(1, "heading", "V.", 2)])
+    blocks = tmp_path / "book.blocks.jsonl"
+
+    convert_pdf(pdf, tmp_path / "book.md", "md", title="t", cover=False, blocks_path=blocks)
+
+    heads = [(plain(b.text), b.source) for b in read_blocks(blocks) if isinstance(b, Heading)]
+    assert heads == [("V. LA CUNA", "marks")]
 
 
 def test_a_line_marked_body_is_never_a_heading(make_layout_pdf, tmp_path):

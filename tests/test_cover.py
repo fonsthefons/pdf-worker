@@ -25,7 +25,9 @@ def test_reflowed_pdf_has_cover_and_page_numbers(tmp_path):
     write_pdf([Paragraph("Texto " * 2000)], out, meta, cover=True)
 
     with pymupdf.open(out) as doc:
-        assert doc[0].get_images() and not doc[0].get_text().strip()  # the cover is a picture
+        cover = " ".join(doc[0].get_text().split())  # the cover is text, not a picture
+        assert not doc[0].get_images()
+        assert cover == "Platón Timeo Traducción de Francisco Lisi"
         for number, page in enumerate(doc[1:], 2):
             foot = page.get_text(clip=(0, page.rect.height - 40, page.rect.width, page.rect.height))
             assert foot.strip() == str(number)

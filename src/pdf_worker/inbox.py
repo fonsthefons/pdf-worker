@@ -211,6 +211,11 @@ def _process_book(root, entry, engine, say, on_step, given) -> BookResult:
             for out in _outputs(target, stem, formats):
                 if out.exists():
                     os.replace(out, outbox / out.name)
+            # The .typ's pictures (its cover) go with it; ``_finish`` drops the drafts' copy.
+            images = target / f"{stem}_images"
+            if images.is_dir():
+                shutil.rmtree(outbox / images.name, ignore_errors=True)
+                os.replace(images, outbox / images.name)
         undecided = f"; {left} row(s) to review left undecided" if left else ""
         if optional and not left:
             undecided = f"; {optional} row(s) left for an optional review"

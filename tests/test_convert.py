@@ -323,6 +323,33 @@ def test_a_line_in_a_title_box_is_a_heading_its_level_from_its_size(
     assert report.stats.headings == (2 if model else 1)
 
 
+def test_a_text_box_set_like_the_numbered_title_boxes_is_a_heading(make_layout_pdf, tmp_path):
+    # Introducción a la Filosofía p. 2: "1." boxed as text, set like "2." and "3." (bold,
+    # body size), which the model boxed as titles. A "4." in body type stays text.
+    page = [
+        (72, 80, "1. The first part", BODY, "hebo"),
+        *_paragraph(80 + LINE * 2, FULL[:1], "It ends."),
+        (72, 80 + LINE * 5, "2. The second part", BODY, "hebo"),
+        *_paragraph(80 + LINE * 7, FULL[:1], "It ends."),
+        (72, 80 + LINE * 10, "3. The third part", BODY, "hebo"),
+        *_paragraph(80 + LINE * 12, ["4. " + FULL[0]], "It ends."),
+    ]
+    pdf = make_layout_pdf([page])
+    title, text = ("paragraph_title", "text")
+    rows = _boxes(
+        pdf, (text, [0]), (text, [1, 2]), (title, [3]), (text, [4, 5]), (title, [6]), (text, [7, 8])
+    )
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    lines = out.read_text(encoding="utf-8").splitlines()
+    second = next(line for line in lines if line.endswith("2. The second part"))
+    assert second.startswith("#")
+    assert second.replace("2. The second", "1. The first") in lines
+    assert report.stats.headings == 3  # not the "4." paragraph
+
+
 def test_large_type_below_a_larger_title_box_is_not_a_heading(make_layout_pdf, tmp_path):
     # Niebla p. 28 (OCR specks in large type), Kant p. 59 (table rows): the model says text.
     page = [

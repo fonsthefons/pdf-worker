@@ -8,9 +8,10 @@ smaller; kinds set in the same size rank in the order they first appear (the boo
 a division before its subdivisions), except that a division word ranked above another
 goes above it; a division word keeps the rank it first had in any type size.
 
-Not used by the pipeline yet (quality plan, Phase 3 in PROGRESS.md): it raised level
-agreement on the checked headings pages (62.8% -> 66.3%) but lowered it against the
-reference EPUBs, which tag most headings at one level.
+``outline`` uses it only for books without bookmarks whose numbered headings share one
+type size (quality plan, Phase 3 in PROGRESS.md: everywhere, it raised level agreement
+on the checked headings pages, 62.8% -> 66.3%, but lowered it against the reference
+EPUBs, which tag most headings at one level).
 """
 
 import re

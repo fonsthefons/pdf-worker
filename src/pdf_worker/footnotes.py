@@ -28,9 +28,12 @@ from pdf_worker.layout import (
     PAGE_NUMBER_RE,
     SMALL_RATIO,
     SUPERSCRIPT,
+    TITLE_LABELS,
     DocumentProfile,
     Line,
     boxes,
+    heading_style,
+    line_font,
     page_lines,
     plain_note_start,
 )
@@ -181,6 +184,7 @@ def layout_page(
     entry = None  # the box (index, label) of the body line before
     item = False  # the body line before starts like a new item
     element = None  # the tagged element of the body line before (None: the page's top)
+    like_title = None  # (box, font, size) of a text box taken for a heading's style
 
     references: list[str] = []
     # A note continued from the previous page reuses that page's label; count it once.
@@ -189,12 +193,17 @@ def layout_page(
     for line_index, line in enumerate(lines):
         if line_index in consumed or line_index in dropped:
             continue
-        before, entry = entry, entries[line_index]
+        # The box of the last line with text: a blank line inside a box before its first
+        # line (Filosofía p2) doesn't make that line run on.
+        blank = not line.text.strip()
+        before, entry = entry, entry if blank else entries[line_index]
         after_item = item  # the last line with text: blank lines don't count
-        if line.text.strip():
+        if not blank:
             item = _starts_item(line.text)
         starts = None  # at a text box's edge, today's rules decide
-        if before and entry and before[1] == entry[1] == "reference_content":
+        if blank:
+            pass
+        elif before and entry and before[1] == entry[1] == "reference_content":
             starts = entry != before
         elif before and entry == before and not (item or after_item):
             starts = False  # inside one text box
@@ -245,7 +254,17 @@ def layout_page(
         if endnote:
             definitions.append(endnote)
         text = _render_brackets(text, profile, references)
-        title = labels[line_index] in ("doc_title", "paragraph_title")
+        title = labels[line_index] in TITLE_LABELS
+        # Set exactly like the book's numbered headings in title boxes, in a box the model
+        # took for text: its first line, and the box's next lines in the same type.
+        box, style = found[line_index], heading_style(line)
+        if title or box is None:
+            like_title = None
+        elif style in profile.title_styles and (line_index == 0 or found[line_index - 1] != box):
+            like_title, title = (box, style[0], style[1]), True
+        else:
+            title = like_title == (box, line_font(line), round(line.size, 1))
+            like_title = like_title if title else None
         listed = labels[line_index] == "content"
         kind = kinds[line_index]
         if tag and tag.kind.startswith("h") and kind is None:
