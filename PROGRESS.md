@@ -1,5 +1,170 @@
 # Progress
 
+## Plan: book-outline, phase 1: born-digital (2026-11-23)
+Goal: one outline step sets heading levels from structure the book already has, so all
+formats and the blocks file get the real nesting; phase 1 covers born-digital (text-layer)
+books only, tested first on test_pdfs/Introducción a la Filosofía 1.pdf, changing nothing
+else. Sources in phase 1: marks and tags (kept as today), PDF bookmarks, and the numbering
+rule only where type size gives no hierarchy. Out of scope: scans (phase 2, a later plan:
+printed contents entries with levels from numbering and indent, scan entries, the
+contents matching moved out of epub.py); promoting lost headings; keeping/dropping the
+printed contents; the `N|M` page-start markers in heading text (`inline.page_mark`, not a bug).
+Branch: feature/book-outline
+
+Decisions (user, 2026-11-23): marks win over the outline (disagreements listed in the
+report); merge gate on quality.py's `pages: levels` (truth.json), a drop in the
+reference-EPUB `levels` measure is reported but accepted; contents entries naming no
+heading are reported only (phase 2); all sources over the two phases. Be careful: today's
+output is good, so the step changes heading levels only, only when a source says so, and
+leaves every other block byte-for-byte the same (checked by `tools/blocks_diff.py`).
+Test fast on the Filosofía book first; scans only after it is reviewed.
+
+Found while planning: today levels come line by line (`structure.py:586-604`: marks'
+`heading N`, tags' H1-H6, else type size; scans `paddle_book.py:451-462`). Bookmarks
+(`doc.get_toc()`) are never read. Printed contents entries become flat
+`Paragraph(contents_entry(...))` (`structure.py:650-669,813`, `paddle_book.py:464-473`)
+with no level or indent; only `epub.py` matches them to headings, by words, for links
+(`_entry_key`/`_names`/`_link_entries`, `epub.py:148-179`, used at 466-468, 616-617).
+`heading_levels.rank_headings` (numbering ranks, tested in `tests/test_heading_levels.py`)
+is unused. Example: test_pdfs/Introducción a la Filosofía 1.pdf (Word export, tags sound but
+headings tagged P, no bookmarks, no marks): all 39 section headings level 3; rank_headings
+gives I./1./a) as 3/5/6.
+
+- [x] S1 Before: the Filosofía book and the quick check, on main
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: -
+  context: -
+  do: On `main` (clean, before any branch work). (a) Convert the book, keeping its blocks:
+    `.venv/bin/pdf-worker convert "test_pdfs/Introducción a la Filosofía 1.pdf" -o
+    scratch/outline/before/filo.epub` with the convert option that saves the blocks file
+    (find it in `pdf-worker convert --help`; else copy the blocks file `process` left in
+    `file_conversion/file_work/Introducción a la Filosofía 1.pdf/`) into
+    scratch/outline/before/. (b) Quick check: `tools/run_logged.py outline-before-quick
+    .venv/bin/python tools/check.py build scratch/outline/before-quick`, then
+    `tools/wait_log.py scratch/logs/outline-before-quick.log`. All paths absolute.
+  done: scratch/outline/before/ holds the book's EPUB and .blocks.jsonl; the log ends `exit 0`
+  return: <= 5 lines: files written, convert seconds, quick-check exit line
+
+- [x] S2 Outline step for born-digital books
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S1
+  context: src/pdf_worker/structure.py:100-106 (Heading), 581-605 (where levels are set);
+    src/pdf_worker/heading_levels.py (all); src/pdf_worker/convert.py:200-215, 255-345;
+    src/pdf_worker/blocks_file.py (all); tests/test_heading_levels.py
+  do: Branch feature/book-outline from main. Smallest change; every block other than a
+    Heading's `level` must come out unchanged. (1) `Heading.source: str = ""`, last field,
+    defaulted (blocks_file round-trips fields): "marks" where structure.py:586-589 takes
+    the marks' level, "tags" for an H element (592-593); scans untouched. (2) New
+    `src/pdf_worker/outline.py`: `collect(blocks, bookmarks)` (pass 1, headings only:
+    keys and levels, never the text of other blocks) and `apply(blocks, outline)` (pass 2,
+    a generator). Order: a "marks"/"tags" heading keeps its level; bookmarks (`doc.get_toc()`
+    as (level, title, page index)) matched to headings in order by their words (same idea
+    as epub.py:148-179 `_entry_key`/`_names`; import them from epub.py for now, phase 2
+    moves them) give the matched heading the bookmark's level, and unmatched headings the
+    level of matched headings with the same `heading_levels.heading_key` ignoring size,
+    else unchanged; no bookmarks: `heading_levels.rank_headings`, but ONLY when type size
+    gives no hierarchy (all numbered/division headings after the front matter share one
+    size level, as in the Filosofía book: all level 3); otherwise levels unchanged. Then
+    close gaps (3/5/6 -> 1/2/3) only for levels this step set, never when the book has
+    marks. Scans (`paddle_rows is not None` / scanned) skip the step entirely.
+    (3) convert.py:306-315: blocks to a temp file beside the output; `collect` from
+    `read_blocks(temp)`; `write_blocks(apply(read_blocks(temp), outline), meta, real)`;
+    temp removed in `finally`; formats read the real file as now. (4) `tools/blocks_diff.py
+    BEFORE.jsonl AFTER.jsonl`: streams both, prints heading level changes (page, old ->
+    new, text) and every other difference (count + first 20); exit 1 when anything but a
+    heading's `level`/`source` differs; a `selftest`. (5) Tests first, tests/test_outline.py
+    with `make_pdf`: bookmarks set levels; flat-size numbered headings ranked I./1./a) ->
+    1/2/3; sizes that already nest left unchanged; marks/tags headings never changed;
+    non-heading blocks identical; a scan untouched.
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration"
+    /Users/fons/Documents/programs/pdf-worker` passes, ruff clean, `tools/blocks_diff.py
+    selftest` prints ok
+  return: <= 10 lines: files changed, test counts, the "no hierarchy" test as built, surprises
+
+- [x] S3 After: the Filosofía book, then the quick check
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: medium
+  after: S2
+  context: -
+  do: On the branch, convert the book as in S1 into scratch/outline/after/. Run
+    `tools/blocks_diff.py` before vs after: only heading levels may change (exit 0), and
+    scratch/blocks_summary.py on the after file must show title page, then I./II./III. at
+    one level, 1.-11. one below, a)-g) one below that, BIBLIOGRAFÍA as a top level. If not,
+    fix S2's code (rerun fast tests) and repeat. Then the quick check after
+    (`check.py build scratch/outline/after-quick`, run_logged) and `check.py compare
+    before-quick after-quick`: books whose sizes already nest must show no change.
+  done: blocks_diff exits 0 and the levels are as expected; compare shows no WORSE
+  return: <= 10 lines: the book's heading levels, blocks_diff summary, compare result
+
+- [x] S4 Review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S3
+  context: `git diff main` on feature/book-outline; S3's results
+  do: Review for: a marks/tags level ever changed; anything but heading levels changed;
+    the blocks file or temp file lost on error; text held in memory beyond headings; a
+    born-digital book whose sizes already nest getting new levels; a repeated title
+    (the summary page's "I. ¿QUÉ ES FILOSOFÍA?" and the chapter's) matched wrong.
+  done: findings listed, ranked
+  return: <= 10 lines: findings, most severe first
+
+- [x] S5 Stop for the user's review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: low
+  after: S4
+  context: S3's results, S4's findings
+  do: Fix S4's real findings (rerun fast tests and S3's blocks_diff). Do not commit or
+    merge. Record in the run log where the user can look (scratch/outline/after/filo.epub,
+    the blocks_diff output) and stop: the user checks the book before the full builds.
+  done: the run log names the files to review
+  return: -
+
+- [ ] S6 Full builds after the merge (DEFERRED: run later, on the user's word)
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: S5 and the user's go-ahead
+  context: The branch was merged to main on 2026-11-23 before this step, at the user's
+    request (revert the merge if this step fails). Main before the merge: commit ad0559c.
+  do: Before: a worktree of ad0559c (`git worktree add scratch/outline/pre-merge ad0559c`),
+    `check.py --full build scratch/outline/before-full` run from it (run_logged), then
+    `git worktree remove scratch/outline/pre-merge`. After: on main, `check.py --full
+    build scratch/outline/after-full`; `check.py --full compare` the two. Gate: `pages:
+    levels` not worse on any book, other measures within tolerance (reference `levels`
+    drop accepted, noted). Pass: README (outline step, born-digital only) and PROGRESS
+    entry on a docs branch, PR to main, merge, checkout main, pull. Fail: what fails
+    under Blocked, and tell the user (revert candidate).
+  done: the compare's result in the run log (and the docs PR merged), or the failure under Blocked
+  return: <= 10 lines: per book `pages: levels`, reference `levels`, any WORSE, PR state
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason; continue with steps that don't depend on it.
+
+### Run log
+- S1 2026-11-23: pass. scratch/outline/before/filo.{epub,blocks.jsonl} (blocks copied from file_work: convert has no save-blocks option); quick check exit 0 in 86 s.
+- S2 2026-11-23: pass. 526 fast tests, ruff clean, blocks_diff selftest ok. outline.py collect() got a `marked=` kwarg; front matter is never ranked or gap-closed (a Prólogo may sit below level-1 chapters); gap closing also renumbers bookmark levels.
+- S1 redo 2026-11-23: S1's blocks file came from an old `process` run (not comparable); rebuilt scratch/outline/before/filo.* from main via a temp worktree (scratch/main-wt, removed) and scratch/outline/convert_blocks{,_main}.py (convert_pdf with blocks_path).
+- S3 2026-11-23: pass after 3 S2 fixes (unnumbered caps headings ranked between I. and 1.; dialogos, sizes nesting, flattened; unmatched headings under bookmarks took the top level -> now nearest matched heading + size difference). Filosofía: blocks_diff 32 levels, 0 other diffs; I./II./III., BIBLIOGRAFÍA, METODOLOGÍA = 1, 1.-11. = 2, a)-g) = 3; false heading p41 "¿Contiene algún razonamiento..." -> 1. Quick check (after-quick3) vs before: no WORSE, 13 books identical; dialogos (bookmarks: FILEBO/TIMEO/CRITIAS 1, INTRODUCCIÓN 2, subsections 3) and dilexit (flat ### -> #, its unnumbered subsections level with I./II.) change levels only (text identical, scratch/outline/same_text.py). 528 fast tests.
+- S4 2026-11-23: 7 findings: (1) ranking/gap closing ignore kept and front-matter headings (collisions, Prólogo at a) level); (2) merged heading lines lose source "marks"; (3) flat bookmarks flatten nesting sizes; (4) bookmark matching ignores page (summary-page copies); (5) anchors from kept headings use the bookmark level; (6) every unnumbered free heading goes to top, false ones too (left for the user); (7) bookmarks with no match skip the ranking path. 1-5, 7 sent to S2's agent (S5).
+- S5 2026-11-23: findings 1-5, 7 fixed (ranking off only when a marks/tags heading comes at/after the first numbered one; front matter -> 1; flat or unmatched bookmarks fall back to ranking; bookmark matches on its page or later; kept headings anchor with their own level; merged lines keep "marks"). 531 fast tests, ruff clean. Filosofía blocks_diff: 34 levels (cover "Prof. Dr." and "Curso" 2 -> 1 added), 0 other. Quick check after-quick4 vs before: no WORSE; only dialogos changes (bookmarks), dilexit now unchanged. STOPPED for the user's review: scratch/outline/after/filo.epub (and after/filo.blocks.jsonl; `tools/blocks_diff.py scratch/outline/before/filo.blocks.jsonl scratch/outline/after/filo.blocks.jsonl`), scratch/outline/after-quick4/dialogos.diff. Open for the user: finding 6 (unnumbered headings, false ones too, go to level 1: p41 "¿Contiene algún razonamiento..."). S6 waits for the go-ahead.
+- Review fixes 2026-11-23 (user review of the `process` output, which uses the layout model):
+  (a) Filosofía p2 "1. «La filosofía…»" was a paragraph: the model boxed it `text`, its siblings 2.-11. `paragraph_title`. New rule (user chose "match the book's own headings", no guessing): `analyze_document(layout=)` records `title_styles` = (font, size, number kind "1."/"I."/"a)") of the first lines of numbered title boxes, seen >= 2 times; `footnotes.layout_page` makes a box's first line in exactly such a style a title, and the box's next lines in the same font and size. Filosofía (scratch/outline/convert_layout.py, cached layout rows; matches the `process` blocks exactly before the rule): one change, "1." -> level-2 heading, "Según…" a paragraph again. Quick check after-quick5 vs after-quick4: only ratzinger changes, "1. DUDA Y FE…" (a real section under "I.") becomes a heading. Test: test_convert.py::test_a_text_box_set_like_the_numbered_title_boxes_is_a_heading (make_layout_pdf takes an optional font).
+  (b) `process` outbox .typ didn't compile (black preview): a final book moved out of drafts/ left `<stem>_images/` (the cover) behind and `_finish` deleted it. inbox.py now moves the folder with the .typ; two test_inbox expectations had pinned the bug. 532 fast tests, ruff clean.
+- Review fixes 2, 2026-11-23 (user: Filosofía PDF pp. 6-7 "absolutely horrible"):
+  (c) Footnotes printed as "[^p2-1]" and notes as body text: the PDF's note numbers are links; `structure._link_line` wrapped the first "1" of the line, inside "[^p2-1]", so no note matched. Links over superscript-only spans are now skipped. Test: test_footnotes.py::test_a_linked_note_marker_stays_a_note_reference (fails without the fix).
+  (d) Margin notes woven into the body: Filosofía's 5.6 pt right-margin notes start 1.2 pt past the column edge, inside the old 0.5 em tolerance. `margins.split_columns`: a line wholly past the column's edge is margin, no tolerance. Left and right notes on one row were joined ("El evangelio También es"): `_gloss_lines` keeps the margins apart. Test: test_margins.py::test_glosses_in_both_margins_are_not_joined_row_by_row.
+  (e) Lost paragraph breaks: a blank line inside a layout box, before its first line, made that line "inside one text box" (starts=False). `footnotes.layout_page` ignores blank lines for that test. Timeo (web) gains 23 real breaks (checked p9 "Pues bien": indented). No test yet.
+  (f) Cover: the .typ/PDF placed the EPUB's JPEG; cover.py says the PDF gets a text cover. The Typst template now sets author, title, translator in type; no `_images/` for a book without pictures. test_cover/test_typst_export updated.
+  Quick check after-quick6 vs after-quick5: timeo_web +23 paragraphs (real), gaviota margin specks out of a paragraph, metafisica a contents-page gloss loses its page numbers. 534 fast tests, ruff clean.
+  Merged 2026-11-23 at the user's request, before S6 (534 fast tests, ruff clean; integration tests and full builds not run). S6 kept above, deferred.
+  Open (user to decide): margin notes are kept one line per line (glossary entries "fox = vulpes" need that), so Filosofía's prose notes read as a narrow column; small captions in the column ("León XIV", "Aprender de memoria esta definición") stay as paragraphs.
+
 ## Build once, keep the blocks (2026-11-23, branch `feature/blocks-once`)
 Each format used to be a full `convert_pdf` run (epub + pdf + typ = 3 builds, 3 reviews).
 Now `convert_pdf(..., also={fmt: path}, blocks_path=...)` builds the blocks once, saves them

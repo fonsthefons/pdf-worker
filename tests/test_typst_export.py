@@ -94,18 +94,20 @@ def test_margin_references_sit_in_the_right_margin(tmp_path):
 
 def test_the_cover_is_page_one_without_a_number(tmp_path):
     with _write(tmp_path, [Paragraph("Hola.")], cover=True) as doc:
-        assert doc[0].get_images() and not doc[0].get_text().strip()
+        # A text cover (pdf_worker.cover): title in type, no picture, no page number.
+        assert not doc[0].get_images() and META.title in doc[0].get_text()
+        assert not doc[0].get_text().split()[-1].isdigit()
         assert doc[1].get_text().split()[-1] == "2"
 
 
 def test_a_typ_output_is_source_that_compiles_on_its_own(tmp_path):
     out = tmp_path / "libro.typ"
     typst_export.write_pdf(_note_blocks(), out, META, cover=True)
-    assert (tmp_path / "libro_images" / "cover.jpg").is_file()
+    assert not (tmp_path / "libro_images").exists()  # the cover is set in type
     assert "= sys.inputs" not in out.read_text(encoding="utf-8")
     typst.compile(str(out), output=str(tmp_path / "libro.pdf"))  # no sys_inputs needed
     with pymupdf.open(tmp_path / "libro.pdf") as doc:
-        assert doc.metadata["author"] == "Platón" and doc[0].get_images()
+        assert doc.metadata["author"] == "Platón" and META.title in doc[0].get_text()
         assert "Única nota del libro." in doc[doc.page_count - 1].get_text()
 
 

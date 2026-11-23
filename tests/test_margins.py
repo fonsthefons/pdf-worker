@@ -45,6 +45,17 @@ def test_glosses_are_separated_from_the_body(make_layout_pdf, tmp_path):
     assert report.stats.glosses == 1 and report.stats.paragraphs == 1
 
 
+def test_glosses_in_both_margins_are_not_joined_row_by_row(make_layout_pdf, tmp_path):
+    # Introducción a la Filosofía p2: notes in both margins, side by side. They were joined
+    # row by row ("El evangelio También es"); now the left margin's, then the right's.
+    page = [item for item in _textbook_page() if item[2] != "10"]
+    page += [(20, 100, "left one", 8), (20, 100 + LINE, "left two", 8)]
+
+    text, _ = _md(make_layout_pdf, tmp_path, [page])
+
+    assert "> left one\\\n> left two\\\n> fox = vulpes\\\n> fields = agri\\\n" in text
+
+
 def test_glosses_follow_a_paragraph_that_continues_on_the_next_page(make_layout_pdf, tmp_path):
     first = [item for item in _textbook_page() if item[2] != "and that is the end."]
     second = [(72, 100, "and that is the end.", BODY)]

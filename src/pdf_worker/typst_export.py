@@ -17,7 +17,7 @@ from pathlib import Path
 import pymupdf
 import typst
 
-from pdf_worker.cover import cover_jpeg
+from pdf_worker.cover import translated_by
 from pdf_worker.docx_export import pandoc_path
 from pdf_worker.epub import _notes_title
 from pdf_worker.errors import PdfWorkerError
@@ -75,16 +75,14 @@ def write_pdf(
             raise PdfWorkerError(
                 "Pandoc's Typst template has no conf() call (a custom default.typst?)"
             ) from None
-        if cover:
-            (work / images).mkdir(exist_ok=True)
-            (work / images / "cover.jpg").write_bytes(cover_jpeg(meta))
         inputs = {
             "title": meta.title,
             "author": meta.author,
+            "translator": translated_by(meta) if meta.translator else "",
             "lang": meta.language.split("-")[0],
             "notes": notes_at,
             "notes-title": _notes_title(meta.language),
-            "cover": f"{images}/cover.jpg" if cover else "",
+            "cover": "text" if cover else "",  # set in type by the template, no picture
         }
         rules = TEMPLATE.read_text(encoding="utf-8")
         if source_only:  # baked in, so a plain `typst compile` needs no --input flags

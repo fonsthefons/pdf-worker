@@ -148,6 +148,27 @@ class Line:
         return bool(spans) and all(span["flags"] & BOLD for span in spans)
 
 
+TITLE_LABELS = ("doc_title", "paragraph_title")  # the layout model's title boxes
+_SECTION_NUMBER_RE = re.compile(r"\s*(?:(\d{1,3})\.|([IVXLC]{1,6})\.|([a-z])\))\s+\S")
+
+
+def line_font(line: Line) -> str | None:
+    """The one font a line's text is set in; None for a line of several, or none."""
+    fonts = {span.get("font", "") for span in line.spans if span["text"].strip()}
+    return fonts.pop() if len(fonts) == 1 else None
+
+
+def heading_style(line: Line) -> tuple[str, float, str] | None:
+    """How a numbered heading's line is set: (font, size, kind of number: "1.", "I." or
+    "a)"), its text in one font; None for a line not starting with a section number."""
+    number = _SECTION_NUMBER_RE.match(line.text)
+    font = line_font(line)
+    if not number or font is None:
+        return None
+    kind = "1." if number.group(1) else "I." if number.group(2) else "a)"
+    return font, round(line.size, 1), kind
+
+
 def page_lines(page: pymupdf.Page) -> list[Line]:
     """All text lines of a page in MuPDF reading order, with OCR fixes from
     ``pdf_worker.consensus``, re-read words (``pdf_worker.bilingual``), stored margin
@@ -357,6 +378,9 @@ class DocumentProfile:
     # Page index -> the layout model's boxes (``paddle_ocr.layout_pages``): bibliography
     # entries and paragraphs (``footnotes.layout_page``).
     layout: dict[int, dict] = field(default_factory=dict)
+    # The ``heading_style`` of numbered headings in the model's title boxes, seen at least
+    # twice: a box's first line set exactly so is a heading too (``footnotes.layout_page``).
+    title_styles: set[tuple[str, float, str]] = field(default_factory=set)
     # Sound page index -> a tagged PDF's structure tree (``pdf_tags.read_tags``): it gives
     # paragraph, list and heading structure; furniture and page tops stay with the rules,
     # and the layout model's titles still count.
@@ -425,8 +449,11 @@ def analyze_document(
     on_page: Callable[[int, int], None] | None = None,
     notes: str | None = None,
     notes_pages: Collection[int] = (),
+    layout: dict[int, dict] | None = None,
 ) -> DocumentProfile:
     """One pass over every page collecting font, spacing, margin and endnote statistics.
+    ``layout``: the layout model's boxes (``DocumentProfile.layout``), kept in the profile
+    with the styles of its numbered titles (``title_styles``).
     ``on_page(done, total)`` follows the pages. ``notes`` (a marks file's
     ``settings.notes``) says where the book prints its notes instead of the guess:
     ``page`` or ``none``, no chapter notes; ``chapter`` or ``book``, notes collected
@@ -454,11 +481,22 @@ def analyze_document(
     bracketed_pages = 0
     paren_refs: set[int] = set()
     word_counts: Counter[str] = Counter()
+    layout = layout or {}
+    title_styles: Counter[tuple[str, float, str]] = Counter()
     for page_index in range(doc.page_count):
         if on_page:
             on_page(page_index, doc.page_count)
         page = doc.load_page(page_index)
         lines = page_lines(page)
+        if page_index in layout:
+            row = layout[page_index]
+            found = boxes(page, row, lines)
+            for i, box in enumerate(found):
+                first = box is not None and (i == 0 or found[i - 1] != box)
+                if first and row["blocks"][box]["label"] in TITLE_LABELS:
+                    style = heading_style(lines[i])
+                    if style:
+                        title_styles[style] += 1
         rows = edge_rows(lines)
         height = page.rect.height
         margin_texts.update(
@@ -582,6 +620,8 @@ def analyze_document(
         chapter_notes=chapter_notes,
         page_labels=_page_labels(doc, offsets),
         body_fonts=_body_fonts(fonts),
+        layout=layout,
+        title_styles={style for style, n in title_styles.items() if n >= 2},
         repeated_images={
             xref
             for xref, n in image_pages.items()

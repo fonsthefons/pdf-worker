@@ -1,6 +1,7 @@
 // pdf-worker's rules for a book PDF (pdf_worker.typst_export), set right after Pandoc's
 // `#show: doc => conf(...)`, whose own page rules would override them. sys.inputs:
-// title, author, lang, notes ("page" or "end"), notes-title, cover ("" or a picture).
+// title, author, translator ("Traducción de ..." or ""), lang, notes ("page" or "end"),
+// notes-title, cover ("" for none).
 #let inputs = sys.inputs
 #set document(title: inputs.title)
 #set document(author: inputs.author) if inputs.author != ""
@@ -46,8 +47,22 @@
   }
 }
 
+// The text cover (pdf_worker.cover's layout): author, title in big type, translator.
 #if inputs.cover != "" {
-  page(margin: 0pt, numbering: none, image(inputs.cover, width: 100%, height: 100%))
+  page(numbering: none, {
+    set align(center)
+    set par(justify: false)
+    v(18%)
+    if inputs.author != "" {
+      text(size: 16pt, inputs.author)
+      v(40pt)
+    }
+    text(size: 28pt, weight: "bold", inputs.title)
+    if inputs.translator != "" {
+      v(40pt)
+      text(size: 12pt, style: "italic", inputs.translator)
+    }
+  })
 }
 // The contents, on its own page, when the book has headings.
 #context if query(heading).len() > 0 {

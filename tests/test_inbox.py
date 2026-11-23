@@ -95,7 +95,7 @@ def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):
         "drafts",
         "sample.epub",
         "sample.pdf",
-        "sample.typ",  # an EPUB input gives EPUB + PDF only
+        "sample.typ",  # an EPUB input gives EPUB + PDF only; its cover is text, no picture
     ]
     assert epub_mimetype.problem(out / "book.epub") is None
     assert epub_mimetype.problem(out / "sample.epub") is None

@@ -23,6 +23,7 @@ from pdf_worker import (
     font_sizes,
     glued_refs,
     margin_estimates,
+    outline,
     pdf_tags,
 )
 from pdf_worker.blocks_file import read_blocks, write_blocks
@@ -252,8 +253,8 @@ def convert_pdf(
                 on_page=step("reading the layout"),
                 notes=settings.notes,
                 notes_pages={index for index, kind in section_kinds.items() if kind == "notes"},
+                layout=layout_rows,
             )
-            profile.layout = layout_rows or {}
             profile.tags = (tags and pdf_tags.read_tags(doc)) or {}
             profile.sections = section_kinds
             if marked:
@@ -308,7 +309,18 @@ def convert_pdf(
             handle, name = tempfile.mkstemp(dir=output_path.parent, suffix=".blocks.jsonl")
             os.close(handle)
         try:
-            write_blocks(blocks, meta, saved or name)
+            if scanned:
+                write_blocks(blocks, meta, saved or name)
+            else:
+                # Two passes over the saved blocks: the headings' levels, then the book.
+                handle, built = tempfile.mkstemp(dir=output_path.parent, suffix=".blocks.jsonl")
+                os.close(handle)
+                try:
+                    write_blocks(blocks, meta, built)
+                    levels = outline.collect(read_blocks(built), doc.get_toc(), bool(marked))
+                    write_blocks(outline.apply(read_blocks(built), levels), meta, saved or name)
+                finally:
+                    Path(built).unlink(missing_ok=True)
             written = {
                 each: _write(each, read_blocks(saved or name), path, meta, notes_at, cover, step)
                 for each, path in outputs.items()
