@@ -390,6 +390,21 @@ off the Kindle over MTP: replug it, quit Calibre/OpenMTP, then
 Deleted highlights may still show. The database holds no typed notes, so none are added;
 highlights that can't be found in the book are listed.
 
+### Summarize a book
+
+```bash
+pdf-worker summarize BOOK.blocks.jsonl --section 'I. > 1.' --detail full --keep-bold --lang es
+```
+
+Summarizes parts of a converted book (its `.blocks.jsonl`; `--outline` lists the parts) with a
+free OpenRouter model. `--detail full` aims at 30% of the words, `normal` and `brief` less. The
+text goes out in pieces of about 1,500 words; at `full` their summaries are joined as they come,
+at `normal`/`brief` merged by one more request. Models: `baidu/ernie-5.5-flash-preview:free`,
+then `nvidia/nemotron-3-ultra-550b-a55b:free` only when ernie is gone from the free list (or no
+longer free). When ernie is only down, the run waits for it (30 s, 1, 2, 5, 10 min) and then
+stops: run it again later, finished parts are cached. `--model X` uses X only. The run reports
+which models answered and why one was left out.
+
 ### Find a free book online
 
 ```bash

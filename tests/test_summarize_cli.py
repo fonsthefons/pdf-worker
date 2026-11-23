@@ -13,6 +13,7 @@ class CliChat(FakeChat):
         super().__init__()
         self.client = SimpleNamespace(key=key)
         self.left = left
+        self.notes, self.answered = [], {}
 
     def requests_left(self):
         return self.left

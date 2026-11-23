@@ -12,6 +12,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
@@ -45,8 +46,9 @@ from pdf_worker.structure import (
     Table,
 )
 
-PROMPT_VERSION = 1  # part of every cache key: change it when the prompts change
+PROMPT_VERSION = 2  # part of every cache key: change it when the prompts change
 CEILING_WORDS = 30_000  # a part longer than this is summarized from its pieces' summaries
+PIECE_WORDS = 1_500  # longer parts are summarized in pieces: models keep more of short texts
 SHORT_WORDS = 80  # a part shorter than this is quoted, not summarized
 DETAIL = {"brief": 8, "normal": 15, "full": 30}  # the summary's usual share of the original, %
 TOKENS_PER_WORD = 1.6
@@ -82,16 +84,26 @@ MISSING_LABEL = {"es": "Términos destacados", "en": "Highlighted terms"}
 
 SYSTEM = (
     "You write a faithful summary of one part of an academic or religious text. Use only "
-    "what the text says, no outside knowledge. Keep who says what: tell the author's own "
-    "views apart from those of anyone quoted (a Father of the Church, a Pope, a "
-    "philosopher, Scripture). Keep technical and doctrinal terms and Latin or Greek terms "
-    "as the text has them. Keep every distinct idea: each argument, definition, "
-    "distinction and conclusion, and who is quoted for what. Drop repetition, digressions, "
-    "extra examples and rhetoric. Write about one sentence per idea, as many sentences as "
-    "the part holds; that is usually about {percent}% of the original. Write prose "
+    "what the text says, no outside knowledge. Keep the main ideas: the part's thesis, each "
+    "step of its argument, key definitions and distinctions, and its conclusions. Keep who "
+    "holds each main idea: tell the author's own views apart from those of anyone quoted "
+    "(a Father of the Church, a Pope, a philosopher, Scripture). Quote only a sentence that "
+    "carries a thesis; give another quotation's point in a few words, or leave it out. "
+    "Leave out explanations of metaphors, lists of examples or items (say what they have "
+    "in common instead), supporting quotations, digressions, repetition and restatements "
+    "of a point already made. Keep technical and doctrinal terms and Latin or Greek terms "
+    "as the text has them. Aim for about {percent}% of the original. Write prose "
     "paragraphs only: no headings, no lists, no Markdown, no preamble. Write in the "
     "language with the code '{lang}'."
 )
+TARGET = (
+    " Write about {target} words: the original has {original}. Reach that length by "
+    "saying each idea in fewer words, not by leaving ideas out."
+)
+PART = "Part (where it sits in the book; headings, not text to summarize): "
+PIECE = "This is piece {k} of {n} of the part"
+GOES_ON = " and continues the previous one: don't introduce the part again."
+PREVIOUS = "The summary of the previous piece ends: «{previous}». Don't repeat it."
 MERGE = (
     "The text below holds summaries of the part's pieces, each after its title, after the "
     "part's own text if it has any. Merge them into one summary of the whole part: usually "
@@ -107,7 +119,11 @@ FOLLOW = (
     "these phrases it left out: {missing}"
 )
 
-_STYLE_MARK = {(True, True): ITALIC, (True, False): END_ITALIC, (False, True): BOLD}
+MODELS = ("baidu/ernie-5.5-flash-preview:free", "nvidia/nemotron-3-ultra-550b-a55b:free")
+WAITS = (30, 60, 120, 300, 600)  # s before each new try of a model that is down
+_sleep = time.sleep  # tests replace it
+
+_STYLE_MARK ={(True, True): ITALIC, (True, False): END_ITALIC, (False, True): BOLD}
 # Numbering before a title: "II. ", "3 ", "1.2) ", "IV.- ".
 _NUMBERING_RE = re.compile(r"^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)(?:[.)\-–—:]+\s*|\s+))+")
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)*[.)]?|[ivxlc]+[.)]")  # a path part that is a numbering
@@ -225,8 +241,8 @@ def estimate(
     outline: Outline, nodes: list[Node], level: int | str, cache_path: str | Path, **opts
 ) -> int:
     """The requests ``summarize`` makes at most (cached answers cost none)."""
-    # shortcut: sized for CEILING_WORDS; a model with a smaller context splits more parts.
-    return _count(outline, nodes, level, cache_path, CEILING_WORDS, **opts)
+    # shortcut: sized for PIECE_WORDS; a model with a smaller context splits more parts.
+    return _count(outline, nodes, level, cache_path, min(PIECE_WORDS, CEILING_WORDS), **opts)
 
 
 def summarize(
@@ -244,7 +260,7 @@ def summarize(
     """Headings and summary paragraphs for ``nodes`` down to ``level`` (an outline depth,
     0: one summary per node, "all": the deepest). ``chat(system, user) -> (text, model)``."""
     opts = {"lang": lang, "detail": detail, "keep_bold": keep_bold, "fresh": fresh}
-    limit = min(CEILING_WORDS, chat.context_words())
+    limit = min(PIECE_WORDS, CEILING_WORDS, chat.context_words())
     total = _count(outline, nodes, level, cache_path, limit, **opts)
     run = _Run(outline, chat, cache_path, limit, True, on_progress, total, **opts)
     try:
@@ -295,50 +311,69 @@ def default_out_dir(blocks_path: str | Path) -> Path:
 
 
 class ModelChat:
-    """``(system, user) -> (text, model)`` by OpenRouter's free models: picked once, the
-    first kept while it answers, the next one after a failure."""
+    """``(system, user) -> (text, model)`` by the given model or else ``MODELS`` in turn:
+    the first ai-client can use is kept; a down one is waited for (``WAITS``), a gone one
+    is left for the next."""
 
     def __init__(self, model: str | None = None):
         self.client = ai_client.get_client("openrouter")
-        self.model = model
-        self.models: list[str] | None = None
-        self.failures: list[str] = []
+        self.candidates = [model] if model else list(MODELS)
+        self.model: str | None = None  # the current one, chosen on first use
+        self.notes: list[str] = []  # models left out, and why
+        self.answered: dict[str, int] = {}
+        self.on_wait: Callable[[str, int, int, Exception], None] | None = None
 
-    def _pick(self) -> list[str]:
+    def _next(self) -> str:
+        """The first candidate left that ai-client can use; the ones before it are noted."""
         if not self.client.key:
             raise SummarizeError("OPENROUTER_API_KEY is not set")
-        if self.models is None:
-            self.models = self.client.pick_models(self.model)
-            if not self.models:
-                raise SummarizeError("no free OpenRouter model is up")
-        return self.models
+        while self.candidates:
+            why = self.client.problem(self.candidates[0])
+            if not why:
+                self.model = self.candidates[0]
+                return self.model
+            self.notes.append(f"{self.candidates.pop(0)} is {why}")
+        raise SummarizeError("no model left: " + "; ".join(self.notes))
 
     def __call__(self, system: str, user: str) -> tuple[str, str]:
-        models = self._pick()
-        strikes = 0  # failures of models[0] in a row: a second one drops it
-        while models:
+        model = self.model or self._next()
+        waits = 0  # of WAITS, for this request
+        while True:
             left = self.client.requests_left()
             if left is not None and left <= 0:
                 raise SummarizeError("the free requests for today are used")
-            model = models[0]
             try:
                 text = self.client.chat(user, system, model=model, fallbacks=False, temperature=0.2)
-                return text, model
             except ai_client.AIClientError as error:
                 if error.per_day or _DAILY_RE.search(str(error)):
                     raise SummarizeError(f"the daily quota is used: {error}") from error
-                self.failures.append(f"{model}: {error}")
-                strikes += 1
-                if strikes == 2:
-                    models.pop(0)
-                    strikes = 0
-        raise SummarizeError("every model failed: " + " | ".join(self.failures[-3:]))
+                # the catalog behind problem() is ai-client's, fetched again every 10 minutes
+                why = self.client.problem(model)
+                status = error.status
+                if why:
+                    self.notes.append(f"{self.candidates.pop(0)} is {why}")
+                    model, waits = self._next(), 0
+                elif status == "length" or (
+                    isinstance(status, int) and 400 <= status < 500 and status not in (408, 429)
+                ):  # the same request fails the same way: waiting won't help
+                    raise SummarizeError(f"{model} refused the request ({error})") from error
+                elif waits == len(WAITS):
+                    raise SummarizeError(
+                        f"{model} is down ({error}); run again later: finished parts are cached"
+                    ) from error
+                else:
+                    if self.on_wait:
+                        self.on_wait(model, WAITS[waits], waits + 1, error)
+                    _sleep(WAITS[waits])
+                    waits += 1
+                continue
+            self.answered[model] = self.answered.get(model, 0) + 1
+            return text, model
 
     def context_words(self) -> int:
         """How many words of a part fit the current model's context, less the prompt and
         room for the answer."""
-        models = self._pick()
-        entry = self.client.catalog().get(models[0], {}) if models else {}
+        entry = self.client.catalog().get(self.model or self._next(), {})
         words = (entry.get("context_length") or DEFAULT_CONTEXT) / TOKENS_PER_WORD
         return max(SHORT_WORDS, int(words * 2 / 3) - PROMPT_WORDS)
 
@@ -543,8 +578,9 @@ class _Run:
         return out
 
     def summary(self, node: Node, intro: list = ()) -> str:
-        """The node's summary, by the rule for its size: quoted, asked, or merged from its
-        children's (or, for a leaf, its pieces') summaries."""
+        """The node's summary, by the rule for its size: quoted, asked, or from its
+        children's (or, for a leaf, its pieces') summaries: joined at full detail, else
+        merged."""
         path = " > ".join(n.title for n in _ancestors(node))
         units = _units(node, list(intro))
         words = _words(units)
@@ -554,6 +590,12 @@ class _Run:
             return "\n\n".join(plain(unit) for unit in quoted)
         if words <= self.limit:
             return self.ask(path, units, words, phrases)
+        if self.detail == "full":
+            if not node.children:
+                return "\n\n".join(self.pieces(path, units))
+            own = self.summary(replace(node, children=[]), intro)
+            parts = [own, *(self.summary(child) for child in node.children)]
+            return "\n\n".join(part for part in parts if part)
         if node.children:
             own = _units(node, list(intro), descendants=False)
             parts = self.pieces(path, own) if _words(own) > self.limit else own
@@ -571,15 +613,31 @@ class _Run:
                 chunk = []
             chunk.append(unit)
         parts.append(chunk)
-        bold = (_bold(c) if self.keep_bold else [] for c in parts)
-        return [self.ask(path, c, _words(c), b) for c, b in zip(parts, bold, strict=True)]
+        answers: list[str] = []  # in order: each piece is told how the previous one ended
+        for k, chunk in enumerate(parts, 1):
+            bold = _bold(chunk) if self.keep_bold else []
+            previous = answers[-1].split("\n\n")[-1] if answers else ""
+            piece = (k, len(parts), previous) if len(parts) > 1 else None
+            answers.append(self.ask(path, chunk, _words(chunk), bold, piece=piece))
+        return answers
 
     def ask(
-        self, path: str, units: list[str], original: int, phrases: list[str], merge=False
+        self,
+        path: str,
+        units: list[str],
+        original: int,
+        phrases: list[str],
+        merge=False,
+        piece: tuple[int, int, str] | None = None,
     ) -> str:
         text = "\n\n".join(plain(unit) for unit in units)
         guide = round(original * self.percent / 100)
-        user = f"Book: {self.meta.title}\nPart: {path}\n"
+        user = f"Book: {self.meta.title}\n{PART}{path}\n"
+        if piece:
+            k, n, previous = piece
+            user += PIECE.format(k=k, n=n) + (GOES_ON if k > 1 else ".") + "\n"
+            if k > 1:
+                user += PREVIOUS.format(previous=previous) + "\n"
         if merge:
             user += MERGE.format(percent=self.percent, original=original) + "\n"
         if phrases:
@@ -591,22 +649,31 @@ class _Run:
         key = hashlib.sha256(key.encode("utf-8")).hexdigest()
         if not self.fresh and key in self.cache:
             return self.cache[key]["summary"]
-        answer, model = self.send(user, path)
-        words = len(answer.split())
-        if words > len(text.split()) or words < guide / 10:
-            answer, model = self.send(user + RETRY.format(words=words, guide=guide), path)
-        missing = [phrase for phrase in phrases if not _find(answer, phrase)]
-        if missing:
-            follow = FOLLOW.format(answer=answer, missing="; ".join(missing))
-            again, model = self.send(user + follow, path)
-            answer = again or answer
+        system = SYSTEM.format(percent=self.percent, lang=self.lang)
+        system += TARGET.format(target=guide, original=original)
+        answer, model = self.send(system, user, path)
+        try:
+            words = len(answer.split())
+            # <=: an empty answer retries even when the guide rounds to 0 (so _count sees it)
+            if words > len(text.split()) or words <= guide / 10:
+                retry = RETRY.format(words=words, guide=guide)
+                answer, model = self.send(system, user + retry, path)
+            missing = [phrase for phrase in phrases if not _find(answer, phrase)]
+            if missing:
+                follow = FOLLOW.format(answer=answer, missing="; ".join(missing))
+                again, model = self.send(system, user + follow, path)
+                answer = again or answer
+        except SummarizeError:
+            if self.write and answer:  # keep the answer already paid for
+                self.cache[key] = {"summary": answer, "model": model}
+                _save(self.cache, self.cache_path)
+            raise
         if self.write:
             self.cache[key] = {"summary": answer, "model": model}
             _save(self.cache, self.cache_path)
         return answer
 
-    def send(self, user: str, path: str) -> tuple[str, str]:
-        system = SYSTEM.format(percent=self.percent, lang=self.lang)
+    def send(self, system: str, user: str, path: str) -> tuple[str, str]:
         text, model = self.chat(system, user)
         self.requests += 1
         if self.on_progress:
