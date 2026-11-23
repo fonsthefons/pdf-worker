@@ -1,5 +1,14 @@
 # Progress
 
+## Build once, keep the blocks (2026-11-23, branch `feature/blocks-once`)
+Each format used to be a full `convert_pdf` run (epub + pdf + typ = 3 builds, 3 reviews).
+Now `convert_pdf(..., also={fmt: path}, blocks_path=...)` builds the blocks once, saves them
+as JSON Lines (`blocks_file.py`; U+2028/2029 escaped) and writes every format from the file;
+`link_index` (epub/html/pdf/typ) and dropping pictures (txt) happen per format. The inbox
+keeps `file_work/<name>/<stem>.blocks.jsonl`. `tools/check.py build/compare` on main vs the
+branch: 0 diff lines on all 15 books, headings scores equal. Fast + integration tests pass.
+The `convert` CLI still writes one format and doesn't keep the blocks (not asked).
+
 ## .typ on every book (2026-11-23, branch `feature/typ-default`)
 `inbox.DEFAULT_FORMATS` is now epub, pdf, typ (user request): `process` keeps the reflowed
 PDF's Typst source (and `<stem>_images/`) in the outbox. Costs one more convert run per book.

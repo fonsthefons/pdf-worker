@@ -357,6 +357,11 @@ Put PDFs and ebooks (EPUB, FB2, MOBI, TXT) in `file_conversion/file_inbox/`. Eac
 - **Contents:** every EPUB has its contents as a page after the cover (not only in the reader's menu); every PDF has a contents page with links and an outline from its headings.
 - **PDF:** text layer checked; OCR'd when needed (as `kindle`: Tesseract plus Apple Vision votes, or `--engine paddle`), then `convert` to EPUB and PDF. No rows to review: done in one run. Otherwise drafts go to `file_outbox/drafts` and the run offers the review. The book then waits until `review` saves decisions; the next run rebuilds it into `file_outbox` (rows still undecided are reported), deletes the drafts and moves the original to `file_work/converted`.
 - A failing book is reported and the others go on; other files are skipped.
+- **Structure:** a book is built once; its structure is saved as
+  `file_work/<file name>/<stem>.blocks.jsonl` (line 1 the metadata, then one block per line:
+  `{"type": "Heading", "text": ..., "level": 1, "page": 3, ...}`; types Heading, Paragraph,
+  ListItem, Note, Gloss, Image (base64), Table, SectionStart) and every format is written
+  from it (`pdf_worker.blocks_file`).
 - **Report:** every build of a PDF or ebook writes `file_work/<file name>/report.md`, and
   the run prints its grade. It lists where the text came from and the text-layer check
   (scanned share, misread words); pages and pages with no text; words kept (the book's

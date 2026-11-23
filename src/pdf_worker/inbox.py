@@ -60,6 +60,7 @@ PREPARED = "prepared.json"  # in a work folder: how the text was obtained
 SETTINGS = "settings.json"  # in a work folder: the book's formats and convert options
 CHOSEN = "copy.json"  # in a folder book's work folder: the copy used, and why
 MARGIN_KINDS = ("margin-est", "margin-missing")  # the rows that hold a born-digital book
+BLOCKS = ".blocks.jsonl"  # <stem>.blocks.jsonl in a work folder: the book's structure
 SPREADS = ".spreads.pdf"  # <stem>.spreads.pdf in a work folder: the book's spreads cut
 # What a book can be made into; "searchable" is the PDF the book was built from (OCR'd).
 FORMATS = (*convert.FORMATS, "searchable")
@@ -429,6 +430,8 @@ def _build(
 ) -> convert.ConvertReport:
     """Write the book's formats into ``folder``; return the EPUB's report. The EPUB is
     always made (the report counts its words): in the work folder when not asked for.
+    The book is built once; its structure is kept as ``<stem>.blocks.jsonl`` in the work
+    folder (``pdf_worker.blocks_file``).
     ``layout``: the layout model's rows, for a book built from the text layer."""
     rows = None
     if (pdf.parent / PADDLE_MARK).exists():
@@ -437,27 +440,21 @@ def _build(
         with open_pdf(pdf) as doc:
             rows = paddle_pages(pdf, list(range(doc.page_count)))
     formats = settings.get("formats", DEFAULT_FORMATS)
-    built = ["epub", *(f for f in formats if f not in ("epub", "searchable"))]
-    homes = [folder if f in formats else pdf.parent for f in built]
-    reports = [
-        convert.convert_pdf(
-            pdf,
-            _outputs(home, stem, [fmt])[0],
-            fmt,
-            paddle_rows=rows,
-            on_step=None if rows else on_step,
-            # The original's PDF metadata and file name, not the copy's.
-            source_pdf=original if original.suffix.lower() == ".pdf" else pdf,
-            layout_rows=layout,
-            # Asked in the first build only: the others follow the rows it wrote.
-            sentence_check=fmt == built[0]
-            and bool(settings.get("sentence_check"))
-            and _is_scan(pdf.parent),
-            **{k: settings[k] for k in BOOK_OPTIONS if k in settings},
-        )
-        for fmt, home in zip(built, homes, strict=True)
-    ]
-    return reports[0]
+    also = {f: _outputs(folder, stem, [f])[0] for f in formats if f not in ("epub", "searchable")}
+    return convert.convert_pdf(
+        pdf,
+        _outputs(folder if "epub" in formats else pdf.parent, stem, ["epub"])[0],
+        "epub",
+        also=also,
+        blocks_path=pdf.parent / f"{stem}{BLOCKS}",
+        paddle_rows=rows,
+        on_step=None if rows else on_step,
+        # The original's PDF metadata and file name, not the copy's.
+        source_pdf=original if original.suffix.lower() == ".pdf" else pdf,
+        layout_rows=layout,
+        sentence_check=bool(settings.get("sentence_check")) and _is_scan(pdf.parent),
+        **{k: settings[k] for k in BOOK_OPTIONS if k in settings},
+    )
 
 
 def _outputs(folder: Path, stem: str, formats=FORMATS) -> list[Path]:
