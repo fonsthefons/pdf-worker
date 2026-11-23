@@ -1,5 +1,311 @@
 # Progress
 
+## Plan: summarize (2026-11-23)
+Goal: `pdf-worker summarize` summarizes a converted book, or chosen sections of it, at a
+chosen outline depth (or the finest), with free OpenRouter models only, read from the book's
+`<stem>.blocks.jsonl`, written as a blocks file of its own and turned into PDF/Typst/EPUB/Markdown
+by the existing writers, with an interactive picker for people who don't know the outline.
+Out of scope: a new JSON outline format (the blocks file is the structure); ai-client changes;
+fixing heading levels or lost headings (the outline plan's job); paid models; summarizing
+contents, bibliography, index or notes; packing small sibling sections into one request.
+Branch: feature/summarize (pdf-worker only)
+
+Decisions (user, 2026-11-23):
+- Input is the book's blocks file, not a new JSON.
+- Output is a blocks file in the same format (`blocks_file.write_blocks`): the shown headings
+  with their original `Heading.level`, each summary as Paragraph blocks. The formats in
+  `--to` (default `pdf,md`) are written from it by the writers `convert` uses, so the summary
+  PDF has the book's Typst template and, at `all`, the book's contents table and headings.
+- Batching follows sections, never word counts. Levels count outline depth (1 = top headings).
+  One rule for every level N: summaries go only on nodes at depth N and on leaves shallower
+  than N; every node above shows its heading only, never a summary. `all` = N is the deepest
+  depth; `0` = one summary per selected node. Example: 1 > 1.1-1.3, 2 > 2.1 > 2.1.a-b.
+  `all`: 1 (heading), 1.1, 1.2, 1.3 (summaries), 2 (heading), 2.1 (heading), 2.1.a, 2.1.b
+  (summaries). Level 2: 1 (heading), 1.1, 1.2, 1.3 (summaries), 2 (heading), 2.1 (summary of
+  all of 2.1, a and b included).
+- A summarized node sends its whole subtree's text in one request (subheadings as plain lines).
+- Ceiling: when a node's text is over CEILING_WORDS (30,000) or doesn't fit the model's context
+  (the catalog's `context_length`), it is built from its children's summaries (each made by the
+  same rule, cached, not shown) plus its own text; a leaf over the ceiling is split at
+  paragraph ends into parts under it, each summarized, then merged.
+- A heading-only node's own text (an introduction before its first subsection, e.g. III.'s
+  162 words) goes into its first child's input, labelled "Introduction to <title>", and down
+  the chain while that child is heading-only too. It never gets a summary of its own.
+- One model for the whole run: `pick_models()` once at the start, every request pinned to it
+  (`chat(model=m, fallbacks=False)`); on a failure move to the next picked one; each summary
+  records its model. `--model X` pins X alone.
+- Interactive: no `--section`, `--level` or `--outline` on a terminal → numbered outline with
+  words per section and request estimates per level; prompts for sections / level / detail /
+  keep-bold; confirm. `--section 7` takes the outline's numbers as well as heading paths.
+- Cache `<stem>.summaries.json` in the work folder, so reruns and other levels reuse summaries
+  and a run stopped by the daily quota resumes.
+- `--keep-bold`: the prompt asks for each bold phrase of the part word for word, without
+  formatting; the code finds each phrase in the answer (case and spacing ignored) and makes
+  that exact text bold in the summary blocks (`inline.styled(..., bold=True)`); any other
+  Markdown the model adds is stripped, so only those phrases are bold. Missing phrases: one
+  follow-up request naming them; still missing → listed in a paragraph under the summary.
+- Length without a word limit: the prompt keeps every distinct idea (argument, definition,
+  distinction, conclusion, who is quoted for what), drops repetition, digressions, extra
+  examples and rhetoric, about one sentence per idea, as many as the section holds; a soft
+  guide "usually about P% of the original" from `--detail brief|normal|full` (8/15/30%).
+  The code never cuts; it asks once more only when the answer is longer than the source or
+  under a tenth of the guide.
+- Output in the book's language (metadata `language`, `--lang` overrides).
+Defaults chosen while planning (not asked): a leaf whose input is under 80 words is quoted as
+it is, no request; the cache key holds the input text, options and prompt version but not the
+model (`--fresh` asks again); a run stopped part-way writes no output, its summaries stay
+cached; the summary's metadata title is "<word for summary in LANG>: <book title>" (a small
+dict es/en/fr/it/de/pt/la, else English); output files go to `<root>/file_outbox/` when the
+blocks file is in `<root>/file_work/<name>/`, else beside the blocks file, named
+`<stem>.summary-<level>[-s<numbers>].<ext>` (e.g. `...summary-all.pdf`, `...summary-1-s21.pdf`)
+plus the `.blocks.jsonl`; `--out-dir` overrides the folder.
+
+Facts found while planning:
+- `blocks_file.read_blocks(path)` / `read_metadata(path)` (src/pdf_worker/blocks_file.py:47-65);
+  blocks are flat, `Heading.level` 1-6 is the nesting. Types: Heading, Paragraph, ListItem,
+  Note, Gloss, Image, Table, SectionStart (`structure.Block`). `SectionStart.kind` is one of
+  `marks.SECTION_KINDS` (front, contents, introduction, main, notes, bibliography, index,
+  appendix, back): marked contents/notes/bibliography/index sections must be dropped.
+- Inline text: `inline.plain(text)` drops page marks (`N|M`), links, styles;
+  `inline.pieces(text)` yields str and `Style(italic, on)` (italic False = bold), inline.py:68-161;
+  `inline.is_contents_entry(text)` marks printed-contents paragraphs. Note refs `[^p2-1]`
+  match `structure.REF_RE`. Heading text carries page marks too ("69|70II. ..."):
+  always compare and print `plain(text)`.
+- Test book: `file_conversion/file_work/Apuntes de Introducción a la filosofía 1.pdf/Apuntes de
+  Introducción a la filosofía 1.blocks.jsonl`, 46,600 words, 43 headings, 195 Notes. Blocks
+  1-14: title page and a course outline echoing "I. / II. / III. / BIBLIOGRAFÍA" (headings
+  with < 100 words under them), then "METODOLOGÍA Y CALIFICACIÓN DEL CURSO" (137 words). Body:
+  I. (level 1) > "1."-"11." (level 2; the largest: "1." 6,400 words, "6." 8,340 words);
+  II. > "1."-"9."; III. > "1. La verdad" > "a)"-"g)" (level 3), "2."-"4.";
+  "BIBLIOGRAFÍA" level 1 at the end (1,564 words). About 45 bold spans, most in I. and in the
+  front-matter outline; "II. > 1." holds "el mejor instrumento para comprender la realidad".
+  `scratch/headings.py BLOCKS` prints headings with levels, `scratch/section_words.py BLOCKS`
+  words and bold spans per heading. Expected requests for the whole book (front-matter echo
+  and BIBLIOGRAFÍA skipped): `all` 32 (I.1-11, II.1-9, III.1.a-g with III.'s and III.1's
+  introductions folded into a), III.2-4, METODOLOGÍA; the 8-word title-page node quoted),
+  up to ~40 with `--keep-bold` (8 sections hold bold phrases); level 2: 25; level 1: 4 (I. is
+  28k words, under the ceiling); level 0: 5 (46.6k words is over the ceiling: I., II., III.,
+  METODOLOGÍA, then the merge). III. alone at `all`: 10. (Level 2: I.1-11, II.1-9, III.1-4
+  with III.'s introduction in III.1, METODOLOGÍA = 25.)
+- ai-client (`import ai_client`): `client = ai_client.OpenRouter(model=None)`;
+  `client.pick_models(model=None) -> list[str]` (up to 3 usable, up free models, best first,
+  providers.py:207-227); `client.chat(user, system, model=m, fallbacks=False, temperature=...)`
+  pins one model (raises `ai_client.AIClientError`; "free requests for today are used" when
+  the daily quota is spent); `client.last_model`; `client.requests_left() -> int | None`;
+  `client.key` empty when OPENROUTER_API_KEY is unset. 429s and 5xx already wait and retry in
+  `_http.request`. Thinking is off by default. No ai-client change is needed.
+- `pdf_worker/groq.py` is the pattern for a thin ai-client wrapper raising a PdfWorkerError.
+- Work folders: `inbox.WORK = "file_work"`, `inbox.OUTBOX = "file_outbox"`,
+  `inbox.BLOCKS = ".blocks.jsonl"` (inbox.py:54,63). A book in `<root>/file_inbox/X.pdf` has
+  its work folder at `<root>/file_work/X.pdf/`. `process --clean` deletes the whole work
+  folder of a finished book (`inbox.cleanable`, inbox.py:112-126), so a summary written there
+  would be lost: default output goes to `<root>/file_outbox/` when the blocks file sits in a
+  `file_work/<name>/` folder.
+- CLI: subcommands are added in `build_parser` (cli.py:1289-1312); `pdf-worker help` prints
+  `CHEAT_SHEET` (rows of command, description), which needs a summarize row.
+- Writers: `convert._write(fmt, blocks, path, meta, notes_at, cover, step)` (convert.py:361-384)
+  writes any of `convert.FORMATS` from blocks; its one caller is convert.py:325. `step(name,
+  unit)` returns a progress callback or None. `Heading(text, level, page=-1, top=0.0,
+  source="")`, `Paragraph(text, small=False, page=-1, top=0.0)` (structure.py:101-116);
+  `output.Metadata` has title, author, translator, language, publisher, year.
+
+- [x] S1 summarize library and its tests
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: src/pdf_worker/blocks_file.py, src/pdf_worker/inline.py:60-170,
+           src/pdf_worker/structure.py:91-168 (REF_RE, block dataclasses), src/pdf_worker/groq.py,
+           src/pdf_worker/inbox.py:50-65, src/pdf_worker/convert.py:300-385, tests/conftest.py
+  do: New `src/pdf_worker/summarize.py`, no printing/argparse/input. Rename `convert._write`
+      to `convert.write_format` (one caller, convert.py:325) and use it. API (S2 builds on it):
+      `find_blocks(path) -> Path` (a `.blocks.jsonl`, a work folder holding exactly one, or a
+      book in `file_inbox/` → its work folder's; else SummarizeError);
+      `load_outline(path, skip=()) -> Outline` (meta from read_metadata, root Node);
+      `Node`: number (1..n in reading order, after skips), depth (1 = top), level (the
+      Heading's), title (plain), paragraphs (own text, with inline markers), bold (phrases),
+      children, words (whole subtree);
+      `select(outline, specs) -> list[Node]` (each spec a number, or a heading path
+      "II. > 1.", each part a casefolded prefix of a descendant's title; none/several → a
+      SummarizeError listing candidates); `estimate(outline, nodes, level, cache_path, **opts)
+      -> int` (requests at most: a dry run with a counting fake chat; cache hits counted only
+      where the key is known); `summarize(outline, nodes, level, chat, cache_path, lang=None,
+      detail="normal", keep_bold=False, fresh=False, on_progress=None) -> list[Block]`
+      (Heading and Paragraph blocks); `write_summary(blocks, meta, out_dir, name, formats) ->
+      list[Path]` (the `.blocks.jsonl` via write_blocks, then each format via
+      write_format with notes_at="none", cover=True, step=lambda *a: None);
+      `summary_name(stem, level, nodes) -> str`; `default_out_dir(blocks_path) -> Path`;
+      `ModelChat(model=None)`: callable `(system, user) -> (text, model)`, picks models once,
+      pins, moves to the next on AIClientError, raises SummarizeError on the daily quota or
+      when all fail; `.context_words()` (the current model's `context_length` from
+      `client.catalog()` as words, ~1.6 tokens per word, less prompt and output room; unknown →
+      32k tokens); `.requests_left()`.
+      Tree: a Heading opens a node (pop the stack while top's heading level >= its level).
+      Paragraph/ListItem (label + text)/Table (cells joined " | ") text goes to the current
+      node; Note, Gloss, Image dropped; text = `plain` minus REF_RE refs; `is_contents_entry`
+      paragraphs dropped; after a SectionStart of kind contents/notes/bibliography/index every
+      block is dropped until the next SectionStart. Skips: a heading whose plain title, numbering
+      and accents stripped, casefolded, is contents/índice/indice/sumario/tabla de contenido/
+      bibliografía/bibliography/references/referencias/obras citadas/index/notas/notes drops
+      its subtree; outline echo: before the first node with >= 300 words of own text, a heading
+      whose normalized title recurs as a later heading is dropped with its text (only there,
+      so recurring "Conclusión" sections deeper in a book stay); `skip` prefixes drop subtrees.
+      Bold: bold spans from `pieces`, spans separated by whitespace only merged, surrounding
+      punctuation/quotes stripped, under 3 characters dropped, deduplicated.
+      Levels (see Decisions): `0` = one summary per selected node; `N` (int) = under each
+      selected node, nodes down to depth N; summaries on depth-N nodes and on leaves shallower
+      than N; every other shown node is a Heading only; a selected node deeper than N = level 0;
+      `"all"` = the deepest depth. A heading-only node's own paragraphs go into its first
+      child's input as "Introduction to <title>" (passed down while that child is heading-only
+      too). Selected nodes keep their ancestors as Heading blocks (each once, in order).
+      Output blocks: `Heading(plain title, node.level)` (no page marks: their page links would
+      point into the book), summaries as `Paragraph` blocks, one per paragraph of the answer.
+      Summarizing a node: input = its own text + its descendants' text with their titles as
+      plain lines (+ any forwarded introduction). Under 80 words: quoted as is, no request.
+      Over CEILING_WORDS (30,000) or `chat.context_words()`: summarize each child by this same
+      rule (cached, not shown), then one request from the node's own text + the children's
+      summaries labelled with their titles; a leaf over it is split at paragraph ends into
+      parts under it, each summarized, then merged.
+      Prompts (English instructions, answer in LANG = `lang` or the metadata's language):
+      faithful summary of an academic or religious text; no outside knowledge; keep who says
+      what (the author vs. a quoted Father, Pope, philosopher or Scripture); keep technical,
+      doctrinal and Latin/Greek terms; prose paragraphs, no headings, lists or Markdown, no
+      preamble; the part's heading path as context. Length (no word limit): keep every distinct
+      idea (argument, definition, distinction, conclusion, who is quoted for what), drop
+      repetition, digressions, extra examples and rhetoric, about one sentence per idea, as many
+      as the part holds; "usually about P% of the original" (`detail` brief/normal/full = 8/15/
+      30%); for a merge, P% of the original words the summaries stand for. One more request only
+      when the answer is longer than its input or under a tenth of the guide.
+      `keep_bold`: the part's phrases listed as required word for word in the original language,
+      without formatting. After the answer: strip Markdown (`**`, `__`, `*`, leading `#`/`-`),
+      find each phrase (casefold, whitespace collapsed; map the match back to the answer's own
+      characters) and wrap that span with `inline.styled(span, bold=True)`; missing ones: one
+      follow-up message naming them; still missing → a last Paragraph "<label in LANG>: phrase;
+      phrase" (es/en dict, else English). Merges require all phrases of the part.
+      Cache: JSON in the blocks file's folder (`<stem>.summaries.json`), key = sha256 of
+      (PROMPT_VERSION, input text, lang, detail, required phrases), value {summary, model};
+      written atomically after every new summary so a stopped run resumes; `fresh` ignores
+      hits. A run that stops raises SummarizeError("stopped after N of M requests; they are
+      cached, run again to continue"). `on_progress(done, total, title_path)`.
+      Tests (no network; a fake chat): tree and depths from a `write_blocks` fixture, page
+      marks and note refs gone, skips (named, SectionStart, outline echo only before the body,
+      `skip`), select by number and path incl. ambiguous; the Decisions' example tree at `all`,
+      level 2 and 0 (which nodes get headings only, which get summaries, never a parent
+      summary); introduction forwarded to the first child; ceiling → children + merge; leaf
+      split; under-80 quoted; length retry; bold: extraction, styled spans in the output text,
+      model Markdown stripped, retry, missing paragraph; cache hit/resume/fresh; ModelChat
+      sticking to one model and moving on on failure (fake client); write_summary writes the
+      blocks file and an `md` that round-trips the headings.
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes and `/Users/fons/Documents/programs/pdf-worker/.venv/bin/ruff check /Users/fons/Documents/programs/pdf-worker` is clean
+  return: <= 10 lines: files changed, the API as built (signatures), done result, anything surprising
+
+- [x] S2 summarize command, interactive picker and help
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: src/pdf_worker/summarize.py (S1's API), src/pdf_worker/cli.py:1-150 (CHEAT_SHEET,
+           imports), cli.py:711-748 (a command to copy), cli.py:1269-1322, the CLI tests file
+           (find with grep "build_parser" under tests/)
+  do: `_add_summarize_command` + handler, registered in `build_parser`, a CHEAT_SHEET row.
+      `pdf-worker summarize BOOK [--section S]... [--level N|all] [--detail brief|normal|full]
+      [--keep-bold] [--skip T]... [--outline] [--lang L] [--model M] [--fresh]
+      [--to pdf,md] [--out-dir DIR]`; BOOK as `find_blocks` takes it; `--to` values checked
+      against `convert.FORMATS`. The help text explains each option with the example book
+      ("--section 'II. > 1.'", "--section 7" from --outline, levels as outline depth with the
+      1 / 1.1 / 2.1.a example, what `all` gives), and an epilog with 3 examples.
+      `--outline`: numbered tree (number, indent by depth, title, words, bold count), then
+      "requests at most: level 0 ..., level 1 ..., ..., all ..." for the whole book; sends nothing.
+      Interactive when stdin and stdout are terminals and none of --section/--level/--outline:
+      print the outline; ask "Sections (numbers like 7,12; empty = whole book)", "Level
+      (0 = one summary, 1-D, all)" (D = deepest depth), "Detail (brief/normal/full) [normal]",
+      "Keep bold phrases word for word? [y/N]"; show the estimate and `requests_left()` (warn
+      when the estimate is larger); "Go? [Y/n]". Invalid answers ask again. Not a terminal
+      and no options: the whole book at level 0.
+      Progress: one line per request on stderr ("[3/14] II. > 2. Quién es filósofo").
+      Output: `write_summary` into `--out-dir` or `default_out_dir`; print each path written.
+      No OPENROUTER_API_KEY → a clean "Error:" saying where to set it (ai-client's .env).
+      Tests: parser options; `--outline` output; interactive flow with faked `input` and
+      terminal checks; non-terminal default; fake summarizer (monkeypatch) so no network.
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes, ruff check clean, and `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pdf-worker summarize "/Users/fons/Documents/programs/pdf-worker/file_conversion/file_work/Apuntes de Introducción a la filosofía 1.pdf" --outline` prints the I./II./III. tree with no front-matter echo or BIBLIOGRAFÍA
+  return: <= 10 lines: files changed, done result, the --outline output's first 15 lines
+
+- [x] S3 review the branch
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S2
+  context: the branch diff against main
+  do: Fresh-eyes review against this plan's Decisions: the level rule (never a summary on a
+      node with shown children), introductions forwarded, ceiling fallback, bold matching and
+      styling (spans mapped back correctly with accents, «», case at sentence starts), cache
+      key and resume, model sticking, quota stop writing no output, the write_format rename,
+      output paths (outbox, never into a work folder that `--clean` deletes). The conductor
+      fixes real findings inline (or with a sonnet/medium implementer) and re-runs S2's done.
+  done: the reviewer's findings are fixed or noted as accepted in the run log; S2's done passes
+  return: <= 10 lines: ranked findings
+
+- [x] S4 live run on the test book
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: low
+  after: S3
+  context: none
+  do: Budget about 15 requests (the free tier may allow 50 a day), on the Apuntes work folder
+      with `--out-dir /Users/fons/Documents/programs/pdf-worker/scratch/summaries`:
+      `--section "II. > 1." --keep-bold --to md` (1-2 requests); `--section "III." --level all
+      --to pdf,md` (10 requests); the same again (0 requests: cache). Check: Spanish; no note,
+      bibliography or front-matter text; in the III. output "III." and "1. La verdad" are
+      headings with no summary, a)-g) and 2.-4. have summaries; III.'s introduction shows up in
+      a)'s summary; the bold phrase is bold in the II.1 md; the PDF's contents table (a scratch
+      script printing `pymupdf.open(pdf).get_toc()`) lists the same III. headings as the book.
+      If OPENROUTER_API_KEY is missing or the quota is spent, note it under Blocked and go on.
+      Note summary faults (drift, invented content, wrong attribution, uneven lengths between
+      siblings) in the run log for the user.
+  done: the II.1 md contains "**el mejor instrumento para comprender la realidad**"; the III. pdf exists and its toc has III., 1. La verdad, a)-g), 2.-4.; the second III. run printed no request lines
+  return: <= 10 lines: what each run printed, faults seen in the summaries
+
+- [x] S5 commit, PR, merge
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: low
+  after: S4
+  context: none
+  do: Update PROGRESS.md's run log, then per CLAUDE.md git rules: commit on
+      feature/summarize, push, `gh pr create` against main, `gh pr merge --merge
+      --delete-branch`, `git -C /Users/fons/Documents/programs/pdf-worker checkout main`, then
+      `git -C /Users/fons/Documents/programs/pdf-worker pull` (separate calls, no cd).
+  done: `git -C /Users/fons/Documents/programs/pdf-worker status` clean on main
+  return: the PR number
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- S1 2026-11-23: pass (554 passed, ruff clean). Extras: `summary_meta(meta, lang)` builds the
+  summary title; S2 builds the cache path `<stem>.summaries.json` itself; `estimate` assumes a
+  30k-word context.
+- S2 2026-11-23: pass (561 passed, ruff clean; --outline shows I./II./III., no echo, no
+  BIBLIOGRAFÍA). Title-page headings 1-4 remain (not an echo). Estimates count a retry per
+  part, so "at most" doubles the plan's numbers (all 62 vs ~32).
+- S3 2026-11-23: pass after fixes (572 passed, ruff clean, outline unchanged). Fixed: section
+  order/nesting, echo only under 100 own words, --fresh quota message, bounded merge input,
+  bold matching NFC + word boundaries, OpenRouter daily 429 = quota and a model retried once
+  before being dropped, "1." matches only number 1, CLI help/flag/0-left fixes, no "Introduction
+  to" label in quoted parts. Accepted: the cache sits in the work folder (`process --clean`
+  deletes it); a finished book's original PDF isn't found; explicit `--detail normal` is still
+  asked about in a terminal.
+- S4 2026-11-23: pass. II.1 --keep-bold: 1 request, Spanish, all 4 bold phrases bold, incl.
+  "**el mejor instrumento para comprender la realidad**". III. --level all: 11 requests (d) got a
+  length retry), PDF toc = III., 1. La verdad, a)-g), 2.-4.; III.'s introduction (Ad Petri
+  Cathedram) opens a)'s summary; rerun sent 0 requests. Faults for the user: summaries run far
+  over the 15% guide (g) ~700 of 1,104 words in 7 paragraphs, 3. ~900 of 1,456 in one paragraph,
+  II.1 ~550 of 1,029), so lengths are uneven between siblings (b) 5 sentences, g) 7 paragraphs);
+  close paraphrase rather than condensation, with "El texto señala/cita" framing. No invented content
+  or wrong attributions spotted on a read-through. Worth a follow-up: a firmer length prompt or
+  a retry when the answer is over ~2x the guide.
+
 ## Plan: book-outline, phase 1: born-digital (2026-11-23)
 Goal: one outline step sets heading levels from structure the book already has, so all
 formats and the blocks file get the real nesting; phase 1 covers born-digital (text-layer)
