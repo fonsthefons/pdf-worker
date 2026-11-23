@@ -409,3 +409,27 @@ Conclusions:
 - Next: run B and C again without `--keep-bold` (2 requests) to see whether the follow-up
   causes the copying, and give C's first request "one line per section of the argument,
   including what quoted authors argue". Then `/plan-feature` the winner.
+
+## Round 2 (2026-11-23): without `--keep-bold`; C's skeleton covers every section
+
+Same text and model, `run.py ... --no-bold`; C's first request now says "every section of
+the argument gets at least one line, including a section made mostly of quotations".
+Outputs: `scratch/summ_exp/out2/`.
+
+| Run | Words | Share | Main ideas kept | Notes |
+|---|---|---|---|---|
+| B2 | 3,739 | 58% | 23 / 23 | Condenses well for the first two thirds (León XIV to El Escorial in ~450 words), then drifts: from Plato on (~1,300 words) it is a close paraphrase |
+| C2 | 4,222 | 66% | 23 / 23 | The skeleton had 235 lines, nearly one per sentence: "at least one line per section" became "a line per sentence", and the summary followed it |
+
+Conclusions:
+- `--keep-bold` makes it worse (B 88% → 58%) but isn't the root cause: with no follow-up the
+  model still stops condensing partway through a 6,400-word part.
+- The skeleton follows its instruction too literally either way: too few lines (C, 16%,
+  ideas lost) or one per sentence (C2, 66%). It doesn't fix the length on its own.
+- The pattern in A, B and B2: the start of a long part is condensed to about 30%, the end
+  is copied. The model condenses well over a short stretch, so the likely fix is smaller
+  pieces (about 1,500 words, cut at paragraph ends, as `pieces` already does at the context
+  limit), each summarized with B's prompt and joined without a merge request at
+  `--detail full`.
+- Next: D = B's prompt on ~1,500-word pieces, without and with `--keep-bold` (2 runs, about
+  5 requests each).

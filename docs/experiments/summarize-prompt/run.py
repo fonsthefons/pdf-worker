@@ -1,4 +1,4 @@
-"""Summarize prompt experiment: argv VARIANT(B|C|source) BLOCKS SECTION OUT_DIR.
+"""Summarize prompt experiment: argv VARIANT(B|C|source) BLOCKS SECTION OUT_DIR [--no-bold].
 
 B: a SYSTEM prompt that keeps main ideas and drops glosses, lists, supporting quotes.
 C: B's prompt, after a first request that lists the part's key ideas as a skeleton.
@@ -30,10 +30,12 @@ SYSTEM_B = (
 IDEAS = (
     "List the main ideas of one part of an academic or religious text, in the text's "
     "order: its thesis, each step of its argument, key definitions and distinctions, and "
-    "its conclusions. One short line per idea, saying who holds it when it is not the "
-    "author. Leave out examples, illustrations, supporting quotations and restatements. "
-    "Use only what the text says. Write in the language with the code '{lang}'. Write the "
-    "list only, no preamble."
+    "its conclusions. Go through the whole text: every section of the argument gets at "
+    "least one line, including a section made mostly of quotations, where the line says "
+    "what the quoted author argues and how the text uses it. One short line per idea, "
+    "saying who holds it when it is not the author. Leave out examples, illustrations and "
+    "restatements. Use only what the text says. Write in the language with the code "
+    "'{lang}'. Write the list only, no preamble."
 )
 SKELETON = (
     "\n\nThe key ideas of this part, the summary's skeleton: cover each, in this order, "
@@ -59,6 +61,7 @@ class Skeleton:
 
 def main():
     variant, blocks, section, out = sys.argv[1:5]
+    keep_bold = "--no-bold" not in sys.argv[5:]
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     outline = summ.load_outline(blocks)
@@ -73,12 +76,13 @@ def main():
         chat = Skeleton(chat, "es")
     blocks_out = summ.summarize(
         outline, nodes, 0, chat, out / f"cache-{variant}.json", lang="es", detail="full",
-        keep_bold=True, fresh=True,
+        keep_bold=keep_bold, fresh=True,
     )
     text = "\n\n".join(getattr(b, "text", "") for b in blocks_out if getattr(b, "text", ""))
     (out / f"{variant}.txt").write_text(text, "utf-8")
     if variant == "C":
         (out / "C-ideas.txt").write_text("\n\n====\n\n".join(chat.ideas.values()), "utf-8")
+    print(f"keep_bold={keep_bold}")
     words = len(text.split())
     print(f"{variant}: {words} words = {100 * words / nodes[0].words:.0f}% of {nodes[0].words}")
 
