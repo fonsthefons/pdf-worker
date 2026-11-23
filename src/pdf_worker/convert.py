@@ -2,10 +2,13 @@
 plain text, Word (.docx) or a reflowed PDF.
 
 Pipeline: layout analysis -> footnote detection -> structure (headings, paragraphs,
-notes) -> writer. Every stage works page by page.
+notes) -> saved blocks (``pdf_worker.blocks_file``) -> one writer per format. Every
+stage works page by page.
 """
 
+import os
 import re
+import tempfile
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
@@ -22,6 +25,7 @@ from pdf_worker import (
     margin_estimates,
     pdf_tags,
 )
+from pdf_worker.blocks_file import read_blocks, write_blocks
 from pdf_worker.cover import cover_jpeg
 from pdf_worker.document import open_pdf
 from pdf_worker.docx_export import write_docx
@@ -38,7 +42,16 @@ from pdf_worker.markdown_export import write_markdown
 from pdf_worker.marks import Settings
 from pdf_worker.ocr_check import assess_text_layer
 from pdf_worker.output import Metadata, WriteStats
-from pdf_worker.structure import REF_RE, Block, Heading, ListItem, Note, Paragraph, iter_blocks
+from pdf_worker.structure import (
+    REF_RE,
+    Block,
+    Heading,
+    Image,
+    ListItem,
+    Note,
+    Paragraph,
+    iter_blocks,
+)
 from pdf_worker.text_export import write_text
 from pdf_worker.tidy import tidy
 from pdf_worker.typst_export import write_pdf
@@ -134,8 +147,13 @@ def convert_pdf(
     marks: bool = True,
     tags: bool = True,
     sentence_check: bool = False,
+    also: dict[str, str | Path] | None = None,
+    blocks_path: str | Path | None = None,
 ) -> ConvertReport:
-    """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically).
+    """Convert ``pdf_path`` to ``fmt`` at ``output_path`` (written atomically), and to
+    each format of ``also`` (format -> path). The book's structure is built once, saved
+    to ``blocks_path`` (``pdf_worker.blocks_file``; default: a temporary file) and every
+    format is written from it. The report's ``stats`` are ``fmt``'s.
 
     Title, author, translator, publisher and year not given are found in the book
     (``pdf_worker.book_metadata``); when ``pdf_path`` is an OCR'd copy, ``source_pdf`` is
@@ -169,14 +187,18 @@ def convert_pdf(
     """
     if estimate_margin_refs:
         margin_refs = True
-    if fmt not in FORMATS:
-        raise UnsupportedFormatError(f"Unsupported format {fmt!r}; choose from {sorted(FORMATS)}")
+    outputs = {fmt: Path(output_path), **{f: Path(p) for f, p in (also or {}).items()}}
+    for each, path in outputs.items():
+        if each not in FORMATS:
+            raise UnsupportedFormatError(
+                f"Unsupported format {each!r}; choose from {sorted(FORMATS)}"
+            )
+        if path.resolve() == Path(pdf_path).resolve():
+            raise UnsupportedFormatError(f"The output would overwrite the input: {path}")
     if notes_at not in NOTE_PLACES:
         raise UnsupportedFormatError(f"Notes go at {' or '.join(NOTE_PLACES)}, not {notes_at!r}")
-    output_path = Path(output_path)
-    if output_path.resolve() == Path(pdf_path).resolve():
-        raise UnsupportedFormatError(f"The output would overwrite the input: {output_path}")
-    keep_images = images and fmt != "txt"
+    output_path = outputs[fmt]
+    keep_images = images and set(outputs) != {"txt"}
     restored: list[str] = []
     source_pdf = source_pdf or pdf_path
     with open_pdf(source_pdf) as source:
@@ -190,7 +212,7 @@ def convert_pdf(
         margin_refs = True  # the person marked some: the book has them
 
     steps = ["re-reading garbled words", "reading the layout", "building the book"]
-    steps += ["laying out the PDF"] * (fmt == "pdf") + ["sorting the flagged words"]
+    steps += ["laying out the PDF"] * ("pdf" in outputs) + ["sorting the flagged words"]
 
     def step(name: str, unit: str = "pages") -> Callable[[int, int], None] | None:
         if not on_step:
@@ -279,30 +301,22 @@ def convert_pdf(
         blocks = _referenced_notes(tidy(review.apply(blocks), meta.language))
         if notes_at == "none":
             blocks = drop_notes(blocks)
-        if fmt in ("epub", "html", "pdf", "typ"):
-            blocks = link_index(blocks)
         if marked:
             blocks = follow_marks.sections(blocks, marked)
-        if fmt == "epub":
-            stats = write_epub(blocks, output_path, meta, cover=cover_jpeg(meta) if cover else None)
-        elif fmt in ("pdf", "typ"):
-            stats = write_pdf(
-                blocks,
-                output_path,
-                meta,
-                notes_at=notes_at,
-                cover=cover,
-                on_pass=step("laying out the PDF", "passes") if fmt == "pdf" else None,
-            )
-        elif fmt == "docx":
-            stats = write_docx(blocks, output_path, meta, cover=cover)
-        else:
-            writer = {
-                "md": write_markdown,
-                "html": write_html,
-                "txt": write_text,
-            }[fmt]
-            stats = writer(blocks, output_path, meta)
+        saved = Path(blocks_path) if blocks_path else None
+        if saved is None:
+            handle, name = tempfile.mkstemp(dir=output_path.parent, suffix=".blocks.jsonl")
+            os.close(handle)
+        try:
+            write_blocks(blocks, meta, saved or name)
+            written = {
+                each: _write(each, read_blocks(saved or name), path, meta, notes_at, cover, step)
+                for each, path in outputs.items()
+            }
+        finally:
+            if saved is None:
+                Path(name).unlink(missing_ok=True)
+        stats = written[fmt]
     for index, kind, taken, other in unsure:  # re-read words to check (bilingual.mark_words)
         labels = profile.page_labels
         page = labels[index] if index < len(labels) else str(index + 1)
@@ -330,6 +344,32 @@ def convert_pdf(
         facing_pages=len(facing),
         reread_words=reread,
     )
+
+
+def _write(
+    fmt: str, blocks: Iterator[Block], path: Path, meta, notes_at, cover, step
+) -> WriteStats:
+    """Write the saved ``blocks`` as ``fmt``: index entries linked where links work,
+    no pictures in plain text."""
+    if fmt == "txt":
+        blocks = (block for block in blocks if not isinstance(block, Image))
+    if fmt in ("epub", "html", "pdf", "typ"):
+        blocks = link_index(blocks)
+    if fmt == "epub":
+        return write_epub(blocks, path, meta, cover=cover_jpeg(meta) if cover else None)
+    if fmt in ("pdf", "typ"):
+        return write_pdf(
+            blocks,
+            path,
+            meta,
+            notes_at=notes_at,
+            cover=cover,
+            on_pass=step("laying out the PDF", "passes") if fmt == "pdf" else None,
+        )
+    if fmt == "docx":
+        return write_docx(blocks, path, meta, cover=cover)
+    writer = {"md": write_markdown, "html": write_html, "txt": write_text}[fmt]
+    return writer(blocks, path, meta)
 
 
 def _reread_words(

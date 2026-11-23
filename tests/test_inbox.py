@@ -72,7 +72,7 @@ def test_the_sentence_check_reaches_the_build_of_scans_only(make_pdf, tmp_path, 
     shutil.copy(scan / inbox.INBOX / "b.pdf", work / "b.pdf")
     (work / inbox.PREPARED).write_text('{"ocr": true}')
     inbox.process(scan, settings={"sentence_check": True})
-    assert given == [True, False, False]  # the EPUB's build asks; PDF and .typ follow its rows
+    assert given == [True]  # one build for every format
 
 
 def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):
@@ -176,6 +176,7 @@ def test_book_to_review_waits_in_drafts_until_reviewed(make_pdf, tmp_path, monke
     assert (root / inbox.OUTBOX / "sample.typ").exists()
     assert (root / inbox.WORK / inbox.CONVERTED / "sample.pdf").exists()
     assert not (work / inbox.DRAFT_MARK).exists()
+    assert (work / f"sample{inbox.BLOCKS}").exists()
 
 
 def test_a_book_to_mark_waits_for_its_marks_beside_the_pdf_it_is_built_from(

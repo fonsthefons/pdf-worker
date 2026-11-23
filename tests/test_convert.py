@@ -5,6 +5,7 @@ import zipfile
 import pymupdf
 import pytest
 
+from pdf_worker.blocks_file import read_blocks, read_metadata
 from pdf_worker.cli import main
 from pdf_worker.convert import (
     UnsupportedFormatError,
@@ -652,6 +653,35 @@ def test_footnotes_become_markdown_notes(make_layout_pdf, tmp_path):
     assert "A claim[^p1-1]\n" in text
     assert text.endswith("[^p1-1]: The footnote text.\n\n")
     assert report.stats.notes == 1
+
+
+def test_one_build_writes_every_format_and_keeps_the_blocks(make_layout_pdf, tmp_path):
+    page = [
+        _body(100, "A claim"),
+        *_paragraph(130, FULL, "Filler paragraph."),
+        (72, 760, "1 A note.", 8),
+    ]
+    pdf = make_layout_pdf([page])
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    for fmt in ("md", "txt", "html"):
+        convert_pdf(pdf, alone / f"book.{fmt}", fmt)
+    blocks = tmp_path / "book.blocks.jsonl"
+
+    report = convert_pdf(
+        pdf,
+        tmp_path / "book.md",
+        "md",
+        also={f: tmp_path / f"book.{f}" for f in ("txt", "html")},
+        blocks_path=blocks,
+    )
+
+    for fmt in ("md", "txt", "html"):
+        assert (tmp_path / f"book.{fmt}").read_bytes() == (alone / f"book.{fmt}").read_bytes()
+    assert report.output_path == tmp_path / "book.md"
+    assert read_metadata(blocks).title == report.metadata.title
+    assert any(isinstance(b, Paragraph) and "A claim" in b.text for b in read_blocks(blocks))
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_markdown_escapes_syntax(make_layout_pdf, tmp_path):
