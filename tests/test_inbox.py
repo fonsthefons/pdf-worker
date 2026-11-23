@@ -72,7 +72,7 @@ def test_the_sentence_check_reaches_the_build_of_scans_only(make_pdf, tmp_path, 
     shutil.copy(scan / inbox.INBOX / "b.pdf", work / "b.pdf")
     (work / inbox.PREPARED).write_text('{"ocr": true}')
     inbox.process(scan, settings={"sentence_check": True})
-    assert given == [True, False]  # the EPUB's build asks; the PDF's follows its rows
+    assert given == [True, False, False]  # the EPUB's build asks; PDF and .typ follow its rows
 
 
 def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):
@@ -95,6 +95,7 @@ def test_born_digital_pdf_and_epub_are_finished_in_one_run(make_pdf, tmp_path):
         "drafts",
         "sample.epub",
         "sample.pdf",
+        "sample.typ",  # an EPUB input gives EPUB + PDF only
     ]
     assert epub_mimetype.problem(out / "book.epub") is None
     assert epub_mimetype.problem(out / "sample.epub") is None
@@ -153,7 +154,7 @@ def test_book_to_review_waits_in_drafts_until_reviewed(make_pdf, tmp_path, monke
 
     [first] = inbox.process(root)
     assert first.state == "draft"
-    assert sorted(p.name for p in drafts.iterdir()) == ["sample.epub", "sample.pdf"]
+    assert {"sample.epub", "sample.pdf", "sample.typ"} <= {p.name for p in drafts.iterdir()}
     assert (root / inbox.INBOX / "sample.pdf").exists()
 
     [second] = inbox.process(root)  # no decisions saved since the draft
@@ -172,6 +173,7 @@ def test_book_to_review_waits_in_drafts_until_reviewed(make_pdf, tmp_path, monke
     assert "Text: the PDF's own text layer" in (work / "report.md").read_text()
     assert list(drafts.iterdir()) == []
     assert (root / inbox.OUTBOX / "sample.epub").exists()
+    assert (root / inbox.OUTBOX / "sample.typ").exists()
     assert (root / inbox.WORK / inbox.CONVERTED / "sample.pdf").exists()
     assert not (work / inbox.DRAFT_MARK).exists()
 
@@ -255,7 +257,12 @@ def test_a_folder_of_copies_is_built_from_the_best_one(make_pdf, tmp_path):
     assert result.detail.startswith("copy used: good.pdf (2 pages, OCR: none")
     assert "not used: empty.pdf" in result.detail
     out = root / inbox.OUTBOX
-    assert sorted(p.name for p in out.iterdir()) == ["My Book.epub", "My Book.pdf", "drafts"]
+    assert sorted(p.name for p in out.iterdir()) == [
+        "My Book.epub",
+        "My Book.pdf",
+        "My Book.typ",
+        "drafts",
+    ]
     work = root / inbox.WORK
     assert "copy used: good.pdf" in (work / "My Book" / "report.md").read_text()
     assert sorted(p.name for p in (work / inbox.CONVERTED / "My Book").iterdir()) == [

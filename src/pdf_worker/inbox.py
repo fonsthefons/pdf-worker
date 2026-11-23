@@ -63,7 +63,7 @@ MARGIN_KINDS = ("margin-est", "margin-missing")  # the rows that hold a born-dig
 SPREADS = ".spreads.pdf"  # <stem>.spreads.pdf in a work folder: the book's spreads cut
 # What a book can be made into; "searchable" is the PDF the book was built from (OCR'd).
 FORMATS = (*convert.FORMATS, "searchable")
-DEFAULT_FORMATS = ("epub", "pdf")
+DEFAULT_FORMATS = ("epub", "pdf", "typ")
 BOOK_OPTIONS = ("title", "author", "language", "notes_at", "margin_refs")  # convert_pdf's
 _LAYOUT_SAID: set[str] = set()  # why the layout model is missing, once said
 
@@ -224,9 +224,7 @@ def _holding(rows, work: Path) -> tuple[list, int]:
     open_rows = review.open_rows(rows)
     if _is_scan(work):
         return open_rows, 0
-    margin = [
-        f for f in rows if f.kind in MARGIN_KINDS and not f.action and f.status != "stale"
-    ]
+    margin = [f for f in rows if f.kind in MARGIN_KINDS and not f.action and f.status != "stale"]
     return margin, len(open_rows)
 
 
@@ -475,6 +473,8 @@ def _finish(root: Path, entry: Path, detail: str) -> BookResult:
     """The book is in the outbox: drop its drafts and file its file (or folder) away."""
     for draft in _outputs(root / OUTBOX / DRAFTS, _stem(entry)):
         draft.unlink(missing_ok=True)
+    # The .typ and .md drafts' pictures.
+    shutil.rmtree(root / OUTBOX / DRAFTS / f"{_stem(entry)}_images", ignore_errors=True)
     (root / WORK / entry.name / DRAFT_MARK).unlink(missing_ok=True)
     filed = root / WORK / CONVERTED / entry.name
     if filed.is_dir():  # an earlier run's folder of copies
