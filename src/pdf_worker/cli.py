@@ -28,6 +28,7 @@ from pdf_worker import (
     virus_check,
 )
 from pdf_worker import convert as conversion
+from pdf_worker import summarize as summ
 from pdf_worker.errors import PdfWorkerError
 from pdf_worker.fixes import default_fixes_path, read_fixes
 from pdf_worker.text_extraction import (
@@ -1161,6 +1162,17 @@ CHEAT_SHEET = [
         ],
     ),
     (
+        "Summarize a converted book",
+        [
+            ("pdf-worker summarize book.pdf --outline", "Numbered outline, requests per level"),
+            ("pdf-worker summarize book.pdf", "Asks what to summarize (free OpenRouter model)"),
+            (
+                "pdf-worker summarize book.pdf --section 7 --level 3",
+                "Part 7, summaries at outline depth 3 (levels count from the top heading)",
+            ),
+        ],
+    ),
+    (
         "Raw text",
         [
             ("pdf-worker extract-text book.pdf", "The PDF's text as .txt, notes marked"),
@@ -1266,6 +1278,229 @@ def _run_virus_check(args: argparse.Namespace) -> int:
     return 2 if any(r.verdict in ("malicious", "suspicious") for r in reports) else 0
 
 
+def _level(text: str) -> int | str:
+    if text == "all":
+        return text
+    if not text.isdigit():
+        raise argparse.ArgumentTypeError(f"{text!r}: a number (0, 1, 2...) or 'all'")
+    return int(text)
+
+
+def _add_summarize_command(subparsers: argparse._SubParsersAction) -> None:
+    parser = subparsers.add_parser(
+        "summarize",
+        help="Summarize a converted book, part by part, with a free model.",
+        description="Summarize a book already converted (its .blocks.jsonl, see `convert`) "
+        "part by part with one of OpenRouter's free models, and write the summary like a "
+        "book. Answers are cached beside the blocks file, so a run stopped by the daily "
+        "quota resumes where it stopped. Needs OPENROUTER_API_KEY (environment, or "
+        "/Users/fons/Documents/programs/ai-client/.env). With no --section/--level/--outline "
+        "on a terminal it shows the book's outline and asks what to do.",
+        epilog="examples:\n"
+        "  pdf-worker summarize book.pdf --outline\n"
+        "      the numbered outline and the requests each level would cost; sends nothing\n"
+        "  pdf-worker summarize book.pdf --section 'II. > 1.' --level 1 --detail brief\n"
+        "  pdf-worker summarize book.pdf --section 7 --section 12 --keep-bold --to md\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "book",
+        type=Path,
+        help="The book: its .blocks.jsonl, its work folder in file_work/, or the book in "
+        "file_inbox/ (convert it first).",
+    )
+    parser.add_argument(
+        "--section",
+        action="append",
+        default=[],
+        metavar="S",
+        help="A part to summarize (repeatable; default: the whole book). Either a number "
+        "from --outline ('--section 7') or a heading path whose steps start the titles, "
+        "case ignored: --section 'II. > 1.' is part 1. of part II.",
+    )
+    parser.add_argument(
+        "--level",
+        type=_level,
+        metavar="N|all",
+        help="How finely to split: the outline's depth. 0 (default): one summary per "
+        "chosen part. 1: one per top heading (I., II.); 2: one per its subheadings (II. > "
+        "1.); 3: the next (II. > 1. > a)... with numbering 1 / 1.1 / 2.1.a, level 1 gives "
+        "1 and 2, level 2 gives 1.1 and 2.1, level 3 gives 2.1.a. Shallower headings are "
+        "kept as titles. all: one per deepest part (a part without subheadings is one "
+        "summary at any level).",
+    )
+    parser.add_argument(
+        "--detail",
+        choices=tuple(summ.DETAIL),
+        default="normal",
+        help="How long each summary is: brief (about 8%% of the original), normal (15%%, "
+        "default) or full (30%%).",
+    )
+    parser.add_argument(
+        "--keep-bold",
+        action="store_true",
+        help="Keep the book's bold phrases word for word, in bold (a second request asks "
+        "for any the summary left out; the rest are listed at the end).",
+    )
+    parser.add_argument(
+        "--skip",
+        action="append",
+        default=[],
+        metavar="T",
+        help="Leave out the parts whose title starts with T (repeatable), besides the "
+        "contents, notes, index and bibliography that are always left out.",
+    )
+    parser.add_argument(
+        "--outline",
+        action="store_true",
+        help="Print the numbered outline (number, title, words, bold phrases) and the "
+        "most requests each level would take, for the whole book; sends nothing.",
+    )
+    parser.add_argument("--lang", help="Language of the summary (default: the book's).")
+    parser.add_argument("--model", help="An OpenRouter free model (default: the best one up).")
+    parser.add_argument(
+        "--fresh", action="store_true", help="Ignore the cached answers and ask again."
+    )
+    parser.add_argument(
+        "--to",
+        type=lambda text: [f.strip() for f in text.split(",") if f.strip()],
+        default=["pdf", "md"],
+        help=f"Formats to write, comma-separated, from {', '.join(conversion.FORMATS)} "
+        "(default: pdf,md). The summary's .blocks.jsonl is always written.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        help="Folder for the results (default: file_outbox for a book in file_work, "
+        "else the blocks file's folder).",
+    )
+    parser.set_defaults(handler=_run_summarize)
+
+
+def _yes(default: bool):
+    """A parser for `_ask`: y/n, the empty answer being ``default``."""
+
+    def parse(text: str) -> bool:
+        if text.lower() not in ("", "y", "yes", "n", "no"):
+            raise ValueError("y or n")
+        return default if not text else text.lower() in ("y", "yes")
+
+    return parse
+
+
+def _ask_parsed(prompt: str, parse):
+    """``input(prompt)`` until ``parse(answer)`` returns without a ValueError."""
+    while True:
+        try:
+            return parse(input(f"{prompt}: ").strip())
+        except ValueError as exc:
+            print(f"  {exc}")
+
+
+def _print_outline(outline, estimates: dict) -> None:
+    for node in outline.nodes():
+        bold = f", {len(node.bold)} bold" if node.bold else ""
+        indent = "  " * (node.depth - 1)
+        print(f"{node.number:>4}  {indent}{node.title}  ({node.words} words{bold})")
+    print(
+        "requests at most: "
+        + ", ".join(f"{'all' if k == 'all' else f'level {k}'} {v}" for k, v in estimates.items())
+    )
+
+
+def _summarize_questions(args: argparse.Namespace, outline, depth: int) -> None:
+    """Fill ``args`` from the user's answers."""
+
+    def sections(text: str):
+        specs = [part.strip() for part in text.split(",") if part.strip()]
+        try:
+            summ.select(outline, specs)
+        except summ.SummarizeError as exc:
+            raise ValueError(exc) from exc
+        return specs
+
+    def level(text: str):
+        try:
+            value = _level(text)
+        except argparse.ArgumentTypeError as exc:
+            raise ValueError(exc) from exc
+        return value
+
+    def detail(text: str):
+        if text not in summ.DETAIL:
+            raise ValueError("brief, normal or full")
+        return text
+
+    args.section = _ask_parsed("Sections (numbers like 7,12; empty = whole book)", sections)
+    args.level = _ask_parsed(f"Level (0 = one summary, 1-{depth}, all)", level)
+    if args.detail == "normal":  # not given on the command line
+        args.detail = _ask_parsed(
+            "Detail (brief/normal/full) [normal]", lambda t: detail(t or "normal")
+        )
+    if not args.keep_bold:
+        args.keep_bold = _ask_parsed("Keep bold phrases word for word? [y/N]", _yes(False))
+
+
+def _run_summarize(args: argparse.Namespace) -> int:
+    for fmt in args.to:
+        if fmt not in conversion.FORMATS:
+            raise PdfWorkerError(
+                f"unknown format {fmt!r}; choose from {', '.join(conversion.FORMATS)}"
+            )
+    blocks_path = summ.find_blocks(args.book)
+    stem = blocks_path.name[: -len(inbox.BLOCKS)]
+    cache = blocks_path.with_name(f"{stem}.summaries.json")
+    outline = summ.load_outline(blocks_path, args.skip)
+    depth = max((node.depth for node in outline.nodes()), default=0)
+    opts = {"lang": args.lang, "detail": args.detail, "keep_bold": args.keep_bold}
+    if args.outline:
+        top = summ.select(outline, [])
+        levels = [*range(depth + 1), "all"]
+        _print_outline(outline, {k: summ.estimate(outline, top, k, cache, **opts) for k in levels})
+        return 0
+    chat = summ.ModelChat(args.model)
+    if not chat.client.key:
+        raise PdfWorkerError(
+            "OPENROUTER_API_KEY is not set: put it in the environment or in "
+            "/Users/fons/Documents/programs/ai-client/.env"
+        )
+    asking = (
+        sys.stdin.isatty() and sys.stdout.isatty() and not (args.section or args.level is not None)
+    )
+    if asking:
+        levels = [*range(depth + 1), "all"]
+        _print_outline(
+            outline,
+            {k: summ.estimate(outline, summ.select(outline, []), k, cache, **opts) for k in levels},
+        )
+        _summarize_questions(args, outline, depth)
+        opts = {"lang": args.lang, "detail": args.detail, "keep_bold": args.keep_bold}
+    level = 0 if args.level is None else args.level
+    nodes = summ.select(outline, args.section)
+    needed = summ.estimate(outline, nodes, level, cache, **opts)
+    if asking:
+        left = chat.requests_left()
+        over = left is not None and needed > left
+        warn = "  WARNING: more than the free requests left today" if over else ""
+        print(f"At most {needed} requests; {'unknown' if left is None else left} left today.{warn}")
+        if not _ask_parsed("Go? [Y/n]", _yes(True)):
+            return 0
+
+    def on_progress(done: int, total: int, path: str) -> None:
+        print(f"[{done}/{total}] {path}", file=sys.stderr)
+
+    blocks = summ.summarize(
+        outline, nodes, level, chat, cache, fresh=args.fresh, on_progress=on_progress, **opts
+    )
+    name = summ.summary_name(stem, level, nodes if args.section else [])
+    out_dir = args.out_dir or summ.default_out_dir(blocks_path)
+    for path in summ.write_summary(
+        blocks, summ.summary_meta(outline.meta, args.lang), out_dir, name, args.to
+    ):
+        print(f"Wrote {path}")
+    return 0
+
+
 def _add_help_command(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "help",
@@ -1308,6 +1543,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_mark_command(subparsers)
     _add_process_command(subparsers)
     _add_virus_check_command(subparsers)
+    _add_summarize_command(subparsers)
     _add_help_command(subparsers)
     return parser
 

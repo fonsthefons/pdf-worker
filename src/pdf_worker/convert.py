@@ -322,7 +322,9 @@ def convert_pdf(
                 finally:
                     Path(built).unlink(missing_ok=True)
             written = {
-                each: _write(each, read_blocks(saved or name), path, meta, notes_at, cover, step)
+                each: write_format(
+                    each, read_blocks(saved or name), path, meta, notes_at, cover, step
+                )
                 for each, path in outputs.items()
             }
         finally:
@@ -358,7 +360,7 @@ def convert_pdf(
     )
 
 
-def _write(
+def write_format(
     fmt: str, blocks: Iterator[Block], path: Path, meta, notes_at, cover, step
 ) -> WriteStats:
     """Write the saved ``blocks`` as ``fmt``: index entries linked where links work,
