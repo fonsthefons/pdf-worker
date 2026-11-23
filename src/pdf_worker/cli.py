@@ -1489,9 +1489,19 @@ def _run_summarize(args: argparse.Namespace) -> int:
     def on_progress(done: int, total: int, path: str) -> None:
         print(f"[{done}/{total}] {path}", file=sys.stderr)
 
-    blocks = summ.summarize(
-        outline, nodes, level, chat, cache, fresh=args.fresh, on_progress=on_progress, **opts
-    )
+    def on_wait(model: str, seconds: int, attempt: int, error: Exception) -> None:
+        print(f"{model} is down ({error}); wait {attempt}: {seconds} s", file=sys.stderr)
+
+    chat.on_wait = on_wait
+    try:
+        blocks = summ.summarize(
+            outline, nodes, level, chat, cache, fresh=args.fresh, on_progress=on_progress, **opts
+        )
+    finally:  # a stopped run reports its notes too
+        for note in chat.notes:
+            print(f"Note: {note}", file=sys.stderr)
+        answered = ", ".join(f"{model} {n}" for model, n in chat.answered.items())
+        print(f"Answers: {answered or 'none (all cached)'}", file=sys.stderr)
     name = summ.summary_name(stem, level, nodes if args.section else [])
     out_dir = args.out_dir or summ.default_out_dir(blocks_path)
     for path in summ.write_summary(

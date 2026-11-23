@@ -35,12 +35,13 @@ def book(tmp_path):
 
 class FakeChat:
     def __init__(self, reply=None, context=sm.CEILING_WORDS):
-        self.calls = []
+        self.calls, self.systems = [], []
         self.reply = reply or (lambda user, n: f"Resumen de {_part(user)}. {words(10, 'idea')}")
         self.context = context
 
     def __call__(self, system, user):
         self.calls.append(user)
+        self.systems.append(system)
         return self.reply(user, len(self.calls)), "fake"
 
     def context_words(self):
@@ -48,7 +49,7 @@ class FakeChat:
 
 
 def _part(user):
-    return next(line for line in user.splitlines() if line.startswith("Part: "))[6:]
+    return next(line for line in user.splitlines() if line.startswith(sm.PART))[len(sm.PART) :]
 
 
 def example_tree():
@@ -254,11 +255,63 @@ def test_over_the_ceiling_children_then_merge(book, tmp_path):
 def test_long_leaf_split_at_paragraph_ends(book, tmp_path):
     path = book([Heading("Uno", 1), *[Paragraph(words(100, f"p{i}")) for i in range(3)]])
     outline = sm.load_outline(path)
-    chat = FakeChat(context=250)
+    chat = FakeChat(reply=lambda user, n: f"Primero {words(20)}\n\nFinal {n}. {words(20)}")
+    chat.context = 250
     sm.summarize(outline, outline.root.children, 0, chat, tmp_path / "c.json")
     assert len(chat.calls) == 3
     assert "p0" in chat.calls[0] and "p1" in chat.calls[0] and "p2" not in chat.calls[0]
     assert "p2" in chat.calls[1] and "Merge" in chat.calls[2]
+    assert "This is piece 1 of 2 of the part.\n" in chat.calls[0]
+    assert "previous" not in chat.calls[0]
+    assert "This is piece 2 of 2 of the part and continues the previous one" in chat.calls[1]
+    assert f"previous piece ends: «Final 1. {words(20)}». Don't repeat it." in chat.calls[1]
+    assert "Primero" not in chat.calls[1]
+
+
+def test_full_detail_joins_pieces_and_children_without_merge(book, tmp_path):
+    path = book([Heading("Uno", 1), *[Paragraph(words(100, f"p{i}")) for i in range(3)]])
+    outline = sm.load_outline(path)
+    chat = FakeChat(reply=lambda user, n: f"Resumen {n}. {words(10, 'idea')}", context=250)
+    blocks = sm.summarize(
+        outline, outline.root.children, 0, chat, tmp_path / "c.json", detail="full"
+    )
+    assert len(chat.calls) == 2 and not any("Merge" in call for call in chat.calls)
+    assert [b.text.split(".")[0] for b in blocks[1:]] == ["Resumen 1", "Resumen 2"]
+
+    outline = sm.load_outline(book(example_tree(), name="arbol"))
+    chat = FakeChat(reply=lambda user, n: f"Resumen {n}. {words(10, 'idea')}", context=150)
+    blocks = sm.summarize(
+        outline, sm.select(outline, [1]), 0, chat, tmp_path / "d.json", detail="full"
+    )
+    assert len(chat.calls) == 3 and not any("Merge" in call for call in chat.calls)
+    texts = [b.text.split(".")[0] for b in blocks[1:]]
+    assert texts == ["Resumen 1", "Resumen 2", "Resumen 3"]  # no child titles
+
+
+def test_prompt_wording(book, tmp_path):
+    outline = sm.load_outline(book([Heading("Uno", 1), Paragraph(words(100))]))
+    chat = FakeChat()
+    sm.summarize(outline, outline.root.children, 0, chat, tmp_path / "c.json", detail="brief")
+    assert chat.systems[0].endswith(
+        "Write about 8 words: the original has 100. Reach that length "
+        "by saying each idea in fewer words, not by leaving ideas out."
+    )
+    assert "Aim for about 8% of the original" in chat.systems[0]
+    assert (
+        "\nPart (where it sits in the book; headings, not text to summarize): Uno\n"
+        in chat.calls[0]
+    )
+
+
+@pytest.mark.parametrize("detail", ["normal", "full"])
+def test_estimate_equals_the_requests_sent(book, tmp_path, detail):
+    path = book([Heading("Uno", 1), *[Paragraph(words(500, f"p{i}")) for i in range(4)]])
+    outline = sm.load_outline(path)
+    nodes, cache = outline.root.children, tmp_path / "c.json"
+    chat = FakeChat(reply=lambda user, n: "")  # every answer too short: each is asked again
+    sm.summarize(outline, nodes, 0, chat, cache, detail=detail, fresh=True)
+    assert sm.estimate(outline, nodes, 0, tmp_path / "none.json", detail=detail) == len(chat.calls)
+    assert len(chat.calls) == 2 * (3 if detail == "normal" else 2)  # two pieces (and the merge)
 
 
 def test_length_retry(book, tmp_path):
@@ -324,43 +377,109 @@ def test_cache_hit_resume_and_fresh(book, tmp_path):
     assert len(again.calls) == 5
 
 
-class FakeClient:
-    def __init__(self, fail=(), per_day=False):
-        self.key, self.fail, self.per_day, self.sent = "k", set(fail), per_day, []
+ERNIE, ULTRA = sm.MODELS
 
-    def pick_models(self, model=None):
-        return [model] if model else ["a", "b"]
+
+class FakeClient:
+    """``fail``: model -> how many requests fail as down; ``gone``: models the catalog lacks."""
+
+    def __init__(self, fail=None, per_day=False, gone=()):
+        self.key, self.per_day, self.sent = "k", per_day, []
+        self.fail, self.gone, self.status = dict(fail or {}), set(gone), 503
+
+    def problem(self, model):
+        return "gone" if model in self.gone else ""
 
     def requests_left(self):
         return 10
 
     def catalog(self):
-        return {"a": {"context_length": 16_000}}
+        return {ERNIE: {"context_length": 16_000}}
 
     def chat(self, user, system, model, fallbacks, **options):
         assert fallbacks is False
+        if model in self.gone:
+            raise AIClientError(f"OpenRouter: {model} is not usable or not up.")
         self.sent.append(model)
-        if model in self.fail:
-            raise AIClientError("down", status=503, per_day=self.per_day)
+        if self.fail.get(model, 0) > 0:
+            self.fail[model] -= 1
+            raise AIClientError("down", status=self.status, per_day=self.per_day)
         return "ok"
 
 
-def test_model_chat_sticks_to_a_model_and_moves_on(monkeypatch):
-    client = FakeClient(fail={"a"})
-    monkeypatch.setattr(sm.ai_client, "get_client", lambda name: client)
+@pytest.fixture
+def client(monkeypatch):
+    fake = FakeClient()
+    monkeypatch.setattr(sm.ai_client, "get_client", lambda name: fake)
+    return fake
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    slept = []
+    monkeypatch.setattr(sm, "_sleep", slept.append)
+    return slept
+
+
+def test_model_chat_skips_a_gone_model(client):
+    client.gone.add(ERNIE)
     chat = sm.ModelChat()
-    assert chat.context_words() == 10_000 * 2 // 3 - sm.PROMPT_WORDS
-    assert chat("s", "u") == ("ok", "b")
-    assert chat("s", "u") == ("ok", "b")
-    assert client.sent == ["a", "a", "b", "b"]  # a model gets a second try before it is dropped
+    assert chat("s", "u") == ("ok", ULTRA)
+    assert client.sent == [ULTRA] and chat.notes == [f"{ERNIE} is gone"]
     assert chat.context_words() == int(sm.DEFAULT_CONTEXT / 1.6 * 2 / 3) - sm.PROMPT_WORDS
-    client.fail.add("b")
-    with pytest.raises(sm.SummarizeError, match="every model failed"):
+
+
+def test_model_chat_waits_for_a_down_model(client, sleeps):
+    client.fail[ERNIE] = 2
+    chat = sm.ModelChat()
+    waited = []
+    chat.on_wait = lambda model, seconds, attempt, error: waited.append((model, seconds, attempt))
+    assert chat.context_words() == 10_000 * 2 // 3 - sm.PROMPT_WORDS
+    assert chat("s", "u") == ("ok", ERNIE)
+    assert sleeps == [30, 60] and waited == [(ERNIE, 30, 1), (ERNIE, 60, 2)]
+    client.fail[ERNIE] = 1
+    assert chat("s", "u") == ("ok", ERNIE)
+    assert sleeps == [30, 60, 30]  # the waits start over after an answer
+    assert ULTRA not in client.sent and chat.answered == {ERNIE: 2}
+
+
+def test_model_chat_down_through_every_wait_stops(client, sleeps):
+    client.fail[ERNIE] = 99
+    with pytest.raises(sm.SummarizeError, match="is down .*run again later"):
+        sm.ModelChat()("s", "u")
+    assert sleeps == list(sm.WAITS) and client.sent == [ERNIE] * (len(sm.WAITS) + 1)
+
+
+def test_model_chat_moves_on_when_a_model_goes(client):
+    chat = sm.ModelChat()
+    assert chat("s", "u") == ("ok", ERNIE)
+    client.gone.add(ERNIE)
+    assert chat("s", "u") == ("ok", ULTRA)
+    assert chat.notes == [f"{ERNIE} is gone"] and chat.answered == {ERNIE: 1, ULTRA: 1}
+    client.gone.add(ULTRA)
+    with pytest.raises(sm.SummarizeError, match=f"no model left: {ERNIE} is gone; {ULTRA} is gone"):
         chat("s", "u")
 
 
-def test_model_chat_stops_on_the_daily_quota(monkeypatch):
-    monkeypatch.setattr(sm.ai_client, "get_client", lambda name: FakeClient({"a"}, per_day=True))
+def test_model_chat_given_model_is_the_only_one(client, sleeps):
+    client.fail["x"] = 99
+    with pytest.raises(sm.SummarizeError, match="x is down"):
+        sm.ModelChat("x")("s", "u")
+    client.gone.add("x")
+    with pytest.raises(sm.SummarizeError, match="x is gone"):
+        sm.ModelChat("x")("s", "u")
+    assert set(client.sent) == {"x"}
+
+
+def test_model_chat_stops_at_once_on_a_refused_request(client, sleeps):
+    client.fail[ERNIE], client.status = 1, 400
+    with pytest.raises(sm.SummarizeError, match="refused the request"):
+        sm.ModelChat()("s", "u")
+    assert sleeps == [] and client.sent == [ERNIE]
+
+
+def test_model_chat_stops_on_the_daily_quota(client):
+    client.fail[ERNIE], client.per_day = 1, True
     with pytest.raises(sm.SummarizeError, match="daily quota"):
         sm.ModelChat()("s", "u")
 
@@ -453,7 +572,7 @@ def test_short_part_quote_has_no_introduction_label(book, tmp_path):
     assert blocks[2:] == [Paragraph("Intro corta."), Paragraph("Poco.")]
 
 
-def test_model_chat_daily_429_message_is_the_quota_and_transient_failures_retry(monkeypatch):
+def test_model_chat_daily_429_message_is_the_quota(monkeypatch):
     class Daily(FakeClient):
         def chat(self, user, system, model, fallbacks, **options):
             raise AIClientError("429 free-models-per-day limit exceeded", status=429)
@@ -461,18 +580,6 @@ def test_model_chat_daily_429_message_is_the_quota_and_transient_failures_retry(
     monkeypatch.setattr(sm.ai_client, "get_client", lambda name: Daily())
     with pytest.raises(sm.SummarizeError, match="daily quota"):
         sm.ModelChat()("s", "u")
-
-    class Flaky(FakeClient):
-        def chat(self, user, system, model, fallbacks, **options):
-            self.sent.append(model)
-            if len(self.sent) == 1:
-                raise AIClientError("timeout", status=503)
-            return "ok"
-
-    client = Flaky()
-    monkeypatch.setattr(sm.ai_client, "get_client", lambda name: client)
-    assert sm.ModelChat()("s", "u") == ("ok", "a")
-    assert client.sent == ["a", "a"]
 
 
 def test_exact_numbering_in_a_path(book):

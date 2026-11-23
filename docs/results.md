@@ -517,3 +517,21 @@ Conclusions:
 - For `/plan-feature`: E1500 with the model order ernie, ultra, dots, ling. ernie is a
   "preview" model that may be withdrawn, so keep ultra second. Report a fallback
   instead of hiding it.
+
+## Round 5 (2026-11-23): adopted in `summarize`
+
+E1500 is now the product: B's prompt with the target in words, ~1,500-word pieces (a piece is
+told it continues the previous one and is shown its last paragraph), the title line marked as
+headings, no merge at `full`. Models: ernie, then ultra only when ernie is gone from the free
+list; a down ernie is waited for (30 s to 10 min, ~18.5 min in all). Measured with the real CLI
+(`--fresh --to md`), outputs in `scratch/summ_adopt/`:
+
+| Run | Section | Detail | Model | Words in | Words out | Share | Requests |
+|---|---|---|---|---|---|---|---|
+| a | Apuntes `I. > 1.` | full, bold | ernie | 6,400 | 2,011 | **31%** | 5 |
+| b | Apuntes `I. > 1.` | normal, bold | ernie | 6,400 | 1,001 | **16%** | 7 |
+| c | Apuntes `I. > 1.` | full, bold | ultra (`--model`) | 6,400 | 2,598 | 41% | 5 |
+| d | Lecciones §137 | full, bold | ernie | 2,554 | 808 | **32%** | 2 |
+
+All in the expected bands. (d): Lecciones' outline is flat, so its largest leaf (2,554 words, two
+pieces) stood in for the planned 3,000-8,000-word one. No waits or fallbacks happened.

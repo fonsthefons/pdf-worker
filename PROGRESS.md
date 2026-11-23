@@ -1,5 +1,93 @@
 # Progress
 
+## Plan: summarize-e1500 (2026-11-23)
+Goal: `summarize` uses the measured E1500 setup (main-ideas prompt, target in words, ~1,500-word
+pieces) on ernie-5.5-flash-preview, falls back to nemotron-3-ultra only when ernie is gone from
+OpenRouter's free list, and waits and retries ernie when it is only down.
+Out of scope: ai-client changes (its config is shared by other repos: summarize keeps its own
+model list); NVIDIA's own API; paid models; changing the detail shares (full stays 30%).
+Branch: feature/summarize-e1500
+Evidence: `docs/results.md`, "Summarize prompt experiment", rounds 1-4. E1500 on section `I. > 1.`
+of "Apuntes de Introducción a la filosofía 1" (6,400 words): ernie 31% (32% with `--keep-bold`),
+every piece 30-32%, 23/23 main ideas; ultra 37-38% (41% bold). Today's setup: 67%.
+
+Decisions (user, 2026-11-23):
+- `--detail full` stays at 30% (expect ernie ~31%, ultra ~37%).
+- Model order: `baidu/ernie-5.5-flash-preview:free`, then `nvidia/nemotron-3-ultra-550b-a55b:free`
+  (OpenRouter). Fall back only when ernie is gone: `client.problem(m)` is "gone", "not free" or
+  "free only until ..." (ai-client refuses those anyway). Never fall back because it is down.
+- Ernie down (any non-daily AIClientError, including "not usable or not up"): wait 30 s, 1, 2,
+  5, 10 min between tries (6 tries, ~18.5 min), the same model, then stop with "ernie is down;
+  run again later (finished parts are cached)". Re-check `problem()` after each failure: gone
+  mid-run moves on to the next model.
+- All detail levels use the new prompt, target and pieces. At `full`, pieces' and children's
+  summaries are joined without a merge request; `brief`/`normal` keep a merge request, with the
+  target in words.
+Defaults chosen (not asked): `--model X` pins X with no fallback (today's meaning); the CLI
+reports at the end which models answered and why a fallback happened; library code never prints
+(callbacks, as `on_progress` does today).
+
+- [x] S1 Model choice: ernie, ultra only when ernie is gone, waits when down
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: src/pdf_worker/summarize.py 110-120 and 297-347 (ModelChat); src/pdf_worker/cli.py around 1440-1480 (where `summ.ModelChat(args.model)` is built and the run reported); tests/test_summarize.py 327-366 (FakeClient, ModelChat tests); /Users/fons/Documents/programs/ai-client/ai_client/providers.py 130-145 (`problem`) and 229-259 (`chat`, read only)
+  do: Add `MODELS = ("baidu/ernie-5.5-flash-preview:free", "nvidia/nemotron-3-ultra-550b-a55b:free")`. ModelChat(model=None): candidates are [model] if given, else MODELS; it no longer uses `pick_models`. Current model = the first whose `client.problem(m)` is "" (record each skipped one with its reason in `self.notes`, e.g. "baidu/... is gone"); none left: SummarizeError naming each reason. A request is sent with `fallbacks=False` (as today). On AIClientError: per-day (as today) stops at once; else re-check `problem()` (the catalog may be stale: the implementer checks how ai-client refreshes it): gone → note it, move to the next candidate, retry the request; down → wait `WAITS = (30, 60, 120, 300, 600)` s in turn through a module-level `_sleep = time.sleep` and an optional `on_wait(model, seconds, attempt, error)` callback, then retry the same model; after the last wait fails: SummarizeError("<model> is down (<error>); run again later: finished parts are cached"). The waits reset after a success. Keep `requests_left` and the daily-quota check. Count answers per model (`self.answered`). CLI: pass an `on_wait` that prints one line, and print `notes` and `answered` after the run. Tests (FakeClient grows `problem()`, `is_up` not needed): ernie gone → ultra plus a note; ernie down twice then up → ernie, sleeps [30, 60], never ultra; down through all waits → SummarizeError "run again later", ultra never sent; gone mid-run → ultra; per-day → stop; `ModelChat("x")` never sends to another model. Replace `test_model_chat_sticks_to_a_model_and_moves_on`, which tests the old behaviour.
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker/tests/test_summarize.py` passes; `/Users/fons/Documents/programs/pdf-worker/.venv/bin/ruff check /Users/fons/Documents/programs/pdf-worker` clean
+  return: <= 10 lines: files changed, done result, how the catalog refresh works, anything surprising
+
+- [x] S2 Prompt, target in words, 1,500-word pieces, no merge at full
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: opus    effort: high
+  after: S1
+  context: src/pdf_worker/summarize.py 48-108 (constants, prompts), 224-258 (estimate, summarize), 523-615 (_Run), 617-637 (_Counter, _count); docs/experiments/summarize-prompt/run.py (SYSTEM_B and TARGET, the measured text); tests/test_summarize.py 30-60 (FakeChat) and 236-326 (split, merge, retry, bold, cache tests)
+  do: `PROMPT_VERSION = 2`; `PIECE_WORDS = 1500`; the limit becomes `min(PIECE_WORDS, CEILING_WORDS, chat.context_words())` in both `estimate` and `summarize`. SYSTEM = run.py's SYSTEM_B word for word ({percent}, {lang}), then TARGET for each request: " Write about {target} words: the original has {original}. Reach that length by saying each idea in fewer words, not by leaving ideas out." (target = round(original * percent / 100), the request's own original words; send() now takes them). User message: "Part: {path}" becomes "Part (where it sits in the book; headings, not text to summarize): {path}". A piece k of n (n > 1) adds: "This is piece {k} of {n} of the part and continues the previous one: don't introduce the part again." and, for k > 1, "The summary of the previous piece ends: «<its last paragraph>». Don't repeat it." (pieces are summarized in order, so the previous answer is known). At `detail == "full"`: a leaf over the limit returns its pieces' summaries joined with blank lines (no merge request); a node with children over the limit returns its own text's summary (pieces if needed) followed by its children's summaries, joined, no titles, no merge. At brief/normal: the merge request as today, with the target line. Keep the RETRY rule, KEEP/FOLLOW (bold) and the cache. `_count` must count exactly the requests the run sends (it reuses _Run). Tests: full joins pieces with no merge request; normal still merges; the system prompt holds "about N words" with the right N; piece 2's message holds "piece 2 of" and the previous piece's last paragraph; title line wording; estimate equals the requests sent. Update tests that assumed one request per leaf under the context limit.
+  done: `/Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest -m "not integration" /Users/fons/Documents/programs/pdf-worker` passes; ruff check clean
+  return: <= 10 lines: files changed, done result, anything surprising (e.g. a test whose meaning changed)
+
+- [x] S3 Measure with the real CLI
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:runner
+  model: haiku    effort: low
+  after: S2
+  context: none
+  do: Blocks file B = "/Users/fons/Documents/programs/pdf-worker/file_conversion/file_work/Apuntes de Introducción a la filosofía 1.pdf/Apuntes de Introducción a la filosofía 1.blocks.jsonl". Copy /Users/fons/Documents/programs/pdf-worker/scratch/summary_ratio.py (argv BLOCKS SECTION MD; prints the section's words and the .md's share) to docs/experiments/summarize-prompt/ratio.py if scratch lost it, recreate it: 15 lines with `summarize.load_outline`/`select`/`Node.words`. Run each with tools/run_logged.py and `--out-dir /Users/fons/Documents/programs/pdf-worker/scratch/summ_adopt/<label> --to md --fresh`: (a) `summarize B --section 'I. > 1.' --detail full --keep-bold --lang es`; (b) the same at `--detail normal`; (c) (a) with `--model nvidia/nemotron-3-ultra-550b-a55b:free`; (d) a leaf section of 3,000-8,000 words of "/Users/fons/Documents/programs/pdf-worker/file_conversion/file_work/Lecciones Preliminares de Filosofía 2000.pdf" (find it with `summarize <its blocks file> --outline`), `--detail full --keep-bold`. Never write into file_conversion/file_outbox.
+  done: each log ends `exit 0`; ratio.py prints the shares. Expected: (a) 25-40% answered by ernie; (b) about 10-20%; (c) 30-45% ultra; (d) 25-40%
+  return: <= 10 lines: per run: words, share, models that answered (the CLI's report), any waits or notes
+
+- [x] S4 Review
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S2
+  context: the branch diff against main
+  do: Look for: a fallback to ultra while ernie is only down; waits that never end or that don't reset; a stopped run losing cached answers; `_count` disagreeing with the requests sent; a piece's previous-ending text breaking the cache key; library code printing.
+  done: findings listed; none of them "important" left unfixed (fix them inline, then rerun S2's done)
+  return: <= 10 lines: ranked findings
+
+- [x] S5 Docs, results, PR
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: low
+  after: S3,S4
+  context: README.md's summarize section; docs/results.md's end
+  do: README: the model order, fallback only when ernie is gone, the waits when it is down, the 1,500-word pieces. docs/results.md: a "Round 5: adopted" entry with S3's table. PROGRESS run log. Commit, PR, merge per CLAUDE.md, then checkout main and pull.
+  done: `gh pr view --json state` says MERGED; `git -C /Users/fons/Documents/programs/pdf-worker status` clean on main
+  return: <= 10 lines
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- S1 2026-11-23: pass (34 tests, ruff clean). Notes: ai-client's catalog refreshes only every 600 s, so a model gone mid-run looks "down" until then (waits total 1,110 s, so it is caught); "length"/"empty" errors now also wait; `on_wait` is an attribute, not a constructor arg.
+- S2 2026-11-23: pass (581 fast tests, ruff clean). Piece 1 says only "This is piece 1 of n" (no "continues"); estimate equals requests sent only when every answer retries, otherwise an upper bound; full detail summarizes a node's own text via a childless copy (own text < 80 words quoted).
+- S4 2026-11-23: pass after inline fixes (582 fast tests, ruff clean). Reviewer (read-only) found 4, all fixed by the conductor: non-transient 4xx/"length" errors waited 18.5 min (now stop at once, test added); an answer was lost when its retry/bold follow-up failed (now cached before re-raising); `_count` missed the retry when the guide rounds to 0 (`<=`); CLI notes/answers not printed on a stopped run (`finally`). Unverified by the reviewer (outside repo): `problem()` returning "" for a merely down model, which S1's implementer read and the plan's decisions rely on: conductor checked ai-client providers.py:130-141, catalog/pricing/expiry only, no uptime, so down never triggers the fallback.
+- S3 2026-11-23: pass, all logs `exit 0`. (a) full ernie 6,400 → 2,011 words 31%, 5 answers; (b) normal ernie 1,001 16%, 7; (c) full ultra 2,598 41%, 5; (d) Lecciones had no blocks file: conductor converted a copy in scratch/lecciones (`convert_pdf(..., blocks_path=...)`); its outline is flat, largest leaf 2,554 words (§137, 2 pieces), not 3,000-8,000: full ernie 808 words 32%, 2 answers. No waits, no notes. (a)-(c) ran partly before S4's fixes.
+- S5 2026-11-23: README "Summarize a book" section (there was none); docs/results.md "Round 5: adopted" with S3's table; commit, PR, merge.
+
 ## Plan: summarize (2026-11-23)
 Goal: `pdf-worker summarize` summarizes a converted book, or chosen sections of it, at a
 chosen outline depth (or the finest), with free OpenRouter models only, read from the book's
