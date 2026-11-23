@@ -79,6 +79,21 @@ class Target:
         return self.chat(system + extra, user)
 
 
+class Used:
+    """The chat, counting the models that answered (a pinned model falls back silently)."""
+
+    def __init__(self, chat):
+        self.chat, self.models = chat, {}
+
+    def context_words(self):
+        return self.chat.context_words()
+
+    def __call__(self, system, user):
+        text, model = self.chat(system, user)
+        self.models[model] = self.models.get(model, 0) + 1
+        return text, model
+
+
 class Pieces:
     """A chat whose context holds only ``words`` of text: summarize cuts the part there."""
 
@@ -105,7 +120,8 @@ def main():
         return
     summ.SYSTEM = SYSTEM_B
     model = next((a[8:] for a in sys.argv[5:] if a.startswith("--model=")), MODEL)
-    chat = summ.ModelChat(model)
+    chat = Used(summ.ModelChat(model))
+    used = chat.models
     print(f"model={model}")
     if variant == "C":
         chat = Skeleton(chat, "es")
@@ -135,7 +151,7 @@ def main():
     (out / f"{variant}.txt").write_text(text, "utf-8")
     if variant == "C":
         (out / "C-ideas.txt").write_text("\n\n====\n\n".join(chat.ideas.values()), "utf-8")
-    print(f"keep_bold={keep_bold}")
+    print(f"keep_bold={keep_bold} answered by: {used}")
     words = len(text.split())
     print(f"{variant}: {words} words = {100 * words / nodes[0].words:.0f}% of {nodes[0].words}")
 
