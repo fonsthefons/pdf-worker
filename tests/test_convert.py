@@ -350,6 +350,28 @@ def test_a_text_box_set_like_the_numbered_title_boxes_is_a_heading(make_layout_p
     assert report.stats.headings == 3  # not the "4." paragraph
 
 
+def test_title_boxes_in_body_type_make_no_text_box_a_heading(make_layout_pdf, tmp_path):
+    # Copleston: numbered paragraphs in body type, some boxed as titles; the rest stay text.
+    page = [
+        (72, 80, "1. The first part", BODY),
+        *_paragraph(80 + LINE * 2, FULL[:1], "It ends."),
+        (72, 80 + LINE * 5, "2. The second part", BODY),
+        *_paragraph(80 + LINE * 7, FULL[:1], "It ends."),
+        (72, 80 + LINE * 10, "3. The third part", BODY),
+        *_paragraph(80 + LINE * 12, FULL[:1], "It ends."),
+    ]
+    pdf = make_layout_pdf([page])
+    title, text = ("paragraph_title", "text")
+    rows = _boxes(
+        pdf, (text, [0]), (text, [1, 2]), (title, [3]), (text, [4, 5]), (title, [6]), (text, [7, 8])
+    )
+    out = tmp_path / "book.md"
+
+    report = convert_pdf(pdf, out, "md", layout_rows=rows)
+
+    assert report.stats.headings == 2  # "2." and "3." only
+
+
 def test_large_type_below_a_larger_title_box_is_not_a_heading(make_layout_pdf, tmp_path):
     # Niebla p. 28 (OCR specks in large type), Kant p. 59 (table rows): the model says text.
     page = [

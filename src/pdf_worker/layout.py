@@ -604,6 +604,7 @@ def analyze_document(
             ),
             key=lambda notes: sum(len(refs) for refs in notes.refs.values()),
         )
+    body_type = (fonts.most_common(1)[0][0] if fonts else None, round(body_size, 1))
     return DocumentProfile(
         watermarks=watermarks,
         body_size=body_size,
@@ -621,7 +622,10 @@ def analyze_document(
         page_labels=_page_labels(doc, offsets),
         body_fonts=_body_fonts(fonts),
         layout=layout,
-        title_styles={style for style, n in title_styles.items() if n >= 2},
+        # A style that is the body's own type tells nothing: Copleston's numbered paragraphs.
+        title_styles={
+            style for style, n in title_styles.items() if n >= 2 and style[:2] != body_type
+        },
         repeated_images={
             xref
             for xref, n in image_pages.items()

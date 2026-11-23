@@ -432,7 +432,7 @@ gives I./1./a) as 3/5/6.
   done: the run log names the files to review
   return: -
 
-- [ ] S6 Full builds after the merge (DEFERRED: run later, on the user's word)
+- [x] S6 Full builds after the merge (DEFERRED: run later, on the user's word)
   repo: /Users/fons/Documents/programs/pdf-worker
   run: agent:runner
   model: haiku    effort: low
@@ -469,6 +469,7 @@ Escalation: a failed step is retried once one level higher (low → medium → h
   (f) Cover: the .typ/PDF placed the EPUB's JPEG; cover.py says the PDF gets a text cover. The Typst template now sets author, title, translator in type; no `_images/` for a book without pictures. test_cover/test_typst_export updated.
   Quick check after-quick6 vs after-quick5: timeo_web +23 paragraphs (real), gaviota margin specks out of a paragraph, metafisica a contents-page gloss loses its page numbers. 534 fast tests, ruff clean.
   Merged 2026-11-23 at the user's request, before S6 (534 fast tests, ruff clean; integration tests and full builds not run). S6 kept above, deferred.
+- S6 2026-11-23 (after the summarize merge; user: keep every later change, no revert): before = ad0559c's src (worktree, run with main's identical tools via PYTHONPATH), after = main 639d5a5. `check.py --full compare scratch/outline/before-full after-full`: `pages: levels` 62.4% / 52.1% both (gate passes); heldout headings real 77.3 -> 77.5. Changes: dialogos levels (bookmarks), timeo_web +45 paragraphs (fix e), gaviota/pepita/marianela/metafisica margin specks out of paragraphs (fix d), kant/timeo_greek small diffs, and copleston +8 FALSE headings (mid-paragraph lines). Cause: fix (a)'s `title_styles` took ('CenturySchoolbook', 11.0, '1.'), the body's own type (numbered paragraphs the model boxed as titles). Fixed on branch fix/title-styles-body-type: a title style equal to the most-used font at body size is dropped (`layout.analyze_document`); Filosofía's titles are PalatinoLinotype-Bold, so fix (a) still holds. Test: test_convert.py::test_title_boxes_in_body_type_make_no_text_box_a_heading. Rebuild scratch/outline/fix-full vs after-full: only copleston changes, exactly those 8 headings gone. 573 fast tests, ruff clean. README: heading levels paragraph under Convert.
   Open (user to decide): margin notes are kept one line per line (glossary entries "fox = vulpes" need that), so Filosofía's prose notes read as a narrow column; small captions in the column ("León XIV", "Aprender de memoria esta definición") stay as paragraphs.
 
 ## Build once, keep the blocks (2026-11-23, branch `feature/blocks-once`)

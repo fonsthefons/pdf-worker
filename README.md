@@ -553,6 +553,9 @@ rebuilt book (headings, paragraphs, notes, pictures, tables, links):
   and back. The table of contents comes from the headings (EPUB 3 nav plus EPUB 2 NCX).
   Language and title come from the PDF, or are guessed (`--language`, `--title`,
   `--author` override them).
+- **Heading levels (born-digital PDFs):** the nesting comes from the PDF's bookmarks when
+  they have levels, else, where type size gives none, from the numbering (`I.` above `1.`
+  above `a)`). Marks and tags keep their own levels; scans keep today's levels by size.
 - **Pictures and cover:** figures are kept where they appear. Scanned books get their
   illustrations cropped out of the page scans: large areas of ink with no lines of
   text. Logos repeated on many pages are left out. Page 1 becomes the cover in the
