@@ -473,3 +473,47 @@ Conclusions:
   the prompt, ~1,500-word pieces joined at `--detail full`, a model order that tries
   nemotron-3-ultra first, and the piece's place in the part given to each request so pieces
   don't open as new texts). Check it on a second book before changing the default model.
+- Correction (round 4): the "gemma" row was answered by nemotron-super. A pinned model that
+  fails twice (here: rate limits) falls back to the next one without a word
+  (`ModelChat`/`pick_models`). The cache shows which model answered. The ultra rows were 5/5
+  ultra.
+
+## Round 4 (2026-11-23): the other free models, E1500
+
+The same E1500 setup (B's prompt, target in words, ~1,500-word pieces, no merge) on every free
+OpenRouter model of a usable size. The catalog has 12; `summarize` tries only the first 3
+(`pick_models`). `run.py` now prints which models answered. Outputs: `scratch/summ_exp/out4/`.
+About 50 free requests.
+
+| Model | Bold | Words | Share | Pieces (share each) | Answered by | Time |
+|---|---|---|---|---|---|---|
+| **baidu/ernie-5.5-flash-preview** | no | 1,995 | **31%** | 30, 32, 30, 30, 31 | ernie 5/5 | 291 s |
+| **baidu/ernie-5.5-flash-preview** | yes | 2,026 | **32%** | 30, 32, 32, 31, 30 | ernie 5/5 | 325 s |
+| dots-studio/dots-3-note-preview | no | 2,079 | 32% | 31, 42, 17, 39, 31 | dots 5/5 | 60 s |
+| inclusionai/ling-3.2-flash | no | 2,185 | 34% | 30, 29, 33, 36, 49 | ling 4, super 1 | 170 s |
+| recursive/flint-v1.0 | no | 2,334 | 36% | 30, 28, 59, 29, 31 | flint 5/5 | 848 s |
+| nemotron-3-ultra (round 3) | no | 2,390 | 37% | 46, 32, 37, 30, 41 | ultra 5/5 | 112 s |
+| nvidia/nemotron-3.5-lightning | no | 3,425 | 54% | 28, 71, 57, 66, 30 | lightning 5/5 | 40 s |
+| particle-ai/particle-1 | no | 4,564 | 71% | 80, 60, 72, 77, 57 | particle 5/5 | 65 s |
+| google/gemma-4-31b-it | no | - | - | - | super 5/5 (rate-limited) | - |
+| google/gemma-4-26b-a4b-it | no | - | - | - | super 5/5 (rate-limited) | - |
+
+Not tried: liquid/lfm-3-1.7b (1.7B), nemotron-3-nano-omni (30B-A3B, reasoning). Gemma could not
+be measured: both runs were rate-limited at once and fell back.
+
+Conclusions:
+- Ernie follows the target best by far: every piece at 30-32%, with and without bold. Read in
+  full: 23/23 main ideas, tight prose, keeps the author apart from those quoted ("el autor
+  interpreta", "según el autor"), no outside knowledge seen. It drops a few sub-points (Zeus's
+  gift of justice in Plato; Aristotle's "without virtue the worst of animals"). Its only
+  slowness was rate-limit waits.
+- Two flaws are shared by ultra and ernie, so they belong to the setup, not the model:
+  Sophocles is said twice where two pieces meet, and the section's title (Felipe VI's words)
+  leaks into the text before the text reaches it. The "Part:" line gives the title as if it
+  were content. Fix in the product: say what the title is, and tell a piece it continues the
+  previous one.
+- dots, ling and flint also land in the band, but less evenly (one piece at 17%, 49% or 59%),
+  and flint is slow. lightning and particle barely condense, like super.
+- For `/plan-feature`: E1500 with the model order ernie, ultra, dots, ling. ernie is a
+  "preview" model that may be withdrawn, so keep ultra second. Report a fallback
+  instead of hiding it.
