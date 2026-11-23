@@ -373,3 +373,39 @@ In priority order; each needs its own measure before a plan.
   This is the highest priority nothing here answers.
 - Priority 3: a chapter's number and name as two headings, and six scans with 2,013 of 2,064
   headings at h5. Only hand marks helped.
+
+# Summarize prompt experiment (2026-11-23)
+
+Question: does `summarize --detail full` (aim 30%) run long because of how the prompt words
+"keep every idea", and does a rewritten prompt (B) or a key-ideas-first, two-request process
+(C) do better, without forcing a length? Text: "Apuntes de Introducción a la filosofía 1",
+section `I. > 1.` (6,400 words), `--detail full --keep-bold --lang es`, model pinned to
+`nvidia/nemotron-3.5-super-vl:free`. Script: `docs/experiments/summarize-prompt/run.py`
+(swaps `summarize.SYSTEM`, wraps the chat for C; nothing in `src/` changed). Outputs:
+`scratch/summ_exp/out/`. Cost: free requests (B 1-2, C 3-4), about 1 min each.
+
+Main ideas: 23, listed by hand from the original (León XIV's order of faith and humanity;
+desire for good/beauty/truth; what is truly human; culture makes man more human; culture as
+cultivation, paideia, Humanidades o barbarie; El Escorial's hierarchy of knowledge and the
+liberal arts; Boethius; the human has to be won; Humanidades as philosophy's soil and science;
+Trivium and Quadrivium, recovering reason; Gratry; Luther; rationalism and irrationalism,
+Unamuno; Ortega's razón vital; Felipe VI; alétheia; then Plato, Aristotle, Sophocles, Aquinas,
+Vitoria, Ortega and Heidegger on culture, John Paul II).
+
+| Run | Prompt | Words | Share | Main ideas kept | Notes |
+|---|---|---|---|---|---|
+| A | today's SYSTEM | 4,270 | 67% | 23 / 23 | Faithful but quote-heavy: Luther, Gratry, Unamuno and Ortega quoted near whole |
+| B | main ideas only; quote only a thesis; drop glosses, lists, supporting quotes | 5,664 | 88% | 23 / 23 | Failed: condensed the first ~650 words, then copied the rest of the text nearly word for word |
+| C | B's prompt after a first request listing the key ideas (the skeleton) | 1,014 | 16% | 18 / 23 | Readable and short; the skeleton left out the whole reason block (Trivium/Quadrivium, Gratry, Luther, Unamuno, Ortega's razón vital) and put Felipe VI's line first as if the text began there |
+
+Conclusions:
+- No variant met the goal (main ideas kept and 25-40%). The prompt wording isn't the only
+  cause: B, told plainly to drop supporting quotes, ran longer than A.
+- B's copy is probably the `--keep-bold` follow-up ("write it again so that it also uses
+  these phrases"): with many bold phrases, rewriting by copying the text is the easy answer.
+  Not proven: the run keeps only the final answer.
+- C's skeleton is the better shape (the length and order follow the argument), but the
+  idea list decides what survives: a block made of quotations got no line, so it vanished.
+- Next: run B and C again without `--keep-bold` (2 requests) to see whether the follow-up
+  causes the copying, and give C's first request "one line per section of the argument,
+  including what quoted authors argue". Then `/plan-feature` the winner.
