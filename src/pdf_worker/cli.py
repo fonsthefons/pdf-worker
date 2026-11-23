@@ -943,7 +943,7 @@ def _add_process_command(subparsers: argparse._SubParsersAction) -> None:
         "--to",
         type=lambda text: [f.strip() for f in text.split(",") if f.strip()],
         help=f"Formats to make, comma-separated, from {', '.join(inbox.FORMATS)} "
-        "('searchable': the OCR'd copy of the original PDF). Default: epub,pdf.",
+        "('searchable': the OCR'd copy of the original PDF). Default: epub,pdf,typ.",
     )
     parser.add_argument(
         "--mark",

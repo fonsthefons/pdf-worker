@@ -300,7 +300,7 @@ as a bare number starting a paragraph, and notes sections on scans.
 ```bash
 pdf-worker process            # handles ./file_conversion/file_inbox (or: pdf-worker process FOLDER)
 pdf-worker process book.pdf   # only this book: copied into file_inbox, same folders
-pdf-worker process --to epub,pdf,md,html,txt,docx,searchable   # formats (default epub,pdf)
+pdf-worker process --to epub,pdf,md,html,txt,docx,searchable   # formats (default epub,pdf,typ)
 pdf-worker process book.pdf --title T --author A --language es --notes page --margin-refs
 pdf-worker process            # again: offers the review of waiting books, finishes reviewed ones
 pdf-worker process --clean    # delete what no book in file_inbox needs; file_outbox stays

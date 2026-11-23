@@ -1,5 +1,11 @@
 # Progress
 
+## .typ on every book (2026-11-23, branch `feature/typ-default`)
+`inbox.DEFAULT_FORMATS` is now epub, pdf, typ (user request): `process` keeps the reflowed
+PDF's Typst source (and `<stem>_images/`) in the outbox. Costs one more convert run per book.
+Drafts' `<stem>_images/` are removed with the drafts. EPUB inputs still give EPUB + PDF only.
+Changed: src/pdf_worker/inbox.py, cli.py (help), README.md, tests/test_inbox.py.
+
 ## Plan: drop-in-adopt (2026-11-17)
 Goal: adopt the three recommendations of docs/results.md:269-302 (cut spread scans before OCR;
 born-digital PDFs finish without the spelling review; an opt-in sentence check that settles
