@@ -1,0 +1,66 @@
+[
+  {
+    "id": "convert",
+    "title": "Convert a book",
+    "blurb": "Turn a PDF or ebook into a clean EPUB, PDF and more.",
+    "command": "process",
+    "steps": [
+      "Pick the book. It is copied into file_conversion/file_inbox.",
+      "Choose the formats you want. The finished files land in file_outbox.",
+      "If it is a scan, 'Let an AI settle doubtful OCR words' leaves fewer words for you to review."
+    ],
+    "show": ["folder", "to", "sentence_check", "mark"],
+    "fields": {
+      "folder": {"label": "Book", "dir": "file_conversion/file_inbox"},
+      "to": {"label": "Formats", "kind": "multi", "join": ",", "default": ["epub", "pdf"],
+             "options": ["epub", "pdf", "md", "html", "txt", "docx", "typ", "searchable"]},
+      "sentence_check": {"label": "Let an AI settle doubtful OCR words (scans)"},
+      "mark": {"label": "Stop to mark the layout first"}
+    }
+  },
+  {
+    "id": "review",
+    "title": "Fix OCR words",
+    "blurb": "Decide on the words the OCR was not sure about.",
+    "command": "review",
+    "steps": [
+      "Convert the book first. A book with words to review gets drafts and waits.",
+      "Pick the PDF in the book's folder in file_work (the one next to its .fixes.tsv).",
+      "Decide on each word in the browser, press 'Save decisions', then press Stop here.",
+      "Convert the book again: your decisions are applied."
+    ],
+    "show": ["pdf"],
+    "fields": {"pdf": {"label": "Book (PDF)", "dir": "file_conversion/file_work"}}
+  },
+  {
+    "id": "mark",
+    "title": "Teach it the layout",
+    "blurb": "Show it what headings, footnotes and running heads look like.",
+    "command": "mark",
+    "steps": [
+      "Pick a text PDF in file_inbox. For a scan, convert it with 'Stop to mark the layout first': it stops after OCR and prints the PDF to mark, in file_work.",
+      "Mark examples on the page that opens. Every change is saved at once to <book>.marks.json next to the PDF.",
+      "Press v for the review view and d for the next doubtful page. Press Stop here when done: it lists what is still to check.",
+      "Convert the book again: it follows your marks."
+    ],
+    "show": ["pdf"],
+    "fields": {"pdf": {"label": "Book (PDF)", "dir": "file_conversion/file_inbox"}}
+  },
+  {
+    "id": "kindle",
+    "title": "Send to Kindle",
+    "blurb": "One step from a PDF to a Kindle-ready EPUB.",
+    "command": "kindle",
+    "steps": ["Pick the PDF. Scans are OCR'd when needed.", "The EPUB is written next to the PDF."],
+    "show": ["pdf"],
+    "fields": {"pdf": {"label": "Book (PDF)", "dir": "file_conversion/file_inbox"}}
+  },
+  {
+    "id": "find-book",
+    "title": "Find a free book",
+    "blurb": "Find a free copy online, download the best one and check its quality.",
+    "command": "find-book",
+    "steps": ["Type the title and, if you know it, the author.", "The best copy lands in file_conversion/file_inbox."],
+    "show": ["title", "author"]
+  }
+]

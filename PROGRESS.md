@@ -1,5 +1,82 @@
 # Progress
 
+## Plan: control-panel (2026-11-27)
+Goal: a delightful, sleek, extremely simple local web UI per program (`./ui.sh`) that runs the
+same CLI commands with live progress, built by a shared engine; pilot on pdf-worker.
+Out of scope: editing config/.env/secret files from the UI; new CLI flags; a hub page over all
+programs; a Mac app; access from other machines; run history; the other repos (next plan, below).
+Branch: feature/control-panel (in both repos; pdf-worker branches from `main`, not the current
+`docs/pipeline-overview`)
+
+Decisions (user, 2026-11-27): forms generated from each CLI's argparse + a few hand-picked
+"tasks" per program (main choices first, the rest folded); engine in a new sibling repo
+`control-panel`; pilot = engine + pdf-worker, other repos after the user approves the look;
+launched by `./ui.sh` per repo. The CLI stays exactly as it is (full control kept).
+Defaults chosen here: stdlib only (no framework, no CDN); 127.0.0.1 only; one run at a time;
+stdin closed for runs (interactive prompts such as `process --clean` stay CLI-only).
+
+- [x] S1 control-panel engine (new repo)
+  repo: /Users/fons/Documents/programs/control-panel
+  run: agent:implementer
+  model: opus    effort: high
+  after: -
+  context: /Users/fons/Documents/programs/pdf-worker/src/pdf_worker/review.py:280-314 (the house server pattern); /Users/fons/Documents/programs/pdf-worker/src/pdf_worker/cli.py:1534-1567 (a real parser to try)
+  do: New repo: `git init`, README-only first commit on main, `gh repo create fonsthefons/control-panel --private --source . --push`, then branch feature/control-panel; pyproject (py>=3.11, stdlib only, pytest in dev), `.venv`, `.gitignore` (.venv, scratch/); add `control-panel` to the repo list in /Users/fons/Documents/programs/.claude/link-shared.sh.
+      `python -m control_panel MODULE:build_parser --cmd EXE --tasks ui.json [--port 0] [--no-browser] [--check]`, cwd = the program's repo. schema: walk argparse (`_actions`, `_SubParsersAction.choices`, `_action_groups`; skip help/version) → per subcommand fields {dest, flags, help, kind: toggle|choice|text|number|path|positional, default, choices, group}. tasks file: [{id, title, blurb (1 line), steps (≤3 short lines), command, show:[dest…], fields:{dest:{label, kind:"multi", options, join:",", default, dir}}, fixed:{dest:value}}]; `--check` validates every task's command/dests against the parser, prints `tasks OK` or the mismatches, exit 1 on any.
+      Server (ThreadingHTTPServer, 127.0.0.1 only): reject a Host that isn't 127.0.0.1/localhost:PORT and any POST whose Origin isn't the page's own (stops other websites from driving it); argv built only from known dests, never a shell; `shlex.join` preview of the exact CLI command with a Copy button; one run at a time (409); Popen(start_new_session=True, stdin=DEVNULL, stdout+stderr merged, PYTHONUNBUFFERED=1); SSE stream of lines (`\r` replaces the current line) + exit code; Stop = SIGINT to the group, SIGTERM after 5 s; `/api/files?dir=` lists files only inside the repo (resolve + is_relative_to, refuse otherwise) for the file picker, typed paths also accepted; "Show in Finder" = `open -R` on a path inside the repo.
+      Page: one self-contained index.html (inline CSS/JS). Delightful, sleek, extremely simple: home = the program's tasks as 2-5 big cards with a one-line blurb; a task shows only its `show` fields with plain labels and defaults preselected (segmented control for ≤5 choices, toggles for flags, chips for multi, file picker for paths), "More options" collapsed, one big Run button; running = calm status card (task, elapsed, the latest meaningful line as the current step, a bar when output has "N/M" or "NN%"), full log folded under "Details", Stop; done = ✓/✗ with "Show in Finder". "All commands" link at the bottom = the generated form for every subcommand. System font, generous whitespace, one accent colour, light/dark via prefers-color-scheme, subtle transitions, keyboard usable, labels tied to inputs.
+      Tests: schema of a sample parser; argv building (unknown dest refused, multi join, toggles, positionals); Host/Origin refusals; `/api/files` refuses `..` and absolute paths outside; run a tiny script, receive streamed lines and exit code; Stop kills it; `--check` catches a wrong dest.
+  done: /Users/fons/Documents/programs/control-panel/.venv/bin/pytest /Users/fons/Documents/programs/control-panel -q → all pass
+  return: <= 10 lines: files changed, done result, anything surprising
+
+- [x] S2 pdf-worker UI (tasks, ui.sh, install)
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: agent:implementer
+  model: sonnet    effort: medium
+  after: S1
+  context: install.sh:15-31; help.sh (whole, 70 lines); pyproject.toml (how ai-client is listed); src/pdf_worker/cli.py:922-1010 (process), :275-440 (convert), :788-922 (review, mark), :440-520 (kindle), :516-560 (find-book)
+  do: install.sh: clone `git@github.com:fonsthefons/control-panel.git` into ../control-panel if missing and pip install -e it, exactly like ai-client (lines 15-18, 30); list it in pyproject the way ai-client is. `ui.sh` (executable): from the repo root, exec `.venv/bin/python -m control_panel pdf_worker.cli:build_parser --cmd .venv/bin/pdf-worker --tasks ui.json "$@"`.
+      `ui.json` tasks, in this order: "Convert a book" (`process FILE`; file picker in file_conversion/file_inbox; `--to` as multi chips from epub, pdf, md, html, txt, docx, typ, searchable, default epub,pdf; `--sentence-check` as "Let an AI settle doubtful OCR words (scans)"; `--mark` as "Stop to mark the layout first"; the flag that picks the AI model/engine if `process` has one, else none), "Fix OCR words" (`review`), "Teach it the layout" (`mark`), "Send to Kindle" (`kindle`), "Find a free book" (`find-book` --title/--author). Steps text from help.sh, in its plain voice. No new CLI flags.
+      tests/test_ui_tasks.py: runs the `--check` mode on ui.json (keeps tasks in step with the CLI). help.sh: `./ui.sh` as the first entry ("the same commands in a browser page"); README: 3-line section.
+  done: /Users/fons/Documents/programs/pdf-worker/.venv/bin/pytest /Users/fons/Documents/programs/pdf-worker/tests/test_ui_tasks.py -q → pass; then fast tests `-m "not integration"` → no new failures
+  return: <= 10 lines: files changed, done result, anything surprising
+
+- [x] S3 Smoke run in the real page
+  repo: /Users/fons/Documents/programs/pdf-worker
+  run: inline
+  model: sonnet    effort: low
+  after: S2
+  context: -
+  do: Start `./ui.sh --no-browser --port 8765` via tools/run_logged.py ui; fetch / (expect the five task cards) and run extract-text on a small file from test_pdfs/ with output in scratch/: lines stream, exit 0, Stop works on a longer run. If claude-in-chrome is available, take one light and one dark screenshot for the user. Stop the server.
+  done: page 200 with "Convert a book"; streamed run ends with exit 0
+  return: <= 10 lines: what worked, screenshots' paths, anything ugly or slow
+
+- [x] S4 Review (localhost command runner: security, process handling)
+  repo: /Users/fons/Documents/programs/control-panel and /Users/fons/Documents/programs/pdf-worker
+  run: agent:reviewer
+  model: opus    effort: high
+  after: S2
+  context: both branches' diffs against main
+  do: Check: Host/Origin checks can't be bypassed (DNS rebinding, missing Origin), no shell or unknown flags reach argv, file listing/reveal can't leave the repo, Stop never leaves orphans, one-run lock can't stick after a crash, SSE client disconnect doesn't kill or hang a run, tasks `--check` covers positionals.
+  done: findings list; real bugs fixed (retry via implementer) before merge
+  return: <= 10 lines: ranked findings
+
+Next plan (after the user approves the look): same engine for transcribe (src/main.py + module
+`__main__`s), cancionero-builder (cancionero.py), doc-builder (3 scripts: needs several parsers
+per page), epub-helper, ai-client (`python -m ai_client` status), random-tools resizer,
+web-seminario tools/web.py; audio-tools and mac-setup are shell-only (tasks with fixed commands,
+no parser: an engine extension then).
+
+Escalation: a failed step is retried once one level higher (low → medium → high, then sonnet → opus) with the
+failure in its brief; failing again, or no longer fitting the code, it goes under "Blocked" with the reason;
+continue with steps that don't depend on it.
+
+### Run log
+- S1 2026-11-27: pass, 9 tests (control-panel). Notes: tri-state BooleanOptionalAction shown as plain toggle; append options send one value.
+- S2 2026-11-27: pass, test_ui_tasks 1 passed; fast suite 583 passed. No AI-model flag on process (only --engine OCR), left out.
+- S3 2026-11-27: pass. Page 200, config has 5 tasks; extract-text streamed, exit 0; Stop killed an OCR run, no orphans; POST without Origin 403. Screenshots skipped (no browser session opened).
+- S4 2026-11-27: 3 bugs + 3 minor found (tri-state flags, stuck run lock, no SIGTERM on quit, flag-like values, ui.json dirs/steps, untested check path); all fixed via implementer; control-panel 12 passed, pdf-worker fast 583 passed. Review picker = file_conversion/file_work.
+
 ## Plan: summarize-e1500 (2026-11-23)
 Goal: `summarize` uses the measured E1500 setup (main-ideas prompt, target in words, ~1,500-word
 pieces) on ernie-5.5-flash-preview, falls back to nemotron-3-ultra only when ernie is gone from

@@ -29,6 +29,12 @@ decisions.
 **`pdf-worker mark book.pdf`**: mark examples of headings, notes and running heads in the browser. `convert`
 then follows them.
 
+## Browser page
+
+`./ui.sh` opens the main commands as task cards in a browser page (convert a book, fix OCR words,
+mark the layout, Kindle, find a book). It uses the sibling repo `../control-panel`, which `./install.sh`
+clones; the tasks are in `ui.json`, and `tests/test_ui_tasks.py` keeps them in step with the CLI.
+
 ## Setup
 
 `./install.sh` does all of this (`--paddle` adds the PaddleOCR-VL environment below) and lists the steps

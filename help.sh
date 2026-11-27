@@ -3,6 +3,9 @@
 cat <<'X'
 pdf-worker: convert, OCR and clean up PDFs and ebooks (EPUB, Markdown, Kindle).
 
+  ./ui.sh
+      The same commands in a browser page (big task cards and a Run button)
+
   .venv/bin/pdf-worker convert book.pdf
       Convert a PDF to book.epub (add --to md|html|txt|docx|pdf for other formats)
 
