@@ -17,6 +17,10 @@ AI=../ai-client
 [ -d "$AI" ] || try "clone ai-client" git clone git@github.com:fonsthefons/ai-client.git "$AI"
 [ -x "$AI/.venv/bin/python" ] || try "ai-client install" "$AI/install.sh"
 
+# 1b. control-panel: the sibling repo behind ./ui.sh (tasks as a browser page)
+CP=../control-panel
+[ -d "$CP" ] || try "clone control-panel" git clone git@github.com:fonsthefons/control-panel.git "$CP"
+
 # 2. Tools: Tesseract (OCR), Pandoc (Word and PDF export), epubcheck (one test)
 for pair in tesseract:tesseract pandoc:pandoc epubcheck:epubcheck; do
   command -v "${pair%%:*}" >/dev/null || try "brew: ${pair#*:}" brew install "${pair#*:}"
@@ -27,7 +31,7 @@ done
 # 3. .venv (Homebrew's python3: macOS's own is 3.9, pyproject needs 3.11+)
 [ -x .venv/bin/python ] || try ".venv" python3 -m venv .venv
 # [paddle] is only pymupdf-fonts (small); the tests need it too
-try "pip: ai-client + pdf-worker[dev,ocr,paddle]" .venv/bin/python -m pip install -q -e "$AI" -e '.[dev,ocr,paddle]'
+try "pip: ai-client + control-panel + pdf-worker[dev,ocr,paddle]" .venv/bin/python -m pip install -q -e "$AI" -e "$CP" -e '.[dev,ocr,paddle]'
 
 # 4. Folders for `pdf-worker process`, and scratch/ (tests put tmp_path in scratch/pytest); all gitignored
 mkdir -p file_conversion/file_inbox file_conversion/file_outbox file_conversion/file_work scratch/tmp
